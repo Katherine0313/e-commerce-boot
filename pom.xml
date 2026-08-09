@@ -11,8 +11,12 @@
 	<groupId>mvc-demo</groupId>
 	<artifactId>SpringMVC</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
+	<packaging>pom</packaging>
 	<name>SpringMVC</name>
 	<description>SpringMVC</description>
+	<modules>
+		<module>SpringMVCdemo1</module>
+	</modules>
 	<url/>
 	<licenses>
 		<license/>
