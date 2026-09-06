@@ -15,7 +15,7 @@
 	<name>SpringMVC</name>
 	<description>SpringMVC</description>
 	<modules>
-		<module>SpringMVCdemo1</module>
+		<module>springmvc-app</module>
 	</modules>
 	<url/>
 	<licenses>
