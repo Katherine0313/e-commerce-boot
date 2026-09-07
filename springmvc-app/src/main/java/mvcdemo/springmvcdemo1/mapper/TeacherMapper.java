@@ -5,7 +5,6 @@ import org.apache.ibatis.annotations.*;
 
 import java.util.List;
 
-@Mapper
 public interface TeacherMapper {
     @Select("select * from teacher")
     public List<Teacher> getTeacherAll();

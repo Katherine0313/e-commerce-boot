@@ -1,6 +1,8 @@
 spring:
   application:
     name: SpringMVCdemo1
+  main:
+    log-startup-info: false
   datasource:
     url: jdbc:mysql://localhost:3306/springmvc_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true
     username: root
@@ -30,7 +32,6 @@ user:
 logging:
   level:
     root: INFO
-    mvcdemo.springmvcdemo1: trace
     org.springframework: WARN
     org.springframework.boot: WARN
     org.springframework.web: WARN

@@ -1,5 +1,6 @@
 package mvcdemo.springmvcdemo1;
 
+import mvcdemo.springmvcdemo1.mapper.ClassesMapper;
 import mvcdemo.springmvcdemo1.mapper.TeacherMapper;
 import mvcdemo.springmvcdemo1.pojo.Teacher;
 import org.junit.jupiter.api.Test;
@@ -12,6 +13,8 @@ import java.util.List;
 public class TestMybatis {
     @Autowired
     private TeacherMapper teacherMapper;
+    @Autowired
+    private ClassesMapper classesMapper;
     @Test
     public void testGetTeacherAll(){
         List<Teacher> teacherAll  = teacherMapper.getTeacherAll();
@@ -34,5 +37,14 @@ public class TestMybatis {
         int row = teacherMapper.deleteTeacher();
         System.out.println(row > 0 ? "删除成功" : "删除失败");
     }
+    // 测试班级表
+    @Test
+    public void testGetClassesAll(){
+       List<Classes> classesAll  = classesMapper.getClassesAll();
+       for(Classes classes :classesAll){
+           System.out.println(classes);
+       }
+    }
+
 
 }

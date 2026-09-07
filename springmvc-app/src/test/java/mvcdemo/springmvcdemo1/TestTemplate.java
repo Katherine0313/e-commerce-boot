@@ -59,13 +59,6 @@ public class TestTemplate {
         // 3. 输出查询结果
         System.out.println(total);
     }
-    @Test
-    public void testLog(){
-        log.debug("杰米多多的日志调试");
-        log.info("打印info普通业务信息");
-        log.trace("打印trace");
-    }
-
 }
 
 
