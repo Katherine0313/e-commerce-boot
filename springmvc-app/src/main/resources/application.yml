@@ -39,5 +39,8 @@ logging:
     com.zaxxer.hikari: WARN
     org.apache.tomcat: WARN
     org.apache.catalina: WARN
-  pattern:
-    console: "%clr(%d{HH:mm:ss}){faint} %clr(%-5p) %clr(${PID:- }){magenta} %clr(---){faint} %clr([%15.15t]){faint} %clr(%-40.40logger{39}){cyan} %clr(:){faint} %m%n"
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+  mapper-locations: classpath:mappers/*.xml

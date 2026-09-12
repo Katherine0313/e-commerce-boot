@@ -1,11 +1,14 @@
 package mvcdemo.springmvcdemo1.mapper;
 
-import mvcdemo.springmvcdemo1.Classes;
-import org.apache.ibatis.annotations.Select;
+import mvcdemo.springmvcdemo1.pojo.Classes;
+import org.springframework.stereotype.Repository;
+
 
 import java.util.List;
-
+@Repository
 public interface ClassesMapper {
-    @Select("select  * from classes")
     public List<Classes> getClassesAll();
+    int insertClasses();
+    int updateClasses();
+    int deleteClasses();
 }

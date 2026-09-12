@@ -2,6 +2,7 @@ package mvcdemo.springmvcdemo1;
 
 import mvcdemo.springmvcdemo1.mapper.ClassesMapper;
 import mvcdemo.springmvcdemo1.mapper.TeacherMapper;
+import mvcdemo.springmvcdemo1.pojo.Classes;
 import mvcdemo.springmvcdemo1.pojo.Teacher;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
