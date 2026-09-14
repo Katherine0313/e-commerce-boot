@@ -13,12 +13,6 @@ spring:
       minimum-idle: 5
       pool-name: MyHikariCP
 
-  jpa:
-    hibernate:
-      ddl-auto: update
-    show-sql: false
-    open-in-view: false
-
 person:
   name: admin
   age: 28
@@ -35,7 +29,6 @@ logging:
     org.springframework: WARN
     org.springframework.boot: WARN
     org.springframework.web: WARN
-    org.hibernate: WARN
     com.zaxxer.hikari: WARN
     org.apache.tomcat: WARN
     org.apache.catalina: WARN
