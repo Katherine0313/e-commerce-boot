@@ -1,8 +1,8 @@
 package ecommerce;
 
 
-import lombok.extern.slf4j.Slf4j;
 import ecommerce.pojo.Classes;
+import lombok.extern.slf4j.Slf4j;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -59,6 +59,7 @@ public class TestTemplate {
         Long total = jdbcTemplate.queryForObject(sql, long.class);
         // 3. 输出查询结果
         System.out.println(total);
+        log.info("打印日志");
     }
 }
 

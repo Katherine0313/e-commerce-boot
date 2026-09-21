@@ -3,14 +3,35 @@
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="ecommerce.mapper.ClassesMapper">
-<select id="getClassesAll" resultType="ecommerce.pojo.Classes">
-select * from classes
-</select>
-<insert id="insertClasses">
-insert into classes (name,floor,teacher_id)values ('三年级4班', 2, 14)
-</insert>
-<update id="updateClasses">
-update classes set floor = 1 where id = 14
-</update>
-    <delete id="deleteClasses">delete from classes  where id = 14</delete>
+    <select id="getClassesAll" resultType="ecommerce.pojo.Classes">
+        select *
+        from classes
+    </select>
+    <insert id="insertClasses">
+        insert into classes (name, floor, teacher_id)
+        values ('三年级4班', 2, 14)
+    </insert>
+    <update id="updateClasses">
+        update classes
+        set floor = 1
+        where id = 14
+    </update>
+    <delete id="deleteClasses">delete
+                               from classes
+                               where id = 14
+    </delete>
+    <select id="findClassesByFloor" resultType="ecommerce.pojo.Classes">
+        select * from classes
+        where floor = 2
+        <if test="name != null">
+            and name like #{name}
+        </if>
+    </select>
+
 </mapper>
+
+
+
+
+
+

@@ -1,6 +1,8 @@
 spring:
   application:
     name: e-commerce-boot
+  profiles:
+    active: dev
   main:
     log-startup-info: false
   datasource:
@@ -12,6 +14,11 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
       pool-name: MyHikariCP
+  http:
+    client:
+      # 调用外部接口（如微信）的超时，避免对方无响应时一直占着请求线程
+      connect-timeout: 3s
+      read-timeout: 5s
 
 person:
   name: admin
@@ -37,3 +44,16 @@ mybatis:
   configuration:
     map-underscore-to-camel-case: true
   mapper-locations: classpath:mappers/*.xml
+
+# 微信小程序配置：登录时用 code 换取 openid
+# 真实值不写在这里（避免提交到 git），由激活的 profile 文件或环境变量提供
+wechat:
+  appid: ${WECHAT_APPID:}
+  secret: ${WECHAT_SECRET:}
+
+# JWT 配置：登录成功后签发令牌
+# 真实密钥不写在这里（避免提交到 git），由激活的 profile 文件或环境变量提供
+jwt:
+  secret: ${JWT_SECRET:}
+  # token 有效期，单位：秒（604800 秒 = 7 天）
+  expire: 604800
