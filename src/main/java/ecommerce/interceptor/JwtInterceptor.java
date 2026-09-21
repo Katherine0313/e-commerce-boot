@@ -8,6 +8,7 @@ import io.jsonwebtoken.JwtException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
@@ -17,7 +18,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
  * <p>
  * 流程：取 Authorization 头 → 校验令牌 → 比对身份类型 → 写入 UserContext。
  * 校验失败直接抛 BusinessException(401/403)，由 GlobalExceptionHandler 统一转成 Result 返回，
- * 所以前端拿到的仍然是 {code, msg, data} 结构，只是 code 是 401/403。
+ * 所以前端拿到的仍然是 {success, data, message} 结构，只是 HTTP 状态码是 401/403。
  */
 @Slf4j
 @Component
@@ -45,7 +46,7 @@ public class JwtInterceptor implements HandlerInterceptor {
 
         String token = resolveToken(request);
         if (token == null) {
-            throw new BusinessException(401, "未登录或登录已过期");
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "未登录或登录已过期");
         }
 
         Claims claims;
@@ -54,7 +55,7 @@ public class JwtInterceptor implements HandlerInterceptor {
         } catch (JwtException | IllegalArgumentException e) {
             // 签名不对 / 已过期 / 格式非法，对前端来说都是「登录失效」；日志里不打 token 本身
             log.warn("令牌校验失败: {}", e.getMessage());
-            throw new BusinessException(401, "未登录或登录已过期");
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "未登录或登录已过期");
         }
 
         // 按路径分流要求的身份类型。必须校验：否则小程序用户的令牌能直接调后台管理接口
@@ -62,12 +63,12 @@ public class JwtInterceptor implements HandlerInterceptor {
         String actualType = claims.get("type", String.class);
         if (!requiredType.equals(actualType)) {
             log.warn("令牌身份类型不匹配: 需要 {}, 实际 {}", requiredType, actualType);
-            throw new BusinessException(403, "无权访问");
+            throw new BusinessException(HttpStatus.FORBIDDEN, "无权访问");
         }
 
         String subject = claims.getSubject();
         if (subject == null || subject.isBlank()) {
-            throw new BusinessException(401, "登录信息不完整，请重新登录");
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "登录信息不完整，请重新登录");
         }
         // 存入本次请求的上下文，Controller / Service 里用 UserContext.getUserId() 取
         UserContext.setUserId(Long.valueOf(subject));

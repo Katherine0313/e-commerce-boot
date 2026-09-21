@@ -15,7 +15,7 @@ spring:
       minimum-idle: 5
       pool-name: MyHikariCP
   http:
-    client:
+    clients:
       # 调用外部接口（如微信）的超时，避免对方无响应时一直占着请求线程
       connect-timeout: 3s
       read-timeout: 5s

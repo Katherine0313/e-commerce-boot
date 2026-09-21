@@ -10,6 +10,7 @@ import ecommerce.utils.HttpClientUtil;
 import ecommerce.utils.JwtUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
@@ -44,7 +45,7 @@ public class WxUserServiceImpl implements WxUserService {
     @Override
     public WxUserLoginVO login(String code) {
         if (code == null || code.isBlank()) {
-            throw new BusinessException(400, "缺少 code");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "缺少 code");
         }
         String openid = getOpenid(code);
         WxUser user = findOrRegister(openid);
