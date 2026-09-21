@@ -43,7 +43,8 @@ logging:
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
-  mapper-locations: classpath:mappers/*.xml
+  # mappers/ 下按业务模块分子目录存放，** 递归匹配
+  mapper-locations: classpath*:mappers/**/*.xml
 
 # 微信小程序配置：登录时用 code 换取 openid
 # 真实值不写在这里（避免提交到 git），由激活的 profile 文件或环境变量提供
@@ -57,3 +58,11 @@ jwt:
   secret: ${JWT_SECRET:}
   # token 有效期，单位：秒（604800 秒 = 7 天）
   expire: 604800
+
+# 接口文档：这里作为安全兜底「默认关闭」，只在 application-dev.yml 中开启。
+# 这样生产环境即使配错 profile 也不会把 /swagger-ui.html 和 /v3/api-docs 暴露出去。
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
