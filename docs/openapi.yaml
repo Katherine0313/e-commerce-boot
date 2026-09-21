@@ -1,0 +1,77 @@
+openapi: 3.1.0
+info:
+  title: 电商小程序接口文档
+  description: "微信小程序端接口。除登录接口外，其余 /api/** 接口都需在请求头带 Authorization: Bearer {token}。\
+    注意：HTTP 状态码恒为 200，业务结果以响应体中的 code 字段为准。"
+  version: v1.0
+servers:
+- url: http://localhost:8080
+  description: Generated server url
+tags:
+- name: 小程序登录
+  description: 微信小程序端登录相关接口
+paths:
+  /api/wxlogin:
+    post:
+      tags:
+      - 小程序登录
+      summary: 小程序登录
+      description: 用 wx.login() 拿到的临时 code 换取令牌。首次登录自动注册，返回的 token 需放入后续请求的 Authorization
+        头
+      operationId: wxlogin
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WxUserLoginDTO"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ResultWxUserLoginVO"
+components:
+  schemas:
+    WxUserLoginDTO:
+      type: object
+      properties:
+        code:
+          type: string
+          description: 小程序 wx.login() 换来的临时凭证，5 分钟内有效且只能用一次
+          example: 081AbcdefGhijklmn
+      required:
+      - code
+    ResultWxUserLoginVO:
+      type: object
+      properties:
+        code:
+          type: integer
+          format: int32
+          description: 业务状态码：200 成功，400 参数错误，401 未登录/登录过期，403 无权访问，500 其他失败。注意 HTTP
+            状态码始终为 200，前端必须判断该字段
+          example: 200
+        msg:
+          type: string
+          description: 提示信息，失败时可直接展示给用户
+          example: success
+        data:
+          $ref: "#/components/schemas/WxUserLoginVO"
+          description: 业务数据，失败时为 null
+    WxUserLoginVO:
+      type: object
+      properties:
+        token:
+          type: string
+          description: "登录令牌，后续请求放在 Authorization 头里，格式：Bearer {token}，有效期 7 天"
+        id:
+          type: integer
+          format: int64
+          description: 用户 ID，仅供前端展示/缓存，不可作为鉴权依据
+        name:
+          type: string
+          description: 用户昵称，首次登录时为 null
+        avatar:
+          type: string
+          description: 头像地址，首次登录时为 null
