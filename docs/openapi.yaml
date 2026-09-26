@@ -1,8 +1,8 @@
 openapi: 3.1.0
 info:
-  title: 电商小程序接口文档
-  description: "微信小程序端接口。除登录接口外，其余 /api/** 接口都需在请求头带 Authorization: Bearer {token}。\
-    注意：HTTP 状态码恒为 200，业务结果以响应体中的 code 字段为准。"
+  title: 电商接口文档
+  description: "小程序端 + PC 端商城 + 后台管理系统共用一个后端。除登录接口外，其余接口都需在请求头带 Authorization: Bearer {token}。\
+    注意：成功返回 HTTP 200，失败时返回真实 HTTP 状态码（400/401/403/404/500），业务结果以响应体为准。"
   version: v1.0
 servers:
 - url: http://localhost:8080
@@ -10,20 +10,21 @@ servers:
 tags:
 - name: 小程序登录
   description: 微信小程序端登录相关接口
+- name: 小程序会员资料
+  description: 微信小程序端会员资料相关接口
 paths:
   /api/wxlogin:
     post:
       tags:
       - 小程序登录
       summary: 小程序登录
-      description: 用 wx.login() 拿到的临时 code 换取令牌。首次登录自动注册，返回的 token 需放入后续请求的 Authorization
-        头
+      description: 用 wx.login() 拿到的临时 code 换取令牌。首次登录自动注册，返回的 token 需放入后续请求的 Authorization 头
       operationId: wxlogin
       requestBody:
         content:
           application/json:
             schema:
-              $ref: "#/components/schemas/WxUserLoginDTO"
+              $ref: "#/components/schemas/WxLoginDTO"
         required: true
       responses:
         "200":
@@ -31,10 +32,24 @@ paths:
           content:
             '*/*':
               schema:
-                $ref: "#/components/schemas/ResultWxUserLoginVO"
+                $ref: "#/components/schemas/ResultWxLoginVO"
+  /api/member/profile:
+    get:
+      tags:
+      - 小程序会员资料
+      summary: 获取会员资料
+      description: 获取当前登录会员的资料（头像、昵称、基础信息）。需登录，请求头带 Authorization: Bearer {token}
+      operationId: getMemberProfile
+      responses:
+        "200":
+          description: OK
+          content:
+            '*/*':
+              schema:
+                $ref: "#/components/schemas/ResultMemberProfileVO"
 components:
   schemas:
-    WxUserLoginDTO:
+    WxLoginDTO:
       type: object
       properties:
         code:
@@ -43,23 +58,7 @@ components:
           example: 081AbcdefGhijklmn
       required:
       - code
-    ResultWxUserLoginVO:
-      type: object
-      properties:
-        code:
-          type: integer
-          format: int32
-          description: 业务状态码：200 成功，400 参数错误，401 未登录/登录过期，403 无权访问，500 其他失败。注意 HTTP
-            状态码始终为 200，前端必须判断该字段
-          example: 200
-        msg:
-          type: string
-          description: 提示信息，失败时可直接展示给用户
-          example: success
-        data:
-          $ref: "#/components/schemas/WxUserLoginVO"
-          description: 业务数据，失败时为 null
-    WxUserLoginVO:
+    WxLoginVO:
       type: object
       properties:
         token:
@@ -75,3 +74,61 @@ components:
         avatar:
           type: string
           description: 头像地址，首次登录时为 null
+    MemberProfileVO:
+      type: object
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 会员 ID
+        name:
+          type: string
+          description: 昵称，未设置时为 null
+        avatar:
+          type: string
+          description: 头像地址，未上传时为 null
+        phone:
+          type: string
+          description: 手机号，未绑定时为 null
+        sex:
+          type: string
+          description: 性别，未设置时为 null
+        idNumber:
+          type: string
+          description: 身份证号，未实名时为 null
+        createTime:
+          type: string
+          format: date-time
+          description: 注册时间
+    ResultWxLoginVO:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功：true 成功，false 失败
+          example: true
+        data:
+          $ref: "#/components/schemas/WxLoginVO"
+          description: 业务数据，失败时为 null
+        message:
+          type: string
+          description: 提示信息，失败时可直接展示给用户
+        code:
+          type: string
+          description: 可选字符串错误码（如 UNAUTHORIZED / FORBIDDEN / NOT_FOUND），成功或无需细分时为 null
+    ResultMemberProfileVO:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功：true 成功，false 失败
+          example: true
+        data:
+          $ref: "#/components/schemas/MemberProfileVO"
+          description: 业务数据，失败时为 null
+        message:
+          type: string
+          description: 提示信息，失败时可直接展示给用户
+        code:
+          type: string
+          description: 可选字符串错误码（如 UNAUTHORIZED / FORBIDDEN / NOT_FOUND），成功或无需细分时为 null

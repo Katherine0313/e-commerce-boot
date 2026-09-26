@@ -1,4 +1,4 @@
-package ecommerce.user.vo;
+package ecommerce.member.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
@@ -6,14 +6,11 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
-/**
- * 小程序用户登录出参：返回给小程序前端
- */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class WxUserLoginVO {
+public class WxLoginVO {
     /** 登录令牌，后续请求放在 Authorization 头里 */
     @Schema(description = "登录令牌，后续请求放在 Authorization 头里，格式：Bearer {token}，有效期 7 天")
     private String token;

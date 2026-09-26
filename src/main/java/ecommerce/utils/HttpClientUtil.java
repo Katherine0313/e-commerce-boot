@@ -2,32 +2,31 @@ package ecommerce.utils;
 
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
+import org.springframework.web.util.UriComponentsBuilder;
 
-/**
- * HTTP 工具类
- */
+import java.util.Map;
+
 @Component
 public class HttpClientUtil {
-
-    /** RestClient 线程安全，复用同一个实例即可；超时由 spring.http.client.* 配置 */
     private final RestClient restClient;
 
     public HttpClientUtil(RestClient.Builder builder) {
         this.restClient = builder.build();
     }
 
-    /**
-     * 发送 GET 请求，返回响应体字符串
-     * <p>
-     * 这里不直接按对象解析的原因：部分接口（如微信失败时）返回的 Content-Type 是 text/plain，
-     * 按对象解析会抛 UnknownContentTypeException。所以统一先读成字符串，由调用方决定怎么解析。
-     *
-     * @param url 完整请求地址
-     * @return 响应体原文
-     */
-    public String get(String url) {
+    // 发起GET请求（无参数，走 doGet 统一逻辑）
+    public String get(String url){
+        return doGet(url, null);
+    }
+
+    // 发起GET请求，参数以 Map 传入，由工具类统一做 URL 编码后拼接
+    public String doGet(String url, Map<String, String> params){
+        UriComponentsBuilder builder = UriComponentsBuilder.fromUriString(url);
+        if (params != null) {
+            params.forEach(builder::queryParam);
+        }
         return restClient.get()
-                .uri(url)
+                .uri(builder.build().encode().toUri())
                 .exchange((request, response) -> response.bodyTo(String.class));
     }
 }

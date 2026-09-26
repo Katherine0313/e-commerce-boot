@@ -17,9 +17,13 @@ import java.util.Map;
 @Component
 public class JwtUtil {
 
-    /** 身份类型：小程序用户 */
-    public static final String TYPE_WX_USER = "wxuser";
-    /** 身份类型：后台管理员（预留，后台管理系统接入后使用） */
+    /**
+     * 身份类型：用户/顾客（小程序 / PC 端共用）
+     */
+    public static final String TYPE_MEMBER = "member";
+    /**
+     * 身份类型：后台管理员（预留，后台管理系统接入后使用）
+     */
     public static final String TYPE_ADMIN = "admin";
 
     private final JwtProperties jwtProperties;
@@ -31,35 +35,33 @@ public class JwtUtil {
         this.secretKey = Keys.hmacShaKeyFor(
                 jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
     }
-
     /**
-     * 签发小程序用户令牌
+     ** 对外暴露生成的方法，给调用方（WxLoginController）调用
      */
-    public String generateWxUserToken(Long userId, String openid) {
-        return buildToken(userId, TYPE_WX_USER, Map.of("openid", openid));
+    public String generateMemberToken(Long memberId){
+
+        return buildToken(memberId, TYPE_MEMBER, Map.of());
     }
 
     // 后台管理系统接入后，在这里补一个 generateAdminToken(Long adminId, String username) 即可
 
     /**
-     * 通用签发核心，新增身份类型时不需要改这里
-     *
-     * @param id          主体主键，放进标准 sub 字段
-     * @param type        身份类型，见 TYPE_WX_USER / TYPE_ADMIN
-     * @param extraClaims 附加字段
+     **真正组装、签名、生成 JWT 字符串的核心方法**。
      */
-    private String buildToken(Long id, String type, Map<String, Object> extraClaims) {
+    private String buildToken(Long id, String type, Map<String, Object>
+                              extraClaims){
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(String.valueOf(id))
-                .claim("type", type)
+                .claim("type",type)
                 .claims(extraClaims)
                 .issuedAt(new Date(now))
-                // expire 配置单位是秒，这里换算成毫秒
+                // expire时间换算，秒换成毫秒
                 .expiration(new Date(now + jwtProperties.getExpire() * 1000))
-                // 不指定算法，jjwt 按密钥长度自动选：当前 64 字节 → HS512
+                // 不指定算法，jjwt按密钥长度自动选
                 .signWith(secretKey)
                 .compact();
+
     }
 
     /**

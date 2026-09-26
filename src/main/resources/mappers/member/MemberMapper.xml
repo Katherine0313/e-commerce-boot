@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.member.mapper.MemberMapper">
+    <select id="findByOpenid" resultType="ecommerce.member.entity.Member">
+        select *
+        from member
+        where openid = #{openid}
+    </select>
+    <select id="findById" resultType="ecommerce.member.entity.Member">
+        select *
+        from member
+        where id = #{id}
+    </select>
+    <insert id="insertMember" useGeneratedKeys="true" keyProperty="id">
+        insert into member(openid, name, phone, sex, id_number, avatar)
+        values(#{openid},#{name},#{phone},#{sex},#{idNumber},#{avatar})
+    </insert>
+    <update id="updateAvatar">
+        update member set avatar = #{avatar}, update_time = now() where id = #{id}
+    </update>
+</mapper>

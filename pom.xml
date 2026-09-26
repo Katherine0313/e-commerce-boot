@@ -71,6 +71,7 @@
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-api</artifactId>
 			<version>0.13.0</version>
+			<scope>compile</scope>
 		</dependency>
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
@@ -78,6 +79,7 @@
 			<version>0.13.0</version>
 			<scope>runtime</scope>
 		</dependency>
+		<!-- jjwt 的 JSON 序列化实现：生成/解析 JWT 的 claims 时用到，运行时依赖即可 -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>
 			<artifactId>jjwt-jackson</artifactId>

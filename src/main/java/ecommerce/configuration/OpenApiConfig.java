@@ -17,10 +17,10 @@ public class OpenApiConfig {
     public OpenAPI ecommerceOpenAPI() {
         return new OpenAPI()
                 .info(new Info()
-                        .title("电商小程序接口文档")
+                        .title("电商接口文档")
                         .version("v1.0")
-                        .description("微信小程序端接口。除登录接口外，其余 /api/** 接口都需在请求头带 "
+                        .description("小程序端 + PC 端商城 + 后台管理系统共用一个后端。除登录接口外，其余接口都需在请求头带 "
                                 + "Authorization: Bearer {token}。"
-                                + "注意：HTTP 状态码恒为 200，业务结果以响应体中的 code 字段为准。"));
+                                + "注意：成功返回 HTTP 200，失败时返回真实 HTTP 状态码（400/401/403/404/500），业务结果以响应体为准。"));
     }
 }

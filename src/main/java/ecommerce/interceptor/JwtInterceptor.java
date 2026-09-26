@@ -34,6 +34,7 @@ public class JwtInterceptor implements HandlerInterceptor {
     private final JwtUtil jwtUtil;
 
     public JwtInterceptor(JwtUtil jwtUtil) {
+
         this.jwtUtil = jwtUtil;
     }
 
@@ -58,8 +59,8 @@ public class JwtInterceptor implements HandlerInterceptor {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "未登录或登录已过期");
         }
 
-        // 按路径分流要求的身份类型。必须校验：否则小程序用户的令牌能直接调后台管理接口
-        String requiredType = isAdminPath(request) ? JwtUtil.TYPE_ADMIN : JwtUtil.TYPE_WX_USER;
+        // 按路径分流要求的身份类型。必须校验：否则顾客令牌能直接调后台管理接口
+        String requiredType = isAdminPath(request) ? JwtUtil.TYPE_ADMIN : JwtUtil.TYPE_MEMBER;
         String actualType = claims.get("type", String.class);
         if (!requiredType.equals(actualType)) {
             log.warn("令牌身份类型不匹配: 需要 {}, 实际 {}", requiredType, actualType);
