@@ -60,7 +60,7 @@ public class JwtInterceptor implements HandlerInterceptor {
         }
 
         // 按路径分流要求的身份类型。必须校验：否则顾客令牌能直接调后台管理接口
-        String requiredType = isAdminPath(request) ? JwtUtil.TYPE_ADMIN : JwtUtil.TYPE_MEMBER;
+        String requiredType = isAdminPath(request) ? JwtUtil.TYPE_ADMIN : JwtUtil.TYPE_USER;
         String actualType = claims.get("type", String.class);
         if (!requiredType.equals(actualType)) {
             log.warn("令牌身份类型不匹配: 需要 {}, 实际 {}", requiredType, actualType);

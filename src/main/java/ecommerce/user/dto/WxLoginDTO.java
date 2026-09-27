@@ -1,4 +1,4 @@
-package ecommerce.member.dto;
+package ecommerce.user.dto;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;

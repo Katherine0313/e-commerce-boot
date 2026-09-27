@@ -1,9 +1,9 @@
-package ecommerce.member.controller;
+package ecommerce.user.controller;
 
 import ecommerce.common.Result;
-import ecommerce.member.dto.WxLoginDTO;
-import ecommerce.member.service.MemberService;
-import ecommerce.member.vo.WxLoginVO;
+import ecommerce.user.dto.WxLoginDTO;
+import ecommerce.user.service.UserService;
+import ecommerce.user.vo.WxLoginVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -14,14 +14,15 @@ import org.springframework.web.bind.annotation.RestController;
 @RequestMapping("/api")
 @RestController
 public class WxLoginController {
-    public final MemberService memberService;
-    public WxLoginController(MemberService memberService){
-        this.memberService = memberService;
+    public final UserService userService;
+    public WxLoginController(UserService userService){
+        this.userService = userService;
     }
     // 小程序登录：用wx.login()拿到的code换取令牌
+    // 这里只写 @Operation：200 由 springdoc 按返回值自动生成，400/401/403 由 OpenApiConfig 全局注入
     @Operation(summary = "微信登陆")
     @PostMapping("/wxlogin")
     public Result<WxLoginVO> wxLogin(@RequestBody WxLoginDTO dto) {
-        return Result.success(memberService.login(dto.getCode()));
+        return Result.success(userService.login(dto.getCode()));
     }
 }

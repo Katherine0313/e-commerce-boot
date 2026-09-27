@@ -1,4 +1,4 @@
-package ecommerce.member.entity;
+package ecommerce.user.entity;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class Member {
+public class User {
     private Long id;
     private String openid;
     private String name;

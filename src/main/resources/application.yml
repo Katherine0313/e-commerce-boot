@@ -21,6 +21,12 @@ spring:
       # 调用外部接口（如微信）的超时，避免对方无响应时一直占着请求线程
       connect-timeout: 3s
       read-timeout: 5s
+  servlet:
+    multipart:
+      # 上传限制：单文件 2MB，整个请求 3MB（给表单里的其他字段留余量）。
+      # 不配的话是 Spring Boot 默认的 1MB / 10MB。超限由 GlobalExceptionHandler 转成 413 + 可读提示。
+      max-file-size: 2MB
+      max-request-size: 3MB
 
 logging:
   level:

@@ -1,25 +1,31 @@
-openapi: 3.1.0
+openapi: 3.0.1
 info:
   title: 电商接口文档
-  description: "小程序端 + PC 端商城 + 后台管理系统共用一个后端。除登录接口外，其余接口都需在请求头带 Authorization: Bearer {token}。\
-    注意：成功返回 HTTP 200，失败时返回真实 HTTP 状态码（400/401/403/404/500），业务结果以响应体为准。"
+  description: "小程序端 + PC 端商城 + 后台管理系统共用一个后端。除登录接口外，其余接口都需在请求头带 Authorization: Bearer {token}。注意：成功返回 HTTP 200，失败时返回真实 HTTP 状态码（400/401/403/404/500），业务结果以响应体为准。"
   version: v1.0
 servers:
-- url: http://localhost:8080
-  description: Generated server url
+  - url: http://localhost:8080
+    description: Generated server url
 tags:
-- name: 小程序登录
-  description: 微信小程序端登录相关接口
-- name: 小程序会员资料
-  description: 微信小程序端会员资料相关接口
+  - name: 小程序登录
+    description: 微信小程序端登录相关接口
+  - name: 小程序用户资料
+    description: 微信小程序端用户资料相关接口
+# 根级 security：本文档所有接口默认要求带令牌；登录接口用 security: [] 单独关掉（见 /api/wxlogin）。
+# 注意：security 只声明「需要哪种鉴权」，不会自动产生 401/403 响应 ——
+# OpenAPI 没有全局 responses，失败响应仍需逐个接口 $ref 引用 components/responses 下的公共定义。
+security:
+  - bearerAuth: []
 paths:
   /api/wxlogin:
     post:
       tags:
-      - 小程序登录
+        - 小程序登录
       summary: 小程序登录
       description: 用 wx.login() 拿到的临时 code 换取令牌。首次登录自动注册，返回的 token 需放入后续请求的 Authorization 头
       operationId: wxlogin
+      # 登录接口本身不需要令牌：空数组覆盖根级 security
+      security: []
       requestBody:
         content:
           application/json:
@@ -30,25 +36,131 @@ paths:
         "200":
           description: OK
           content:
-            '*/*':
+            application/json:
               schema:
                 $ref: "#/components/schemas/ResultWxLoginVO"
-  /api/member/profile:
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /api/user/profile:
     get:
       tags:
-      - 小程序会员资料
-      summary: 获取会员资料
-      description: 获取当前登录会员的资料（头像、昵称、基础信息）。需登录，请求头带 Authorization: Bearer {token}
-      operationId: getMemberProfile
+        - 小程序用户资料
+      summary: 获取用户资料
+      description: "获取当前登录用户的资料（头像、昵称、基础信息）。需登录，请求头带 Authorization: Bearer {token}"
+      operationId: getUserProfile
       responses:
         "200":
           description: OK
           content:
-            '*/*':
+            application/json:
               schema:
-                $ref: "#/components/schemas/ResultMemberProfileVO"
+                $ref: "#/components/schemas/ResultUserProfileVO"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /api/user/avatar:
+    post:
+      tags:
+        - 小程序用户资料
+      summary: 上传头像
+      description: "上传头像图片，服务端保存文件并更新 user.avatar，返回可直接访问的完整头像 URL。需登录，请求头带 Authorization: Bearer {token}"
+      operationId: uploadUserAvatar
+      requestBody:
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+                  description: 头像图片文件
+              required:
+                - file
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResultString"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "413":
+          $ref: "#/components/responses/PayloadTooLarge"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "登录接口签发的令牌，按 Authorization: Bearer {token} 放在请求头。C 端令牌由 /api/wxlogin 签发；后台管理员令牌另行签发（预留）"
+  responses:
+    BadRequest:
+      description: 请求参数不合法。请求体 JSON 格式错误、code 为空或已失效、上传的文件不是 png / jpg / gif / webp 图片等
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ResultVoid"
+    PayloadTooLarge:
+      description: 上传文件超过大小限制（单个文件 2MB，整个请求 3MB）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ResultVoid"
+    Unauthorized:
+      description: 未登录或登录已过期。缺少 Authorization 头，或令牌签名错误 / 已过期 / 格式非法
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ResultVoid"
+    Forbidden:
+      description: 无权访问。令牌有效但身份类型不匹配（如用管理员令牌调 C 端接口）
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ResultVoid"
+    InternalServerError:
+      description: 服务器内部错误。未预料的异常，响应体 message 为通用提示，具体原因见服务端日志
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ResultVoid"
   schemas:
+    ResultVoid:
+      type: object
+      description: 失败响应体（HTTP 状态码为真实的失败码，不是恒 200）
+      properties:
+        success:
+          type: boolean
+          description: 恒为 false
+          example: false
+        data:
+          type: object
+          nullable: true
+          description: 失败时恒为 null
+        message:
+          type: string
+          description: 错误提示，可直接展示给用户
+          example: 未登录或登录已过期
+        code:
+          type: string
+          nullable: true
+          description: 可选字符串错误码（如 UNAUTHORIZED / FORBIDDEN / NOT_FOUND），当前阶段多为 null
     WxLoginDTO:
       type: object
       properties:
@@ -57,7 +169,7 @@ components:
           description: 小程序 wx.login() 换来的临时凭证，5 分钟内有效且只能用一次
           example: 081AbcdefGhijklmn
       required:
-      - code
+        - code
     WxLoginVO:
       type: object
       properties:
@@ -73,20 +185,20 @@ components:
           description: 用户昵称，首次登录时为 null
         avatar:
           type: string
-          description: 头像地址，首次登录时为 null
-    MemberProfileVO:
+          description: 头像地址（相对路径，如 /upload/avatar/1_123.jpg），首次登录时为 null
+    UserProfileVO:
       type: object
       properties:
         id:
           type: integer
           format: int64
-          description: 会员 ID
+          description: 用户 ID
         name:
           type: string
           description: 昵称，未设置时为 null
         avatar:
           type: string
-          description: 头像地址，未上传时为 null
+          description: 头像完整访问 URL（由服务端按当前请求域名拼好），未上传时为 null
         phone:
           type: string
           description: 手机号，未绑定时为 null
@@ -116,7 +228,7 @@ components:
         code:
           type: string
           description: 可选字符串错误码（如 UNAUTHORIZED / FORBIDDEN / NOT_FOUND），成功或无需细分时为 null
-    ResultMemberProfileVO:
+    ResultUserProfileVO:
       type: object
       properties:
         success:
@@ -124,8 +236,25 @@ components:
           description: 是否成功：true 成功，false 失败
           example: true
         data:
-          $ref: "#/components/schemas/MemberProfileVO"
+          $ref: "#/components/schemas/UserProfileVO"
           description: 业务数据，失败时为 null
+        message:
+          type: string
+          description: 提示信息，失败时可直接展示给用户
+        code:
+          type: string
+          description: 可选字符串错误码（如 UNAUTHORIZED / FORBIDDEN / NOT_FOUND），成功或无需细分时为 null
+    ResultString:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功：true 成功，false 失败
+          example: true
+        data:
+          type: string
+          nullable: true
+          description: 头像完整访问 URL，失败时为 null
         message:
           type: string
           description: 提示信息，失败时可直接展示给用户

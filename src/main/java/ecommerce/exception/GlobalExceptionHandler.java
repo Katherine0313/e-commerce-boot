@@ -8,6 +8,7 @@ import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.ErrorResponse;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 
 /**
  * 全局异常处理器：把异常统一转成 Result + 真实 HTTP 状态码返回，避免每个 Controller 自己 try-catch
@@ -35,6 +36,20 @@ public class GlobalExceptionHandler {
         log.warn("请求体解析失败: {}", e.getMessage());
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
                 .body(Result.error("INVALID_PARAMS", "请求参数格式错误"));
+    }
+
+    /**
+     * 上传文件超过大小限制
+     * <p>
+     * Spring 在进入 Controller 之前就抛这个异常。它本身是 ErrorResponse（状态码已经是 413），
+     * 不接的话会走下面的兜底分支，只给出没信息量的「请求不合法」，
+     * 所以单独接一下，给前端一句能直接展示的提示。
+     */
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<Result<Void>> handleMaxUploadSize(MaxUploadSizeExceededException e) {
+        log.warn("上传文件超过大小限制: maxUploadSize={} bytes", e.getMaxUploadSize());
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(Result.error("FILE_TOO_LARGE", "上传文件过大，请压缩后重试"));
     }
 
     /**

@@ -20,7 +20,7 @@ public class JwtUtil {
     /**
      * 身份类型：用户/顾客（小程序 / PC 端共用）
      */
-    public static final String TYPE_MEMBER = "member";
+    public static final String TYPE_USER = "user";
     /**
      * 身份类型：后台管理员（预留，后台管理系统接入后使用）
      */
@@ -38,9 +38,9 @@ public class JwtUtil {
     /**
      ** 对外暴露生成的方法，给调用方（WxLoginController）调用
      */
-    public String generateMemberToken(Long memberId){
+    public String generateUserToken(Long userId){
 
-        return buildToken(memberId, TYPE_MEMBER, Map.of());
+        return buildToken(userId, TYPE_USER, Map.of());
     }
 
     // 后台管理系统接入后，在这里补一个 generateAdminToken(Long adminId, String username) 即可

@@ -1,4 +1,4 @@
-package ecommerce.member.vo;
+package ecommerce.user.vo;
 
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
@@ -12,7 +12,7 @@ import java.time.LocalDateTime;
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
-public class MemberProfileVO {
+public class UserProfileVO {
     /** 用户 ID */
     @Schema (description = "用户 ID")
     private Long id;
