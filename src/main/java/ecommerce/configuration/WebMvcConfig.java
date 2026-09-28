@@ -36,11 +36,11 @@ public class WebMvcConfig implements WebMvcConfigurer {
                 // 免登录接口见 EXCLUDE_AUTH_PATHS
                 .excludePathPatterns(EXCLUDE_AUTH_PATHS.toArray(new String[0]));
     }
-
     @Override
-    public void addResourceHandlers(ResourceHandlerRegistry registry) {
-        // 头像等上传文件的静态访问：/upload/** 映射到本地 upload/ 目录
+    public void addResourceHandlers(ResourceHandlerRegistry registry){
         registry.addResourceHandler("/upload/**")
                 .addResourceLocations("file:upload/");
     }
+
+
 }
