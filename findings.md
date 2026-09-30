@@ -116,7 +116,7 @@ ecommerce
 - **写 `@ApiResponses` 的两个坑**（当前代码里已无任何本地注解，但将来真要写时必须知道）：
   1. 方法上一旦标了 `@ApiResponses`，springdoc 就**不再自动补 200**，成功响应必须显式写 `@ApiResponse(responseCode = "200", useReturnTypeSchema = true)`，否则 Swagger UI 里该接口只剩失败码。零注解的接口才享受自动 200。
   2. 手写的失败码如果不给 `content`，springdoc 会拿方法返回值类型去填响应体（把 400 的 `data` 写成头像 URL）。所以失败响应体一律交给 `commonFailureResponsesCustomizer` 纠正，注解里不要自己写 `content`。
-- **免登录清单只有一份**：`WebMvcConfig.EXCLUDE_AUTH_PATHS`。拦截器豁免和文档补全都读它，新增登录入口只改这一处。
+- **免登录清单只有一份**：`WebMvcConfig.EXCLUDE_AUTH_PATHS`。拦截器豁免和文档补全都读它（同一套 Ant 匹配语义，支持 `/api/products/**` 前缀豁免），新增免登录接口（登录入口、C 端商品浏览等）只改这一处。
 - **运行时文档**：springdoc 自动生成的 `/swagger-ui.html`、`/v3/api-docs` 无需手动维护；`docs/openapi.yaml` 是另一份手工契约，两者都要保持一致。
 
 ### 头像上传遗留待办
@@ -194,7 +194,7 @@ ecommerce
 **登录**：`WxLoginController.wxLogin` → `UserServiceImpl.login(code)`
 1. code 空 → 400；2. 带 appid/secret/js_code 请求 `https://api.weixin.qq.com/sns/jscode2session`；3. 响应无 `openid` → 400；4. `findByOpenid` 查不到则 `insertUser`（`useGeneratedKeys` 回填 id）；5. `jwtUtil.generateUserToken(id)` 返回。
 
-**鉴权**（`JwtInterceptor`，只拦 `/api/**`，豁免 `EXCLUDE_AUTH_PATHS = ["/api/wxlogin", "/api/login"]`）
+**鉴权**（`JwtInterceptor`，只拦 `/api/**`，豁免 `EXCLUDE_AUTH_PATHS`：登录入口 `/api/wxlogin`、`/api/login`、`/api/logout`，以及 C 端商品浏览 `/api/products/**`、`/api/categories/**`、`/api/tags/**`）
 1. 非 `HandlerMethod`（静态资源、预检）直接放行；2. 取 `Authorization`（带不带 `Bearer ` 都认）；3. 解析失败 → 401；4. 按路径定 `requiredType`（`/api/admin/**` → admin，其余 → user），不匹配 → 403；5. `subject` 写入 `UserContext`（ThreadLocal）。
 
 **资料**：`UserContext.getUserId()` → `findById` → 查不到抛 401 → 组装 `UserProfileVO` → Controller 用 `scheme://Host + 相对路径` 拼完整 URL。
@@ -225,7 +225,7 @@ ecommerce
 |---|---|---|---|
 | 1 | 上传目录硬编码 | `UserServiceImpl.UPLOAD_DIR = "upload/avatar/"` 与 `WebMvcConfig` 的 `file:upload/` 靠人工对齐 | 「项目架构约定」已列为待办：抽成配置项 |
 | 2 | PC 端商城登录入口 | 规范里预留 `PcLoginController` / `/api/login`，`EXCLUDE_AUTH_PATHS` 已把它算进来，但**类还没写** | 预留位已就绪 |
-| 3 | 后台 admin 模块 | `JwtUtil.TYPE_ADMIN`、`JwtInterceptor.isAdminPath` 分流、`/api/admin/**` 约定都已就位，**表 / RBAC / 登录接口都没有** | 骨架已就位 |
+| 3 | 后台 admin 模块 | 登录接口已就位（`auth-service`：`POST /api/login`、`GET /api/user/info`、`POST /api/logout` + `docs/sql/admin.sql` 建表脚本）；**admin 表待执行建表脚本，RBAC 权限表未做** | 登录接口已就位（2026-09-30） |
 | 4 | 4xx 文档缺口 | 运行时文档不给上传接口注入 415（`consumes` 不匹配时实际会返回 415），`docs/openapi.yaml` 也没有 415 | 代码注释里承认 415 是预期行为，但没进文档 |
 | 5 | `WxLoginVO.avatar` 语义 | 登录返回的是**相对路径**，`UserProfileVO.avatar` 返回**完整 URL** | `openapi.yaml` 已分别写清，但 Java 侧 `@Schema` 没提这层差异 |
 | 6 | 上传校验边界 | Content-Type 由客户端声明、可伪造，白名单只挡「误传 svg / 可执行文件」 | 「项目架构约定」明确：要挡伪装文件得读文件头；上线前需真机验证一次 |
@@ -249,6 +249,7 @@ ecommerce
 | 失败返回真实 HTTP 状态码，不恒 200 | 前端可按 HTTP 语义判断；`Result` 只作结构补充 |
 | 公共失败响应在 `OpenApiConfig` 全局注入（`GlobalOpenApiCustomizer` 而非 `OpenApiCustomizer`） | 避免每接口重复注解；后者按分组各跑一次会重复注入 |
 | 免登录清单唯一来源 `EXCLUDE_AUTH_PATHS` | 拦截器豁免与文档补全读同一份，防漂移 |
+| C 端商品浏览免登录（列表/详情/分类/标签），加购、下单需登录 | 小程序进首页看商品不带 token；写操作走购物车/订单接口需 user 令牌；后台商品管理走 `/api/admin/**` 需 admin 令牌 |
 | 头像存相对路径、返回时拼完整 URL | 换域名不失效 |
 
 ## 遇到的问题
@@ -274,9 +275,83 @@ ecommerce
 - 运行时文档：`/swagger-ui.html`、`/v3/api-docs`（仅 dev profile 开）
 - 配置：`src/main/resources/application.yml`；本地真实值在 `application-dev.yml`（gitignore）
 
+## Node 后端重构探索（2026-09-30）
+
+> 目标：放弃 `e-commerce/server`（Node.js），整合到本 Spring 项目，让前端 `e-commerce` 对接，做微服务拆分。已确认两项决策：**保留多租户沙箱** + **真·多服务部署**。
+
+### 被替代的 Node 后端
+
+| 项 | 值 |
+|---|---|
+| 框架 | Express 4 + jsonwebtoken + multer + sanitize-html |
+| 数据库 | SQLite（`sql.js` 整库内存，每次写全量导出覆盖落盘） |
+| 端口 | 3000，只监听 `127.0.0.1`，走 nginx 反代 |
+| 单实例 | `util/singleInstance` 闸门（sql.js 特性，防双进程写盘冲突） |
+
+**核心架构 = 多租户「店铺沙箱」**：
+- `sqlite/shopTables.js` 是唯一事实来源：`SHOP_TABLES` 登记 17 张业务表（categories / tags / products / stock / business_onsale / users / consignee_address / orders / order_items / after_sales / after_sale_items / after_sale_returns / after_sale_exchange_returns / after_sale_only_refunds / cart / uploads），全部按 `shopId` 隔离。
+- 模板店 `TEMPLATE_SHOP_ID=1`（杰米小店）：所有沙箱的数据源，永不过期；`resolveShop` 中间件从 token 取 shopId 注入 `req.shopId`，DB 层据此过滤；`templateGuard` 禁写模板店。
+- `ID_BLOCK=1000000`：id 号段偏移隔离（模板店 0 号段、沙箱 N 号段），保证多店 id 不冲突——这是 sql.js 单库下的 hack。
+- 沙箱生命周期：开沙箱克隆模板店数据；`ShopDB.sweepExpired()` 每小时回收超过 24h 的沙箱；限额每 IP 200/小时、全站 2000 存活（单沙箱约 56KB）。
+
+### 12 个业务域
+
+auth 登录 / shops 沙箱 / products+categories+tags+parameters 商品 / upload 上传 / address 地址 / orders 订单 / cart 购物车 / after-sales 售后 / stock 库存预警 / business-onsale 促销。数据库按 `ProductDB/TagDB/CategoryDB/ConsigneeAddressDB/OrderDB/UserDB/CartDB/AfterSalesDB/StockDB/BusinessOnsaleDB/UploadDB` 分文件。
+
+### 前端（要对接）
+
+- Vue3 + ant-design-vue + axios + pinia + vue-router；`axios.defaults.baseURL = VITE_API_BASE_URL`。
+- 接口全部 `/api/**`（无版本前缀）；登录 `POST /api/login`（admin/admin123）+ `GET /api/user/info`，登出 `POST /api/logout`。
+- **这是后台管理系统，对应 Spring 的 `admin` 模块**；响应结构 `{success,data,message}` 与 Spring `Result{success,data,message,code}` 基本兼容；401 跳登录页、403 弹 message。
+- 前端接口清单（按 api 文件）：products 7、categories 6、tags 9、orders 14、cart 5、after-sales 7、address 4、stock 3、shop 2、auth 2。
+
+### 微服务版本兼容（2026 基线，需阶段 0 实测）
+
+| 组件 | 版本 |
+|---|---|
+| Spring Boot | 4.1.0（现状） |
+| Spring Cloud | 2025.1.x |
+| Spring Cloud Alibaba | 2025.1.0.0（官方已适配 Boot 4） |
+| Nacos | server 3.1.1（稳定）/ 3.3.0-BETA（支持 Boot4 + Jackson3） |
+| JDK | 17（现状满足） |
+
+**关键坑**（落地阶段 0 必须逐个验证/处理）：
+1. Jackson 2→3：Boot 4 用 `tools.jackson`，旧的 jackson2 依赖会 ClassCastException——本项目的 `ObjectMapper` 已是 `tools.jackson.databind`，天然对齐。
+2. SCA 2025.1.x 废弃 `bootstrap.yml`，配置中心改用 `spring.config.import: optional:nacos:...`。
+3. Nacos 3.x console 端口分离（8080），客户端通信仍 8848；3.0+ 默认开启鉴权，需配 username/password。
+4. Nacos 3.x 不自动建表，需手动初始化 DB。
+5. 升级顺序：JDK → Boot → Cloud → SCA，跳版本易踩坑。
+
+### 阶段 0 实测结果（2026-09-30，Nacos 部署踩坑）
+
+Nacos + 服务注册 + 网关路由已跑通（task_plan 阶段 0 completed）。实测发现的坑：
+
+1. **镜像 tag 带 v 前缀**：`nacos/nacos-server:v3.1.1`（不是 `3.1.1`），后者 Docker Hub 上不存在。
+2. **启动脚本强制校验三个变量非空**：`NACOS_AUTH_TOKEN` / `NACOS_AUTH_IDENTITY_KEY` / `NACOS_AUTH_IDENTITY_VALUE`，即使 `NACOS_AUTH_ENABLE=false`（关鉴权）也必须设，否则容器逐个报 `env ... must be set` 并 `exit 255`。
+3. **3.x 开启鉴权后 `nacos/nacos` 登录报 `User not found`**：默认账号机制与 2.x 不同（2.x 内置 nacos/nacos，3.x 需另行初始化）。开发期决定**关闭鉴权**（`NACOS_AUTH_ENABLE=false`），生产开启前先解决默认账号初始化问题。
+4. **console 端口确认在 8080**：容器内日志 `Nacos Console 3.1.1 ... Port: 8080`；compose 映射 `18080:8080` 避开 gateway 的 8080。客户端通信仍 8848（`nacos registry ... register finished` 确认）。
+5. **Docker Desktop 用户级安装**：装在 `%LOCALAPPDATA%\Programs\DockerDesktop`（非默认 `C:\Program Files\Docker`），其 `resources\bin` 需新开终端才会进 PATH。
+6. **MySQL 复用本机**：本机 MySQL80 服务已在跑（3306 占用、库 `e_commerce_db` 已建好），Docker 不再起 MySQL，避免端口冲突。
+
+实测注册日志（后续服务接入的对照模板）：
+- auth-service：`nacos registry, DEFAULT_GROUP auth-service 192.168.1.2:9001 register finished`
+- user-service：`nacos registry, DEFAULT_GROUP user-service 192.168.1.2:9006 register finished`
+- gateway：`nacos registry, DEFAULT_GROUP gateway 192.168.1.2:8080 register finished`
+- 网关转发验证：`curl localhost:8080/api/user/profile` 与直连 `localhost:9006/api/user/profile` 返回一致（HTTP 401 + Result 结构），证明 `lb://user-service` 路由打通。
+
+### 与现状的差异 / 要重构的点
+
+1. SQLite→MySQL：表结构重设计，去掉 `ID_BLOCK` 号段 hack（MySQL 全局自增 + 查询带 shopId 过滤即可）。
+2. 单实例锁→去掉（MySQL 多实例可并发写，反而是微服务多实例的前提）。
+3. 模板店克隆 = shop-service 里「按 shopId=1 查出数据 → 批量 insert 成新 shopId」的数据复制操作。
+4. ~~JWT claims 扩展：需加 `shopId`（多租户隔离键）+ `role`~~ → **已实现**：`JwtUtil.generateAdminToken` 现在把 `id` / `username` / `role` / `shopId` 都签进 payload。
+5. ~~现有 `Result` / `GlobalExceptionHandler` / `JwtInterceptor` / `UserContext` / `BusinessException` 要下沉为各服务共用的 common 模块~~ → **已完成**（阶段 D，common 模块 + 8 服务骨架）。
+6. 现有 `user` 模块（小程序）与后台 `admin` 模块是两个账号体系：admin 走账号密码（本次前端对接的主体，登录接口已就位），user 走微信 openid（已有）。
+7. 路径约定冲突（**待决策，用户说「到时候再说」**）：本文档「项目架构约定」写后台接口走 `/api/admin/**`，但实际前端（Node 版后台管理系统）全部走 `/api/**`（无 admin 前缀）。`JwtInterceptor.isAdminPath` 按路径分流会把 admin 令牌在 `/api/user/info` 等非 `/api/admin` 接口判成「需 user 类型」→ 403。做 gateway 鉴权过滤器时再定改法。
+
 ## 视觉/浏览器发现
 
-- 本次探索**未使用浏览器、未截图、未做网络检索**，全部结论来自本地代码与配置文件读取，无多模态信息需要转述。
+- 本次探索读了 Node 后端（`e-commerce/server`）与前端（`e-commerce`）的本地代码与配置，并用 WebSearch 确认了 Spring Cloud Alibaba / Nacos 对 Spring Boot 4 的版本兼容（见本节「微服务版本兼容」）。
 
 ---
 *每执行2次查看/浏览器/搜索操作后更新此文件*

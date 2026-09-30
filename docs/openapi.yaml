@@ -11,12 +11,101 @@ tags:
     description: 微信小程序端登录相关接口
   - name: 小程序用户资料
     description: 微信小程序端用户资料相关接口
+  - name: 商品浏览
+    description: 商品/分类/标签浏览接口（免登录，进首页看商品不需要登录）
 # 根级 security：本文档所有接口默认要求带令牌；登录接口用 security: [] 单独关掉（见 /api/wxlogin）。
 # 注意：security 只声明「需要哪种鉴权」，不会自动产生 401/403 响应 ——
 # OpenAPI 没有全局 responses，失败响应仍需逐个接口 $ref 引用 components/responses 下的公共定义。
 security:
   - bearerAuth: []
 paths:
+  /api/products:
+    get:
+      tags:
+        - 商品浏览
+      summary: 商品列表
+      description: "获取商品列表。免登录：小程序进首页浏览商品不需要带令牌，加购/购买才需要登录"
+      operationId: listProducts
+      # 免登录：空数组覆盖根级 security
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResultProductListVO"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /api/products/{id}:
+    get:
+      tags:
+        - 商品浏览
+      summary: 商品详情
+      description: "获取商品详情。免登录，商品不存在返回 404"
+      operationId: getProduct
+      security: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: 商品 ID
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResultProductVO"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /api/categories:
+    get:
+      tags:
+        - 商品浏览
+      summary: 分类列表
+      description: "获取分类列表（parentId 标识层级，构成分类树）。免登录"
+      operationId: listCategories
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResultCategoryListVO"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
+  /api/tags:
+    get:
+      tags:
+        - 商品浏览
+      summary: 标签列表
+      description: "获取标签列表。免登录"
+      operationId: listTags
+      security: []
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResultTagListVO"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
   /api/wxlogin:
     post:
       tags:
@@ -102,6 +191,34 @@ paths:
           $ref: "#/components/responses/PayloadTooLarge"
         "500":
           $ref: "#/components/responses/InternalServerError"
+  /api/user/name:
+    post:
+      tags:
+        - 小程序用户资料
+      summary: 设置昵称
+      description: "设置当前登录用户的昵称。需登录，请求头带 Authorization: Bearer {token}；服务端会去除首尾空格并做长度校验。"
+      operationId: updateUserName
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdateNameDTO"
+        required: true
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ResultString"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/InternalServerError"
 components:
   securitySchemes:
     bearerAuth:
@@ -111,7 +228,13 @@ components:
       description: "登录接口签发的令牌，按 Authorization: Bearer {token} 放在请求头。C 端令牌由 /api/wxlogin 签发；后台管理员令牌另行签发（预留）"
   responses:
     BadRequest:
-      description: 请求参数不合法。请求体 JSON 格式错误、code 为空或已失效、上传的文件不是 png / jpg / gif / webp 图片等
+      description: 请求参数不合法。请求体 JSON 格式错误、code 为空或已失效、上传的文件不是 png / jpg / gif / webp 图片、昵称为空或超长等
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ResultVoid"
+    NotFound:
+      description: 资源不存在（如商品 ID 找不到）
       content:
         application/json:
           schema:
@@ -170,6 +293,15 @@ components:
           example: 081AbcdefGhijklmn
       required:
         - code
+    UpdateNameDTO:
+      type: object
+      properties:
+        name:
+          type: string
+          description: 用户昵称，1~32 个字符，服务端会去除首尾空格
+          example: 小明
+      required:
+        - name
     WxLoginVO:
       type: object
       properties:
@@ -254,7 +386,137 @@ components:
         data:
           type: string
           nullable: true
-          description: 头像完整访问 URL，失败时为 null
+          description: 返回的字符串数据（头像完整访问 URL，或去除首尾空格后的昵称），失败时为 null
+        message:
+          type: string
+          description: 提示信息，失败时可直接展示给用户
+        code:
+          type: string
+          description: 可选字符串错误码（如 UNAUTHORIZED / FORBIDDEN / NOT_FOUND），成功或无需细分时为 null
+    ProductVO:
+      type: object
+      description: 商品信息（占位骨架：商品表结构未设计，字段为联调用的示例结构；单规格，价格/库存挂在商品上）
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 商品 ID
+        name:
+          type: string
+          description: 商品名称
+        price:
+          type: number
+          description: 商品价格
+        stock:
+          type: integer
+          description: 库存数量
+        image:
+          type: string
+          description: 主图 URL
+        description:
+          type: string
+          description: 商品描述
+        categoryId:
+          type: integer
+          format: int64
+          description: 所属分类 ID
+        status:
+          type: integer
+          description: 上架状态：1 上架 0 下架
+    CategoryVO:
+      type: object
+      description: 分类信息（parentId 构成分类树，顶级分类 parentId 为 null）
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 分类 ID
+        name:
+          type: string
+          description: 分类名称
+        parentId:
+          type: integer
+          format: int64
+          nullable: true
+          description: 父分类 ID，顶级分类为 null
+        sort:
+          type: integer
+          description: 排序值，越小越靠前
+    TagVO:
+      type: object
+      description: 标签信息
+      properties:
+        id:
+          type: integer
+          format: int64
+          description: 标签 ID
+        name:
+          type: string
+          description: 标签名称
+    ResultProductVO:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功：true 成功，false 失败
+          example: true
+        data:
+          $ref: "#/components/schemas/ProductVO"
+          description: 商品详情，失败时为 null
+        message:
+          type: string
+          description: 提示信息，失败时可直接展示给用户
+        code:
+          type: string
+          description: 可选字符串错误码（如 UNAUTHORIZED / FORBIDDEN / NOT_FOUND），成功或无需细分时为 null
+    ResultProductListVO:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功：true 成功，false 失败
+          example: true
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/ProductVO"
+          description: 商品列表，失败时为 null
+        message:
+          type: string
+          description: 提示信息，失败时可直接展示给用户
+        code:
+          type: string
+          description: 可选字符串错误码（如 UNAUTHORIZED / FORBIDDEN / NOT_FOUND），成功或无需细分时为 null
+    ResultCategoryListVO:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功：true 成功，false 失败
+          example: true
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/CategoryVO"
+          description: 分类列表，失败时为 null
+        message:
+          type: string
+          description: 提示信息，失败时可直接展示给用户
+        code:
+          type: string
+          description: 可选字符串错误码（如 UNAUTHORIZED / FORBIDDEN / NOT_FOUND），成功或无需细分时为 null
+    ResultTagListVO:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: 是否成功：true 成功，false 失败
+          example: true
+        data:
+          type: array
+          items:
+            $ref: "#/components/schemas/TagVO"
+          description: 标签列表，失败时为 null
         message:
           type: string
           description: 提示信息，失败时可直接展示给用户

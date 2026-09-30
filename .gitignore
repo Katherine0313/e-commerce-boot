@@ -32,3 +32,6 @@ build/
 
 ### VS Code ###
 .vscode/
+
+### 运行期生成 ###
+upload/
