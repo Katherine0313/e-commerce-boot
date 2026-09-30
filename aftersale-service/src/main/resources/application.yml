@@ -1,0 +1,29 @@
+spring:
+  application:
+    name: aftersale-service
+  cloud:
+    nacos:
+      discovery:
+        # Nacos 3.x：客户端通信仍是 8848（gRPC 9848/9849），控制台另走 8080 端口
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+
+server:
+  port: 9005
+
+# 占位服务暂未接业务，但 common 的 JwtProperties/WeChatProperties 启动时校验非空，
+# 下面给的是让骨架能裸启动的占位值，接入真实业务前保持即可。
+jwt:
+  secret: dev-placeholder-jwt-secret-0123456789abcdef0123456789abcdef
+  expire: 604800
+wechat:
+  appid: placeholder-appid
+  secret: placeholder-secret
+
+# 占位服务没有 Controller，接口文档一律关闭，避免暴露
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

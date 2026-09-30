@@ -1,0 +1,51 @@
+spring:
+  application:
+    name: auth-service
+  profiles:
+    active: dev
+  main:
+    log-startup-info: false
+  cloud:
+    nacos:
+      discovery:
+        # Nacos 3.x：客户端通信仍是 8848（gRPC 9848/9849），控制台另走 8080 端口
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+  datasource:
+    # 连接凭据不写进版本库：本地值在 application-dev.yml（已被 gitignore），生产由环境变量提供
+    url: ${DB_URL:jdbc:mysql://localhost:3306/e_commerce_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 10
+      minimum-idle: 2
+      pool-name: AuthHikariCP
+
+server:
+  port: 9001
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+  # mappers/ 下按业务模块分子目录存放，** 递归匹配
+  mapper-locations: classpath*:mappers/**/*.xml
+
+# JWT 配置：登录成功后签发令牌。secret 必须与其它服务（gateway/user-service）一致，否则令牌跨服务校验失败
+jwt:
+  secret: ${JWT_SECRET}
+  #token有效期，单位：秒（7天）
+  expire: 604800
+
+# auth-service 不接微信小程序，但 common 的 WeChatProperties 启动时校验非空，给占位值即可
+wechat:
+  appid: placeholder-appid
+  secret: placeholder-secret
+
+# 接口文档：安全兜底默认关闭，避免生产环境暴露
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

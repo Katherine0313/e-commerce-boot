@@ -1,0 +1,33 @@
+spring:
+  application:
+    name: gateway
+  cloud:
+    nacos:
+      discovery:
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+    gateway:
+      # Spring Cloud Gateway 5.x：路由前缀从 spring.cloud.gateway.routes 改成 server.webflux.routes
+      server:
+        webflux:
+          routes:
+            # 登录/登出/用户信息 → auth-service（放在最前，优先匹配）
+            - id: auth-service
+              uri: lb://auth-service
+              predicates:
+                - Path=/api/login,/api/logout,/api/user/info
+            # 商品浏览 → product-service；必须放在 user-service 的 /api/** 通配之前，更具体的规则优先匹配。
+            # 裸路径（/api/products）是列表接口，/** 是详情等子路径，两者都要覆盖。
+            - id: product-service
+              uri: lb://product-service
+              predicates:
+                - Path=/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**
+            # 阶段 0 冒烟：其余 /api/** 暂转给 user-service，JWT 鉴权仍由下游拦截器承担
+            - id: user-service
+              uri: lb://user-service
+              predicates:
+                - Path=/api/**
+
+server:
+  port: 8080

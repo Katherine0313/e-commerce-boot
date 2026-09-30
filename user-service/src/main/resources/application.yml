@@ -1,0 +1,75 @@
+spring:
+  application:
+    name: user-service
+  profiles:
+    active: dev
+  main:
+    log-startup-info: false
+  cloud:
+    nacos:
+      discovery:
+        # Nacos 3.x：客户端通信仍是 8848（gRPC 9848/9849），控制台另走 8080 端口
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+  datasource:
+    # 连接凭据不写进版本库：本地值在 application-dev.yml（已被 gitignore），
+    # 生产由环境变量提供。用户名/密码故意不给默认值，缺失就启动失败，避免悄悄用了错的值。
+    url: ${DB_URL:jdbc:mysql://localhost:3306/e_commerce_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      pool-name: MyHikariCP
+  http:
+    clients:
+      # 调用外部接口（如微信）的超时，避免对方无响应时一直占着请求线程
+      connect-timeout: 3s
+      read-timeout: 5s
+  servlet:
+    multipart:
+      # 上传限制：单文件 2MB，整个请求 3MB（给表单里的其他字段留余量）。
+      # 不配的话是 Spring Boot 默认的 1MB / 10MB。超限由 GlobalExceptionHandler 转成 413 + 可读提示。
+      max-file-size: 2MB
+      max-request-size: 3MB
+
+server:
+  port: 9006
+
+logging:
+  level:
+    root: INFO
+    org.springframework: WARN
+    org.springframework.boot: WARN
+    org.springframework.web: WARN
+    com.zaxxer.hikari: WARN
+    org.apache.tomcat: WARN
+    org.apache.catalina: WARN
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+  # mappers/ 下按业务模块分子目录存放，** 递归匹配
+  mapper-locations: classpath*:mappers/**/*.xml
+
+# 微信小程序配置：登录时用 code 换取 openid
+# 真实值不写在这里（避免提交到 git），由激活的 profile 文件或环境变量提供
+wechat:
+  appid: ${WECHAT_APPID:}
+  secret: ${WECHAT_SECRET:}
+
+#JWT 配置：登录成功后签发令牌
+jwt:
+  secret: ${JWT_SECRET}
+  #token有效期，单位：秒（7天）
+  expire: 604800
+
+# 接口文档：这里作为安全兜底「默认关闭」，只在 application-dev.yml 中开启。
+# 这样生产环境即使配错 profile 也不会把 /swagger-ui.html 和 /v3/api-docs 暴露出去。
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
