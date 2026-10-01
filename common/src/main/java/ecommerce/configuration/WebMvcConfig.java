@@ -50,8 +50,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
     }
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry){
+        // 用户头像等上传文件：/upload/** → 工作目录 upload/
         registry.addResourceHandler("/upload/**")
                 .addResourceLocations("file:upload/");
+        // 商品图片：数据库 image 字段存 /image/upload/N.webp，映射到 upload/image/ 下的真实文件
+        registry.addResourceHandler("/image/**")
+                .addResourceLocations("file:upload/image/");
     }
 
 

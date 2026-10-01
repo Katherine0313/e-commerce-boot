@@ -1,6 +1,12 @@
 package ecommerce.product.service.impl;
 
 import ecommerce.exception.BusinessException;
+import ecommerce.product.entity.Category;
+import ecommerce.product.entity.Product;
+import ecommerce.product.entity.Tag;
+import ecommerce.product.mapper.CategoryMapper;
+import ecommerce.product.mapper.ProductMapper;
+import ecommerce.product.mapper.TagMapper;
 import ecommerce.product.service.ProductService;
 import ecommerce.product.vo.CategoryVO;
 import ecommerce.product.vo.ProductVO;
@@ -8,71 +14,104 @@ import ecommerce.product.vo.TagVO;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-import java.math.BigDecimal;
 import java.util.List;
 
 /**
- * 商品浏览 Service（占位骨架）。
+ * 商品浏览 Service。
  * <p>
- * 表结构尚未设计、未接数据库，这里返回固定示例数据，先把「网关路由 + 免登录 + 接口文档」这条链路跑通；
- * 后续阶段 2/3 设计 products/categories/tags 表并接 MyBatis 后，替换为真实查询。
+ * 小程序首页的商品来自模板店（shopId=1）。多租户沙箱（按 token 解析 shopId）后续接入，
+ * 届时把 TEMPLATE_SHOP_ID 换成从上下文取真实 shopId 即可，mapper 查询已按 shopId 参数化。
  */
 @Service
 public class ProductServiceImpl implements ProductService {
 
-    /** 占位商品数据，供前端联调 */
-    private static final List<ProductVO> DEMO_PRODUCTS = List.of(
-            ProductVO.builder()
-                    .id(1L).name("示例商品 · 新疆阿克苏苹果")
-                    .price(new BigDecimal("19.90")).stock(100)
-                    .image("/upload/product/demo-apple.png")
-                    .description("脆甜多汁，产地直发（占位数据，接库后替换）。")
-                    .categoryId(1L).status(1)
-                    .build(),
-            ProductVO.builder()
-                    .id(2L).name("示例商品 · 精选赣南脐橙")
-                    .price(new BigDecimal("29.90")).stock(50)
-                    .image("/upload/product/demo-orange.png")
-                    .description("果肉饱满，酸甜适中（占位数据，接库后替换）。")
-                    .categoryId(1L).status(1)
-                    .build()
-    );
+    /** 模板店（杰米小店）：小程序首页展示的数据源，多租户沙箱接入前固定为 1 */
+    private static final Long TEMPLATE_SHOP_ID = 1L;
 
-    /** 占位分类数据，parentId 构成分类树（顶级分类 parentId=null） */
-    private static final List<CategoryVO> DEMO_CATEGORIES = List.of(
-            CategoryVO.builder().id(1L).name("水果").parentId(null).sort(1).build(),
-            CategoryVO.builder().id(2L).name("蔬菜").parentId(null).sort(2).build(),
-            CategoryVO.builder().id(3L).name("苹果").parentId(1L).sort(1).build()
-    );
+    private final ProductMapper productMapper;
+    private final CategoryMapper categoryMapper;
+    private final TagMapper tagMapper;
 
-    /** 占位标签数据 */
-    private static final List<TagVO> DEMO_TAGS = List.of(
-            TagVO.builder().id(1L).name("热销").build(),
-            TagVO.builder().id(2L).name("新品").build(),
-            TagVO.builder().id(3L).name("包邮").build()
-    );
+    public ProductServiceImpl(ProductMapper productMapper, CategoryMapper categoryMapper, TagMapper tagMapper) {
+        this.productMapper = productMapper;
+        this.categoryMapper = categoryMapper;
+        this.tagMapper = tagMapper;
+    }
 
     @Override
     public List<ProductVO> listProducts() {
-        return DEMO_PRODUCTS;
+        return productMapper.listOnSale(TEMPLATE_SHOP_ID).stream()
+                .map(this::toVO)
+                .toList();
     }
 
     @Override
     public ProductVO getProduct(Long id) {
-        // 占位：从示例数据里按 id 找，找不到返回 404（与真实查库后行为一致）
-        return DEMO_PRODUCTS.stream()
-                .filter(p -> p.getId().equals(id))
-                .findFirst()
-                .orElseThrow(() -> new BusinessException(HttpStatus.NOT_FOUND, "商品不存在"));
+        Product product = productMapper.findById(id, TEMPLATE_SHOP_ID);
+        if (product == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
+        }
+        return toVO(product);
     }
 
     @Override
     public List<CategoryVO> listCategories() {
-        return DEMO_CATEGORIES;
+        return categoryMapper.listCategories(TEMPLATE_SHOP_ID).stream()
+                .map(this::toVO)
+                .toList();
     }
 
     @Override
     public List<TagVO> listTags() {
-        return DEMO_TAGS;
+        return tagMapper.listTags(TEMPLATE_SHOP_ID).stream()
+                .map(this::toVO)
+                .toList();
+    }
+
+    private ProductVO toVO(Product p) {
+        return ProductVO.builder()
+                .id(p.getId())
+                .name(p.getName())
+                .subTitle(p.getSubTitle())
+                .brand(p.getBrand())
+                .image(p.getImage())
+                .description(p.getDescription())
+                .body(p.getBody())
+                .price(p.getSalesPrice())
+                .marketPrice(p.getMarketPrice())
+                .stock(p.getStock())
+                .categoryId(p.getCategoryId())
+                .tagId(p.getTagId())
+                .salesMode(p.getSalesMode())
+                .status(p.getListingStatus())
+                .productCode(p.getProductCode())
+                .weight(p.getWeight())
+                .volume(p.getVolume())
+                .build();
+    }
+
+    private CategoryVO toVO(Category c) {
+        return CategoryVO.builder()
+                .id(c.getId())
+                .name(c.getName())
+                .parentId(c.getParentId())
+                .sort(c.getSortOrder())
+                .status(c.getStatus())
+                .recommend(c.getRecommend())
+                .productCount(c.getProductCount())
+                .build();
+    }
+
+    private TagVO toVO(Tag t) {
+        return TagVO.builder()
+                .id(t.getId())
+                .name(t.getName())
+                .code(t.getCode())
+                .type(t.getType())
+                .color(t.getColor())
+                .sort(t.getSortOrder())
+                .status(t.getStatus())
+                .productCount(t.getProductCount())
+                .build();
     }
 }

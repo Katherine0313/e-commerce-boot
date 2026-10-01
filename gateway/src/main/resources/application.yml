@@ -19,10 +19,11 @@ spring:
                 - Path=/api/login,/api/logout,/api/user/info
             # 商品浏览 → product-service；必须放在 user-service 的 /api/** 通配之前，更具体的规则优先匹配。
             # 裸路径（/api/products）是列表接口，/** 是详情等子路径，两者都要覆盖。
+            # /image/** 是商品图片静态资源，同样由 product-service 托管（见 common WebMvcConfig 的 addResourceHandlers）。
             - id: product-service
               uri: lb://product-service
               predicates:
-                - Path=/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**
+                - Path=/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**,/image/**
             # 阶段 0 冒烟：其余 /api/** 暂转给 user-service，JWT 鉴权仍由下游拦截器承担
             - id: user-service
               uri: lb://user-service

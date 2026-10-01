@@ -1,6 +1,8 @@
 spring:
   application:
     name: product-service
+  profiles:
+    active: dev
   cloud:
     nacos:
       discovery:
@@ -8,18 +10,34 @@ spring:
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
         username: ${NACOS_USERNAME:nacos}
         password: ${NACOS_PASSWORD:nacos}
+  datasource:
+    # 连接凭据不写进版本库：本地值在 application-dev.yml（已被 gitignore），
+    # 生产由环境变量提供。用户名/密码故意不给默认值，缺失就启动失败。
+    url: ${DB_URL:jdbc:mysql://localhost:3306/e_commerce_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      pool-name: MyHikariCP
 
 server:
   port: 9003
 
-# 占位服务暂未接业务，但 common 的 JwtProperties/WeChatProperties 启动时校验非空，
-# 下面给的是让骨架能裸启动的占位值，接入真实业务前保持即可。
+# product-service 不做登录，但 common 的 JwtProperties 启动校验非空，给占位值让骨架能裸启动
 jwt:
   secret: dev-placeholder-jwt-secret-0123456789abcdef0123456789abcdef
   expire: 604800
 wechat:
   appid: placeholder-appid
   secret: placeholder-secret
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+  # mappers/ 下按业务模块分子目录存放，** 递归匹配
+  mapper-locations: classpath*:mappers/**/*.xml
 
 # 接口文档：默认关闭作为安全兜底（生产不暴露 /swagger-ui.html 和 /v3/api-docs），开发期在 application-dev.yml 开启
 springdoc:

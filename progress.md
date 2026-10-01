@@ -155,6 +155,20 @@
   - 商品数据为占位（`DEMO_*`），接库时（阶段 2/3 设计 products/categories/tags 表并接 MyBatis）替换 `ProductServiceImpl` 即可，Controller/VO/文档结构不动
   - product-service 尚未加 MyBatis/MySQL 依赖与 `@MapperScan`，接库时一并补
 
+## 会话：2026-10-01
+
+### 阶段 H：商品域数据库迁移（SQLite → MySQL）+ 图片迁移
+- **状态：** complete（数据 + 图片已迁入、product-service 接库；待重启 gateway/product-service 做端到端验证）
+- 执行的操作：
+  - 写 `docs/sql/product.sql`：商品域 4 表（shops/categories/tags/products）建表 + 种子数据（模板店 shopId=1：32 商品含下架、22 分类、1 标签）
+  - 迁移设计：去掉 ID_BLOCK 号段 hack → BIGINT AUTO_INCREMENT；Unix 秒 → DATETIME（FROM_UNIXTIME）；REAL → DECIMAL；categories.product_count 去掉（读走子查询）、tags.product_count 保留（物化计数）；不加物理外键
+  - 图片迁移：`server/uploads/` 的 32 张 png/jpeg 用 Pillow 转 webp → `upload/image/upload/`；`WebMvcConfig` 加 `/image/**` 映射、gateway 加 `/image/**` 路由；修 id=9 的 image 从 UUID 改回数字命名
+  - product-service 接库：entity/mapper/XML/ProductServiceImpl 换真实查询（`TEMPLATE_SHOP_ID=1L`），application.yml 加 datasource/MyBatis 配置，启动类加 `@MapperScan`
+- 踩坑（详见 findings.md「商品域数据库迁移踩坑点」）：GBK 乱码、幂等脚本局限、图片路径/格式错位、索引决策
+- 创建/修改的文件：
+  - 新增：`docs/sql/product.sql`、product-service 下 entity/mapper/XML、`application-dev.yml`
+  - 修改：product-service 的 `ProductServiceImpl`/`ProductVO`/`CategoryVO`/`TagVO`/`pom.xml`/`application.yml`/`ProductServiceApplication`、common 的 `WebMvcConfig`、gateway `application.yml`、findings/progress/task_plan 三个 md
+
 ## 测试结果
 
 | 测试 | 输入 | 预期结果 | 实际结果 | 状态 |
@@ -176,6 +190,7 @@
 | 2026-09-30 | auth-service 注册/控制台登录报 `User not found! Please check user exist or password is right!`（nacos/nacos） | 1 | Nacos 3.x 默认账号机制与 2.x 不同，开发期直接 `NACOS_AUTH_ENABLE=false` 关鉴权 |
 | 2026-09-30 | auth-service 启动报 `Could not find artifact ecommerce:e-commerce-boot:pom` | 1 | 父 pom 未装本地仓库，`mvn -q install -DskipTests` 全量装一次 |
 | 2026-09-30 | 小程序 `GET /api/user/profile` 带合法 token 经网关 500「服务器内部错误」 | 3 | 根因：三个服务是 IntelliJ 13:02–13:04 起的旧进程，早于阶段 F 代码（13:47–13:48 写完+install）。同 classpath 新起实例即 200，证明代码/DB 无问题。从最新 jar 重启 user-service/auth-service/gateway 后 profile 200、`POST /api/login` 由 404 变 500（admin 表未建，属待办） |
+| 2026-10-01 | `mysql < product.sql` 导入后中文乱码（商品名/分类名/表列 COMMENT 变「鍟嗗搧」） | 1 | 根因：Windows mysql 客户端默认 gbk，UTF-8 文件被误解码。清空 4 表 + 加 `--default-character-set=utf8mb4` 重导解决；根治改 my.ini `[client]` 加 `default-character-set=utf8mb4` |
 
 ## 五问重启检查
 

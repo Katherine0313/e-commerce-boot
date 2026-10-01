@@ -270,6 +270,14 @@ ecommerce
 
 ## 资源
 
+### 三个相关项目地址
+
+| 项目 | 本地路径 | 说明 |
+|---|---|---|
+| 电商小程序（C 端 uniapp） | `D:\study\my-workspace\wechat-workspace\e-commerce-uniapp` | 顾客端小程序，对应 `user` 模块 / `/api/**` |
+| 电商后台管理系统前端 | `D:\study\my-workspace\wechat-workspace\e-commerce` | Vue3 + ant-design-vue，对应 `admin` 模块 |
+| 电商后台管理系统后端（待重构） | `D:\study\my-workspace\wechat-workspace\e-commerce\server` | Node.js（Express + SQLite），准备整合进本项目做微服务拆分 |
+
 - 架构与约定入口：**本文档「项目架构约定」一节**（2026-09-28 由原根目录 `project_spec.md` 全文并入，含三端划分、命名规则、OpenAPI 同步约定、头像上传待办表）
 - 静态接口契约：`docs/openapi.yaml`（263 行）
 - 运行时文档：`/swagger-ui.html`、`/v3/api-docs`（仅 dev profile 开）
@@ -348,6 +356,62 @@ Nacos + 服务注册 + 网关路由已跑通（task_plan 阶段 0 completed）�
 5. ~~现有 `Result` / `GlobalExceptionHandler` / `JwtInterceptor` / `UserContext` / `BusinessException` 要下沉为各服务共用的 common 模块~~ → **已完成**（阶段 D，common 模块 + 8 服务骨架）。
 6. 现有 `user` 模块（小程序）与后台 `admin` 模块是两个账号体系：admin 走账号密码（本次前端对接的主体，登录接口已就位），user 走微信 openid（已有）。
 7. 路径约定冲突（**待决策，用户说「到时候再说」**）：本文档「项目架构约定」写后台接口走 `/api/admin/**`，但实际前端（Node 版后台管理系统）全部走 `/api/**`（无 admin 前缀）。`JwtInterceptor.isAdminPath` 按路径分流会把 admin 令牌在 `/api/user/info` 等非 `/api/admin` 接口判成「需 user 类型」→ 403。做 gateway 鉴权过滤器时再定改法。
+
+## 商品域数据库迁移踩坑点（2026-10-01）
+
+> 商品首页数据源已从 Node 的 SQLite 迁到 MySQL（product-service 接库，见 `docs/sql/product.sql`）。只迁商品域 4 张表（shops / categories / tags / products），32 个商品（含下架）全迁，图片转 webp 迁入。**以下踩坑点后续迁移后台模块（用户/订单/售后）同样适用，务必先看。**
+
+### 1. MySQL 客户端 GBK 乱码（最坑）
+
+- **现象**：`mysql < xxx.sql` 导入 UTF-8 的 SQL，中文全乱码（商品名/分类名/表列 COMMENT 变成「鍟嗗搧」这类字）。
+- **根因**：Windows 下 mysql 客户端默认 `character_set_client/connection/results = gbk`，而库/表是 utf8mb4，UTF-8 文件被按 GBK 误解码（双重编码）。
+- **迷惑点**：用 GBK 连接查询，乱码会被「假还原」成正常中文（双重编码抵消）；**必须用 `--default-character-set=utf8mb4` 查询才能看到真实乱码**。
+- **解决**：导入和查询一律加 `--default-character-set=utf8mb4`。
+- **根治**：`C:\ProgramData\MySQL\MySQL Server 8.0\my.ini` 的 `[client]` 段加 `default-character-set=utf8mb4`，重启 MySQL。
+
+### 2. 幂等脚本（IF NOT EXISTS + INSERT IGNORE）的局限
+
+- `CREATE TABLE IF NOT EXISTS`：表已存在就**跳过建表**，改表结构（加/删索引、改 COMMENT）**不生效** → 必须 DROP 重建。
+- `INSERT IGNORE`：主键冲突就**跳过插入**，改数据**不覆盖** → 必须 TRUNCATE 后重导。
+- 结论：改完 `product.sql` 想让它生效 = **DROP 4 张表 + 重新导入**，两步缺一不可。
+
+### 3. 图片迁移的路径/格式错位
+
+- Node 端 `public/image/` 目录**根本不存在**，真实图片在 `e-commerce/server/uploads/`，命名为数字 `1.png~32.png + 13.jpeg`（对应商品 id）。
+- 数据库 `image` 存 `/image/upload/N.webp`，磁盘却是 `.png/.jpeg`（**扩展名不匹配**）；`body` 字段的 `/image/body/UUID.webp` 磁盘**全部不存在**。
+- id=9 的 `image` 是 UUID（`530c8603-...` 脏数据），真实图是 `9.png`。
+- **处理**：Pillow 把 png/jpeg 转 webp → `upload/image/upload/N.webp`；`WebMvcConfig` 加 `/image/**` → `file:upload/image/`；gateway 加 `/image/**` → product-service；id=9 改回 `/image/upload/9.webp`。
+- body 图磁盘全丢，用户确认「不用管，没影响」（首页列表只用主图）。
+
+### 4. 数据库操作边界
+
+- 我只做**查询**；建表 / TRUNCATE / DROP / UPDATE 都生成脚本由用户自己执行（会话里用 `!` 前缀跑命令）。
+
+### 5. 建表设计决策与注意事项（商品域，后续模块照此执行）
+
+- 只迁商品域 4 表，不迁全部 17 表。
+- 去掉 SQLite `ID_BLOCK=1000000` 号段 hack → `BIGINT AUTO_INCREMENT`（查询带 shop_id 过滤）。
+- Unix 秒 → `DATETIME`（`FROM_UNIXTIME`）；REAL → `DECIMAL`。
+- `categories.product_count` 冗余列去掉（读走子查询实时算）；`tags.product_count` 保留（物化计数）。
+
+**外键（最终决策：加物理外键，级联由 DB 兜底，不在应用层手写）**
+
+| 外键 | 关系 | 删除规则 |
+|------|------|---------|
+| `fk_products_tag` | products.tag_id → tags.id | SET NULL |
+| `fk_products_category` | products.category_id → categories.id | SET NULL |
+| `fk_categories_parent` | categories.parent_id → categories.id | CASCADE |
+
+- SET NULL 对应原 SQLite 的 `ON DELETE SET NULL`（删标签/分类 → 商品自动解绑）；CASCADE 是用户选的（删父分类 → 级联删全部子孙分类）。
+- 为什么加：用户实际只用模板店（shop_id=1）、不克隆沙箱、商品域同库，物理外键可行且更可靠（级联不会漏）。早前「沙箱克隆要关外键 / 外键不感知 shop_id」两条顾虑在单模板店场景下不成立。
+- `categories.parent_id` 自引用 CASCADE 会递归级联（删父→删子→删孙）；与 products 的 SET NULL 协同：删一个分类，其下所有子孙分类被级联删、指向它们的商品只解绑不删。
+- **迁移时清理了一处原系统脏数据**：孤儿分类 id=801「女士连衣裙」`parent_id=8` 指向已删除的父分类（正是原系统删父分类没同步子分类的实证）。不加外键时它是悬空引用；加了外键则导入违反约束，故删除该行。
+
+**索引（最终决策：只留主键 + 外键自动索引）**
+
+- 手动加的普通 `KEY` 全部去掉（数据量小加不加无差别；以后需要时 `ALTER TABLE ... ADD INDEX` 再补，多租户下 `shop_id` 是未来最该补的列）。
+- 外键列（tag_id / category_id / parent_id）上的索引是 InnoDB 建外键时**自动创建**的，删不掉也不该删（删了外键失效）；对 JOIN 查询反而是优化。
+- 别混淆：早前「去索引」针对的是手动普通索引，与外键自动索引不冲突。
 
 ## 视觉/浏览器发现
 

@@ -74,18 +74,17 @@
 - **状态：** in_progress（登录接口已就绪并编译通过，待建表 + 端到端验证）
 
 ### 阶段 2：shop-service（多租户基础设施）
-- [ ] 设计 MySQL 表结构（shops 表 + 17 张业务表的 shop_id 列），产出建表脚本
-- [ ] 模板店种子数据（把原 SQLite 演示数据迁成 MySQL 种子 SQL）
+- [x] shops 表 + 商品域 4 表（shops/categories/tags/products）建表脚本 `docs/sql/product.sql` + 模板店种子数据（已迁入，见 findings「商品域数据库迁移踩坑点」）
 - [ ] 开沙箱：克隆模板店数据（按 shopId=1 查 → 批量 insert 新 shopId）
 - [ ] 过期回收：定时扫 shops 表，调各业务服务清数据
 - [ ] `templateGuard` 等价逻辑（禁写模板店）
-- **状态：** pending
+- **状态：** in_progress（shops 表已建、模板店数据已迁；沙箱克隆/回收/守卫未做）
 
 ### 阶段 3：product-service（最大域）
 - [x] 商品浏览只读接口骨架：`GET /api/products`、`/api/products/{id}`、`/api/categories`、`/api/tags`（controller/service/impl/vo 分层 + 占位数据，不接库）；接入免登录白名单 `EXCLUDE_AUTH_PATHS`，gateway 补 product-service 路由
-- [ ] products / categories / tags / parameters / stock / business_onsale + 关联表（表结构设计属阶段 2）
-- [ ] 商品 CRUD、分类树、标签绑定、参数组/参数项、库存调整、促销（单规格：价格/库存直接挂商品上，不做多规格 SKU）；浏览接口的占位数据替换为真实查询
-- **状态：** in_progress（浏览只读接口骨架已完成，表结构/CRUD 未做）
+- [x] products / categories / tags 表已建 + 数据迁入（32 商品含下架、22 分类、1 标签）+ 图片转 webp 迁入 + 浏览接口接库（真实查询替换占位数据）
+- [ ] parameters / stock / business_onsale 表；商品 CRUD、分类树、标签绑定、参数组/参数项、库存调整、促销（单规格：价格/库存直接挂商品上，不做多规格 SKU）
+- **状态：** in_progress（商品浏览已接库、数据+图片已迁；其余表与 CRUD 未做）
 
 ### 阶段 4：order-service
 - [ ] orders / order_items / cart 表
@@ -130,6 +129,9 @@
 | 数据库 SQLite→MySQL 重设计表结构 | 原 sql.js 内存库不可直接复用，且要加 shop_id 列 |
 | Docker 分阶段使用 | 开发期只用 Docker 跑 Nacos/MySQL 中间件，业务服务 IDE 跑；跑通后再容器化部署 |
 | 分布式中间件后置 | 用户确认；先跑通微服务骨架，再按需引入 Seata/Redis/MQ/分布式锁/分布式 ID |
+| 数据库迁移脚本一律带 `--default-character-set=utf8mb4` 导入 | Windows mysql 客户端默认 gbk，不带会中文乱码（双重编码，gbk 查询还会假还原） |
+| 商品域加物理外键 | products.tag_id/category_id → tags/categories（ON DELETE SET NULL）、categories.parent_id → categories（ON DELETE CASCADE）；用户只用模板店不克隆沙箱，物理外键可行且可靠，级联由 DB 兜底 |
+| 商品域表只留主键 + 外键自动索引 | 手动普通索引全去；外键列（tag_id/category_id/parent_id）索引是 InnoDB 建外键自动创建的，删不掉也不该删 |
 
 ## 遇到的错误
 
