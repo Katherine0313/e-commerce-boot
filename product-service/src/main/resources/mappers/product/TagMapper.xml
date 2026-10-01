@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.product.mapper.TagMapper">
+    <!-- product_count 读物化列（写操作维护），不实时算 -->
+    <select id="listTags" resultType="ecommerce.product.entity.Tag">
+        select id, shop_id, name, code, type, color, sort_order, status, product_count,
+               create_time, created_by, update_time, updated_by
+        from tags
+        where shop_id = #{shopId}
+        order by sort_order asc, id asc
+    </select>
+</mapper>

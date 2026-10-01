@@ -1,0 +1,24 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.product.mapper.ProductMapper">
+    <!-- 上架商品列表：不查 body（大字段）和 cost_price（C 端不下发成本价） -->
+    <select id="listOnSale" resultType="ecommerce.product.entity.Product">
+        select id, shop_id, category_id, tag_id, name, sub_title, brand, description, image,
+               sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
+               create_time, update_time
+        from products
+        where shop_id = #{shopId} and listing_status = 1
+        order by id asc
+    </select>
+
+    <!-- 商品详情：查 body，仍不下发 cost_price -->
+    <select id="findById" resultType="ecommerce.product.entity.Product">
+        select id, shop_id, category_id, tag_id, name, sub_title, brand, description, image, body,
+               sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
+               create_time, update_time
+        from products
+        where id = #{id} and shop_id = #{shopId}
+    </select>
+</mapper>

@@ -1,0 +1,14 @@
+package ecommerce.product.mapper;
+
+import ecommerce.product.entity.Product;
+import org.apache.ibatis.annotations.Param;
+
+import java.util.List;
+
+public interface ProductMapper {
+    // 上架商品列表（listing_status=1，不含图文详情 body 与成本价 cost_price）
+    List<Product> listOnSale(@Param("shopId") Long shopId);
+
+    // 根据 id 查单个商品（含图文详情 body，仍不下发 cost_price）
+    Product findById(@Param("id") Long id, @Param("shopId") Long shopId);
+}
