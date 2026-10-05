@@ -18,7 +18,7 @@
 
 ## 微服务拆分方案
 
-8 个服务（1 网关 + 7 业务），按 DDD 边界 + 数据归属划分：
+9 个服务（1 网关 + 7 业务 + 1 AI Agent），按 DDD 边界 + 数据归属划分：
 
 | 服务 | 职责 | 数据/表 | 端口约定 |
 |------|------|---------|---------|
@@ -30,6 +30,7 @@
 | `aftersale-service` | 售后（仅退款/退货退款/换货） | after_sales/after_sale_items/after_sale_returns/after_sale_exchange_returns/after_sale_only_refunds | 9005 |
 | `user-service` | 会员/收货地址，整合现有 `user` 模块（小程序） | users/consignee_address + 现有 user | 9006 |
 | `file-service` | 图片上传/静态托管 | uploads + 上传目录 | 9007 |
+| `ai-agent-service` | AI 导购 Agent：对话 + 意图路由 + RAG + MCP + Function Calling | 无（OpenFeign 调 product/order） | 9008 |
 
 **跨服务调用关系（Feign）：**
 - `order-service` 下单 → `product-service` 查商品价格库存；支付/取消 → 回写库存（`product-service` 暴露库存内部接口）
@@ -51,6 +52,7 @@
 | Nacos | server 3.1.1（稳定） | 注册 + 配置中心 |
 | Gateway | Spring Cloud Gateway | 网关 |
 | 服务调用 | OpenFeign | |
+| AI 框架 | Spring AI 2.0.1（官方） | 不用 Spring AI Alibaba（Boot 4 兼容性）；LLM 走硅基流动 DeepSeek-V4-Flash |
 | 数据库 | MySQL（每服务独立库或共享库待定，见风险） | 现状 MySQL |
 | ORM | MyBatis + XML（现状，不引入 MP） | 保持已有约定 |
 
@@ -106,6 +108,23 @@
 - [ ] 前端 baseURL 指向网关，登录响应结构对齐，端到端跑通商品/订单/售后
 - [ ] 更新 `docs/openapi.yaml` 或按服务拆文档；确认 Result 结构与前端拦截器兼容
 - **状态：** pending
+
+### 阶段 8：ai-agent-service（AI 导购 Agent，小程序悬浮 AI）
+- [x] 新建 ai-agent-service 骨架（Spring AI 2.0.1 + 硅基流动 DeepSeek + OpenFeign + MCP + SimpleVectorStore），端口 9008，注册 Nacos + 接入网关 + 免登录白名单
+- [x] 对话接口（普通 + SSE 流式）+ 意图路由（Graph 工作流轻量版）+ 商品查询工具（@Tool 调 product-service）+ 下单工具预留（OrderTool）+ RAG（DocumentLoader/Embedding/RagRetriever）+ MCP（@McpTool）
+- [x] 编译通过 + 启动验证（Nacos 注册、对话、Tool Calling、SSE 流式、MCP 工具注册均实测通过）
+- [ ] 真实商品推荐端到端（product-service 启动后验证，当前返回 DeepSeek 幻觉商品）
+- [ ] AI 下单闭环：依赖 order-service 下单接口（阶段 4），OrderTool.placeOrder 接 Feign + HITL
+- [ ] RAG 生产化：SimpleVectorStore → Milvus/PgVector
+- **状态：** in_progress（Agent 骨架 + 对话 + 工具调用已验证；真实推荐/下单待下游服务）
+
+### 阶段 9：推荐服务（Python，小程序首页「猜你喜欢」）
+- [x] Python FastAPI 服务骨架（`recommender-python/recommend/`，端口 9009）：`GET /recommend` 在线推荐 + `datasource` 抽象层（先读原 SQLite 的 orders/order_items，后续切 MySQL）—— 已跑通（本地 `uvicorn main:app --port 9009`，`/health` `/recommend` `/train` 实测 OK）
+- [x] RFM 分群 + KMeans 聚类 + 群体热销推荐（同簇热销过滤已购）+ 销量热门兜底；冷启动未登录/无历史走热门（方向定案见 findings「推荐服务（Python）方案」）
+- [x] product-service 桥接接口：`GET /api/products/recommend`（复用网关 `/api/products/**` 路由，零改动）+ RestClient 调 Python + 超时热门兜底 —— 已端到端跑通
+- [ ] 小程序首页「猜你喜欢」区块（复用 `ProductVO` 商品卡片）
+- [ ] orders/order_items 迁 MySQL（随阶段 4 order-service 落地）+ Python 数据源切 `mysql_source`
+- **状态：** in_progress（Python 服务 + Java 桥接已跑通；剩余：前端 UI / 订单表迁 MySQL）
 
 ## 风险与待确认
 

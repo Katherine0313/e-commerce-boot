@@ -45,3 +45,9 @@ springdoc:
     enabled: false
   swagger-ui:
     enabled: false
+
+# Python 推荐服务地址（猜你喜欢）；超时毫秒，防止慢调用拖垮商品浏览
+recommend:
+  base-url: http://127.0.0.1:9009
+  connect-timeout: 500
+  read-timeout: 1000

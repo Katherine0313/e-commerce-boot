@@ -38,6 +38,7 @@ public class ProductServiceImpl implements ProductService {
         this.tagMapper = tagMapper;
     }
 
+    // 获取上架的商品
     @Override
     public List<ProductVO> listProducts() {
         return productMapper.listOnSale(TEMPLATE_SHOP_ID).stream()
@@ -52,6 +53,16 @@ public class ProductServiceImpl implements ProductService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
         return toVO(product);
+    }
+
+    @Override
+    public List<ProductVO> listProductsByIds(List<Long> ids) {
+        if (ids == null || ids.isEmpty()) {
+            return List.of();
+        }
+        return productMapper.listOnSaleByIds(ids, TEMPLATE_SHOP_ID).stream()
+                .map(this::toVO)
+                .toList();
     }
 
     @Override

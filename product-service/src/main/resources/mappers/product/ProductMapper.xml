@@ -21,4 +21,17 @@
         from products
         where id = #{id} and shop_id = #{shopId}
     </select>
+
+    <!-- 按 id 列表查上架商品（推荐接口用），不含 body/cost_price -->
+    <select id="listOnSaleByIds" resultType="ecommerce.product.entity.Product">
+        select id, shop_id, category_id, tag_id, name, sub_title, brand, description, image,
+        sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
+        create_time, update_time
+        from products
+        where shop_id = #{shopId} and listing_status = 1
+        and id in
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
 </mapper>

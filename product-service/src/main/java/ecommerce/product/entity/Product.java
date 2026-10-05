@@ -7,16 +7,15 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
-
 /**
  * 商品实体（单规格：价格/库存直接挂在商品上，不做 SKU）。
  * <p>
  * costPrice 是后台字段，C 端查询（listOnSale/findById）不下发，仅后台接口会 SELECT 它。
  */
 @Data
-@Builder
 @NoArgsConstructor
 @AllArgsConstructor
+@Builder
 public class Product {
     private Long id;
     private Long shopId;

@@ -2,6 +2,108 @@
 
 > 本文件只存事实与研究结论。外部网页/搜索内容只写这里，不写进 `task_plan.md`。
 
+## 本地启动流程（开发环境）
+
+> 2026-10-03 补记。起因是一次排查：`java.exe` 只有 IDEA、8080/8848 全无监听，结论是**后端不是启动失败，是根本没起**；而且即使去起，Docker 没开的话也起不来。
+
+### 核心机制：必须先 Nacos，再服务
+
+所有服务在启动阶段都要向 Nacos 注册（各 `application.yml` 里的 `spring.cloud.nacos.discovery.server-addr`，默认 `${NACOS_ADDR:127.0.0.1:8848}`）。
+Nacos 只有一份，是 Docker 容器（根目录 `docker-compose.yml`，**该文件只起 Nacos 一件事**）。
+
+**Docker 没起 → Nacos 没起 → 8848 无监听 → 服务注册失败、启动不成功。**
+
+容易踩的误解：「只把 application 跑起来就行」——不行，注册中心不在，服务起不来。
+
+对照：**MySQL 不走 Docker**（本机原生 MySQL80，3306），它不是卡点，Docker 停掉不影响它。
+
+### 启动顺序（缺一不可）
+
+**第 1 步：启动 Docker Desktop，等引擎 Running**
+
+- 判据：`docker info` 能正常返回；WSL 发行版 `docker-desktop` 为 Running
+- 注意：Docker Desktop 主程序没起时，`tasklist` 里连 docker 进程都没有
+
+**第 2 步：起 Nacos，并等它就绪**
+
+```powershell
+docker compose up -d          # 在项目根目录执行
+docker compose ps             # 期望 nacos 状态为 running
+docker compose logs -f nacos  # 看启动过程，出现 "Nacos started successfully" 即可
+```
+
+Nacos 冷启动约 20~40 秒，**别起完容器立刻起服务**，等 8848 通了再走下一步。
+验证：`Test-NetConnection 127.0.0.1 -Port 8848` 返回 True。
+
+**第 3 步：起后端服务**
+
+顺序不强制，先起 gateway 也可以（它靠 `lb://` 懒解析，不要求下游先就绪）。
+
+- 最小可用集（跑通 C 端主链路）：`gateway` + `auth-service` + `user-service`
+- 要测商品再加：`product-service`
+
+两种起法，二选一：
+
+1. **IDE 里跑启动类**（日常推荐，改完即时生效）
+2. **命令行跑 jar**
+
+```powershell
+java -jar gateway/target/gateway-0.0.1-SNAPSHOT.jar
+java -jar auth-service/target/auth-service-0.0.1-SNAPSHOT.jar
+java -jar user-service/target/user-service-0.0.1-SNAPSHOT.jar
+```
+
+**第 4 步：验证端到端**
+
+```powershell
+curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 即通
+```
+
+### 端口对照表
+
+| 服务 | 端口 | 启动类 | 需要 DB 凭据（application-dev.yml） |
+|---|---|---|---|
+| gateway | 8080 | `GatewayApplication` | 否 |
+| auth-service | 9001 | `AuthServiceApplication` | **是** |
+| shop-service | 9002 | `ShopServiceApplication` | 否 |
+| product-service | 9003 | `ProductServiceApplication` | **是** |
+| order-service | 9004 | `OrderServiceApplication` | 否 |
+| aftersale-service | 9005 | `AftersaleServiceApplication` | 否 |
+| user-service | 9006 | `UserServiceApplication` | **是** |
+| file-service | 9007 | `FileServiceApplication` | 否 |
+| Nacos | 8848 / 9848 / 9849 | — | — |
+| Nacos 控制台 | 18080（容器内 8080） | — | — |
+| MySQL | 3306（本机原生） | — | — |
+
+### 已知坑：jar 可能落后于源码
+
+`target/*.jar` 是 2026-09-30 13:48 打的，而 `product-service` 在 10-01 接库时改了 18 个源文件**没有重新打包**，
+它的 jar 里**不含 `application-dev.yml`**（源码里有）。直接 `java -jar` 跑它，会用旧代码且拿不到 DB 凭据而启动失败。
+
+所以用 jar 方式起之前，先全量重打一次：
+
+```powershell
+mvn -q install -DskipTests
+```
+
+（父 pom 未装本地仓库时会报 `Could not find artifact ecommerce:e-commerce-boot:pom`，同样是这条命令解决。）
+
+### 关停
+
+```powershell
+docker compose down    # 停 Nacos（数据在容器内嵌 derby，开发期无所谓）
+# 后端服务：IDE 里点停止，或命令行 Ctrl+C / taskkill
+```
+
+### 排查速查
+
+| 现象 | 大概率原因 |
+|---|---|
+| `curl 127.0.0.1:8080/...` 连不上（exit 7） | gateway 没起，或 Docker/Nacos 没起导致它起不来 |
+| 服务日志停在注册阶段、报 Nacos 连接失败 | Docker Desktop 没起 / Nacos 容器没起 |
+| `tasklist` 里 Java 进程只有 IDEA | 后端一个都没起（正常现象，它不会自启） |
+| 启动报 `DB_USERNAME` 占位符解析失败 | 该服务的 `application-dev.yml` 缺失（或被 gitignore 后没本地补上） |
+
 ## 需求
 
 - 用户要求：探索本项目，生成 `task_plan.md`、`findings.md`、`progress.md` 三个持久化规划文件。
@@ -382,7 +484,7 @@ Nacos + 服务注册 + 网关路由已跑通（task_plan 阶段 0 completed）�
 - id=9 的 `image` 是 UUID（`530c8603-...` 脏数据），真实图是 `9.png`。
 - **处理**：Pillow 把 png/jpeg 转 webp → `upload/image/upload/N.webp`；`WebMvcConfig` 加 `/image/**` → `file:upload/image/`；gateway 加 `/image/**` → product-service；id=9 改回 `/image/upload/9.webp`。
 - body 图磁盘全丢，用户确认「不用管，没影响」（首页列表只用主图）。
-
+  
 ### 4. 数据库操作边界
 
 - 我只做**查询**；建表 / TRUNCATE / DROP / UPDATE 都生成脚本由用户自己执行（会话里用 `!` 前缀跑命令）。
@@ -412,6 +514,117 @@ Nacos + 服务注册 + 网关路由已跑通（task_plan 阶段 0 completed）�
 - 手动加的普通 `KEY` 全部去掉（数据量小加不加无差别；以后需要时 `ALTER TABLE ... ADD INDEX` 再补，多租户下 `shop_id` 是未来最该补的列）。
 - 外键列（tag_id / category_id / parent_id）上的索引是 InnoDB 建外键时**自动创建**的，删不掉也不该删（删了外键失效）；对 JOIN 查询反而是优化。
 - 别混淆：早前「去索引」针对的是手动普通索引，与外键自动索引不冲突。
+
+## AI 导购 Agent 服务（2026-10-03）
+
+> 小程序要加悬浮式 AI 导购助手。定位是**完整 Agent，不是「LLM 聊天壳」**——这是项目亮点。保留文档《智能商品推荐助手项目.docx》四大能力：Graph 工作流（意图路由）/ RAG / MCP / Function Calling。**不用 Spring AI Alibaba，用 Spring AI 官方**。
+
+### 技术选型与兼容性
+
+| 组件 | 选型 | 说明 |
+|---|---|---|
+| AI 框架 | **Spring AI 2.0.1（官方）** | 正式支持 Boot 4.0/4.1；不用 Spring AI Alibaba（其稳定版 1.1.x 不支持 Boot 4、会 ClassNotFound，对齐 Boot 4 的只有 2.0.0-M1 里程碑） |
+| LLM | 硅基流动 OpenAI 兼容接口 | `base-url=https://api.siliconflow.cn/v1`，模型 `deepseek-ai/DeepSeek-V4-Flash`；key 放 application-dev.yml（gitignore） |
+| Embedding | 硅基流动 `BAAI/bge-m3` | RAG 向量化 |
+| 向量库 | SimpleVectorStore（开发） | 内存起步零部署；生产换 Milvus/PgVector 只改 Bean |
+| 服务调用 | OpenFeign | 调 product-service（项目里首个引入 OpenFeign 的服务） |
+| MCP | spring-ai-starter-mcp-server-webmvc | `@McpTool` 暴露工具，端点 /mcp/message |
+
+### 四大能力落地
+
+- **Graph 工作流**：`IntentRouter` 意图路由（RECOMMEND/ORDER/QA/CHAT）+ `AiChatServiceImpl` 按意图组合 system prompt + 工具 / RAG。
+- **RAG**：`DocumentLoader`（商品→文档）→ `EmbeddingService`（向量化）→ `RagRetriever`（检索 Top-K 拼 Prompt）。
+- **MCP**：`@McpTool` 把商品/下单工具暴露为 MCP server，新增数据源不改 Agent 核心。
+- **Function Calling**：`@Tool` 定义 `searchProducts`/`getProduct`/`placeOrder`；下单是写操作走 HITL（依赖 order-service 下单接口，已预留）。
+
+### 验证结果（2026-10-03 实测）
+
+- ✅ 启动 + Nacos 注册：`ai-agent-service ...:9008 register finished`
+- ✅ 对话链路：ChatClient 调硅基流动 DeepSeek 返回真实回复（key 有效）
+- ✅ Tool Calling：问「推荐键盘」触发 searchProducts 工具调用
+- ✅ SSE 流式：`data:你好 / data:呀 ...` 打字机输出正常（Flux<String> 在 Spring MVC 下 SSE 可用）
+- ✅ MCP：`Registered tools: 2`，端点 /mcp/message
+- ⚠️ 推荐返回 DeepSeek 编的键盘（非真实商品）：product-service 未启动、Feign 调不到真实数据 → 幻觉，印证「接真实数据降幻觉」
+
+### Spring AI 2.0 关键 API（与 1.x 不同，写代码先看）
+
+- `@Tool` / `@ToolParam`：`org.springframework.ai.tool.annotation.*`
+- `@McpTool` / `@McpToolParam`：`org.springframework.ai.mcp.annotation.*`
+- 配置扁平化：`spring.ai.openai.chat.model`（不再嵌套 `.options`）
+- `SimpleVectorStore.builder(EmbeddingModel).build()`
+- 工具调用只在 ChatClient 走（`ToolCallingAdvisor`），直接调 ChatModel 不触发
+
+## 推荐服务（Python）方案（2026-10-04）
+
+> 小程序首页要加「猜你喜欢」模块，依据**订单表下单记录**（不是浏览/收藏）推荐商品。推荐算法用 Python 写，独立成一个服务；Java 只做桥接；前端走网关。
+
+### 决策定案
+
+| 项 | 决策 |
+|---|---|
+| 数据源 | 订单表 `orders` + `order_items`（核心是 `user_id → product_id` 关系，通过 join orders 拿 user_id）。先读原 Node 的 SQLite，order-service 落地后迁 MySQL；Python 侧抽 `datasource` 抽象层，迁库只改配置开关 |
+| 服务形态 | Python FastAPI 独立服务，端口 9009；只被 Java 内部调用，不暴露给小程序（统一走网关鉴权，无跨域） |
+| 算法（第一版） | RFM 分群 + KMeans 聚类 + 群体热销推荐（同簇热销过滤已购）+ 销量热门兜底 |
+| 冷启动兜底 | 未登录 / 未下单 / 新用户 → 按销量降序推荐全量在售商品（销量 = `sum(quantity)`，无销量商品按 id 排后补位） |
+| Java 桥接 | 放 product-service，`GET /api/products/recommend`，复用网关已有 `/api/products/**` 路由（**网关零改动**）；RestClient 调 Python，超时/异常走热门兜底，首页不白屏 |
+| 前端 | 复用 `ProductVO` 商品卡片，数据结构零改动 |
+
+### 现状事实（数据已核实）
+
+- 当前 MySQL `e_commerce_db` 只有 5 张表（categories/products/shops/tags/user），**orders/order_items 尚未迁入**（order-service 在 task_plan 阶段 4，pending）。
+- 订单数据仍在原 Node `e-commerce/server/sqlite/database.sqlite`：orders 52 单、order_items 77 条，**有下单记录的用户仅 3 个**（user_id=1/2/3，其中 user_id=1 占了 37 项），商品 32 个。
+- 结论：用户仅 3 个，KMeans 分 3 簇（每簇 1 人），「分群热销」当前退化为「全体热销过滤已购」；框架已就位，用户/订单积累后分群自然分化。第一版目标「链路通、结果可解释」，不追推荐效果指标。
+
+### 架构（数据流）
+
+- **离线**：训练脚本读订单数据源 → 清洗（排除未支付/已取消订单）→ 算 RFM 特征 → KMeans 分群 → 每簇热销商品。
+- **在线**：小程序 → 网关 → product-service `/api/products/recommend` → RestClient 调 Python `/recommend?user_id&limit` → 返回 product_ids → `ProductMapper` 查 products 拼 `ProductVO` → 返回。
+
+### 目录与接口
+
+- Python 项目：`D:\study\my-workspace\wechat-workspace\recommender-python`（推荐服务代码在 `recommend/` 子目录：`main.py` / `recommender.py` / `datasource/{base,sqlite,mysql}.py` / `matrix.py` / `config.py` / `requirements.txt`）。
+- Java：product-service 下 `RecommendController` / `RecommendService` / `RecommendServiceImpl`。
+
+接口约定：
+
+- Python `GET /recommend?user_id=1&limit=10` → `{"product_ids":[...],"scores":[...]}`；缺 user_id 或无历史返回热门兜底。
+- Java `GET /api/products/recommend?limit=10` → `Result<List<ProductVO>>`；登录态用 `UserContext.getUserId()`，未登录 → 请求 Python 不带 user_id → 走热门。
+
+### 阶段划分
+
+| 阶段 | 内容 | 依赖 |
+|---|---|---|
+| 1 Python 服务 | FastAPI 骨架 + SQLite 数据源 + RFM 分群 + 群体热销推荐 + 热门兜底，本地 uvicorn 验证 | 原 SQLite 数据（已有） |
+| 2 Java 桥接 | RecommendController/Service + RestClient 调 Python + 超时兜底 + 同步 openapi.yaml | 阶段 1 |
+| 3 前端 UI | 小程序首页「猜你喜欢」区块 | 阶段 2 |
+| 4 数据迁移 | orders/order_items 迁 MySQL（参照 `docs/sql/product.sql` 迁移方式），Python `config.py` 切 `mysql_source` | order-service（task_plan 阶段 4） |
+
+阶段 1 完全不依赖 order-service，现在即可动手；阶段 4 是长期方向，两者解耦。
+
+### 实现状态（2026-10-04）
+
+阶段 9 第 1~3 项已完成并端到端实测跑通：
+
+**Python 服务（`recommender-python/recommend/`，9 个文件）**
+- `main.py`（`/health` `/recommend` `/train`）、`segmentation.py`（RFM + KMeans 分群 + 簇内热销）、`recommender.py`（群体热销推荐 + 兜底）、`datasource/`（base/sqlite/mysql，两方法 `load_orders` / `load_products`）。
+- 数据源只读原 SQLite，有效下单 22 条（排除 cancel/pending_confirm 后）、在售商品 30 个、3 个用户。
+- 冷启动口径定案：**未下单默认按销量降序推荐**，销量 = `sum(quantity)`，覆盖全量在售商品（`listing_status=1`），无销量商品按 id 排后补位。
+
+**Java 桥接（product-service）**
+- 新增 `RecommendController`（`GET /api/products/recommend`，免登录走白名单 `/api/products/**`）+ `RecommendService` / `RecommendServiceImpl`（RestClient 调 Python + 超时热门兜底）+ `RecommendResponseDTO`。
+- `ProductMapper` / `ProductService` 加 `listOnSaleByIds` / `listProductsByIds`（按 ID 列表查上架商品）。
+- application.yml 加 `recommend.base-url/connect-timeout/read-timeout`。
+- 端到端实测：未登录返回顺序 `[2,9,6,7,15,1,12,18,19,20]` 与 Python 热门一致，JSON 反序列化（@JsonProperty）正确。
+
+**本地启动**
+- Python：`cd recommender-python/recommend && uvicorn main:app --port 9009`
+- product-service：`mvn spring-boot:run`（需 Nacos；本地单测可用 `--spring.cloud.nacos.discovery.enabled=false` 绕过）
+
+### 约定/风险
+
+- Python 连 MySQL 的密码走环境变量，不进 git（对齐项目现有凭据规范）。
+- 新增 `/api/products/recommend` 后按约定同步 `docs/openapi.yaml`。
+- 数据稀疏（3 用户），第一版不追指标；后续数据多了可再加内容相似度（categoryId/tagId）加权融合。
 
 ## 视觉/浏览器发现
 

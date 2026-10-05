@@ -24,7 +24,6 @@ import java.util.List;
 @RestController
 @RequestMapping("/api")
 public class ProductController {
-
     private final ProductService productService;
 
     public ProductController(ProductService productService) {
@@ -37,21 +36,4 @@ public class ProductController {
         return Result.success(productService.listProducts());
     }
 
-    @Operation(summary = "商品详情")
-    @GetMapping("/products/{id}")
-    public Result<ProductVO> getProduct(@PathVariable Long id) {
-        return Result.success(productService.getProduct(id));
-    }
-
-    @Operation(summary = "分类列表")
-    @GetMapping("/categories")
-    public Result<List<CategoryVO>> listCategories() {
-        return Result.success(productService.listCategories());
-    }
-
-    @Operation(summary = "标签列表")
-    @GetMapping("/tags")
-    public Result<List<TagVO>> listTags() {
-        return Result.success(productService.listTags());
-    }
 }

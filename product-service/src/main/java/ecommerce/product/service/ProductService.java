@@ -19,6 +19,15 @@ public interface ProductService {
     ProductVO getProduct(Long id);
 
     /**
+     * 按 id 列表批量查上架商品，仅供 RecommendServiceImpl 内部调用，不是对外 HTTP 接口。
+     * <p>
+     * 用途：推荐服务（Python）返回「猜你喜欢」的一批商品 id 后，用它一次查出商品拼 VO，
+     * 避免循环单查产生 N+1 条 SQL。id 不存在或已下架时自动过滤；返回顺序不保证与入参一致，
+     * 由调用方（RecommendServiceImpl）按 id 顺序自行重排。
+     */
+    List<ProductVO> listProductsByIds(List<Long> ids);
+
+    /**
      * 分类列表（parentId 构成分类树）
      */
     List<CategoryVO> listCategories();

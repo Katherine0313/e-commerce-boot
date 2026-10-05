@@ -169,6 +169,28 @@
   - 新增：`docs/sql/product.sql`、product-service 下 entity/mapper/XML、`application-dev.yml`
   - 修改：product-service 的 `ProductServiceImpl`/`ProductVO`/`CategoryVO`/`TagVO`/`pom.xml`/`application.yml`/`ProductServiceApplication`、common 的 `WebMvcConfig`、gateway `application.yml`、findings/progress/task_plan 三个 md
 
+## 会话：2026-10-03
+
+### 阶段 I：AI 导购 Agent 服务（ai-agent-service）
+- **状态：** in_progress（Agent 骨架 + 对话 + 工具调用已验证；真实推荐/下单待下游服务）
+- 执行的操作：
+  - 读文档《智能商品推荐助手项目.docx》，定位为「完整 Agent 而非 LLM 聊天壳」，保留 Graph 工作流 / RAG / MCP / Function Calling 四大能力
+  - 技术选型确认：Spring AI 2.0.1（官方，支持 Boot 4.1）而非 Spring AI Alibaba（稳定版 1.1.x 不兼容 Boot 4）；LLM 走硅基流动 OpenAI 兼容接口（deepseek-ai/DeepSeek-V4-Flash）
+  - 新建 ai-agent-service 微服务（端口 9008）：pom（spring-ai-starter-model-openai + mcp-server-webmvc + vector-store + openfeign + loadbalancer）、启动类、application.yml/dev（key 放 dev 文件，已 gitignore）
+  - 分层实现四大能力：agent/IntentRouter（意图路由）、tool/ProductTool + OrderTool（@Tool）、rag/DocumentLoader + EmbeddingService + RagRetriever（RAG，SimpleVectorStore 起步）、mcp/McpServerConfig（@McpTool）、service + controller（ChatClient 编排 + SSE 流式）
+  - 父 pom 加模块 + spring-ai-bom 2.0.1；gateway 加路由 + swagger 聚合；common WebMvcConfig 加 /api/agent 免登录
+  - 实测验证：启动 + Nacos 注册成功；对话（ChatClient 调 DeepSeek 返回真实回复）；Tool Calling（触发 searchProducts）；SSE 流式（Flux<String> 打字机输出）；MCP（Registered tools: 2）
+- 关键确认：
+  - Spring AI 2.0 配置扁平化（`spring.ai.openai.chat.model`，不再嵌套 `.options`）；@Tool/@McpTool 包名 `org.springframework.ai.tool.annotation` / `org.springframework.ai.mcp.annotation`
+  - 商品推荐返回 DeepSeek 编的键盘（幻觉）：product-service 未启动、Feign 调不到真实数据 → 印证「接真实数据降幻觉」
+- 创建/修改的文件：
+  - 新增：ai-agent-service 整个模块（19 个文件）
+  - 修改：父 pom.xml、gateway/application.yml、common/WebMvcConfig.java、findings.md、task_plan.md、progress.md
+- 待办/待确认：
+  - 真实商品推荐端到端（product-service 启动后验证）
+  - AI 下单闭环（依赖 order-service 下单接口，阶段 4）
+  - RAG 生产化（SimpleVectorStore → Milvus/PgVector）
+
 ## 测试结果
 
 | 测试 | 输入 | 预期结果 | 实际结果 | 状态 |

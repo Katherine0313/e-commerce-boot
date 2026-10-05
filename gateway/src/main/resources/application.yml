@@ -12,6 +12,55 @@ spring:
       server:
         webflux:
           routes:
+            # 各服务 /v3/api-docs 转发：去掉前缀服务名后转发，供文件末尾 springdoc.swagger-ui.urls 聚合
+            - id: auth-service-api-docs
+              uri: lb://auth-service
+              predicates:
+                - Path=/auth-service/v3/api-docs
+              filters:
+                - RewritePath=/auth-service/(?<segment>.*), /$\{segment}
+            - id: shop-service-api-docs
+              uri: lb://shop-service
+              predicates:
+                - Path=/shop-service/v3/api-docs
+              filters:
+                - RewritePath=/shop-service/(?<segment>.*), /$\{segment}
+            - id: product-service-api-docs
+              uri: lb://product-service
+              predicates:
+                - Path=/product-service/v3/api-docs
+              filters:
+                - RewritePath=/product-service/(?<segment>.*), /$\{segment}
+            - id: order-service-api-docs
+              uri: lb://order-service
+              predicates:
+                - Path=/order-service/v3/api-docs
+              filters:
+                - RewritePath=/order-service/(?<segment>.*), /$\{segment}
+            - id: aftersale-service-api-docs
+              uri: lb://aftersale-service
+              predicates:
+                - Path=/aftersale-service/v3/api-docs
+              filters:
+                - RewritePath=/aftersale-service/(?<segment>.*), /$\{segment}
+            - id: user-service-api-docs
+              uri: lb://user-service
+              predicates:
+                - Path=/user-service/v3/api-docs
+              filters:
+                - RewritePath=/user-service/(?<segment>.*), /$\{segment}
+            - id: file-service-api-docs
+              uri: lb://file-service
+              predicates:
+                - Path=/file-service/v3/api-docs
+              filters:
+                - RewritePath=/file-service/(?<segment>.*), /$\{segment}
+            - id: ai-agent-service-api-docs
+              uri: lb://ai-agent-service
+              predicates:
+                - Path=/ai-agent-service/v3/api-docs
+              filters:
+                - RewritePath=/ai-agent-service/(?<segment>.*), /$\{segment}
             # 登录/登出/用户信息 → auth-service（放在最前，优先匹配）
             - id: auth-service
               uri: lb://auth-service
@@ -24,6 +73,11 @@ spring:
               uri: lb://product-service
               predicates:
                 - Path=/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**,/image/**
+            # AI 导购助手 → ai-agent-service；同样放在 /api/** 通配之前
+            - id: ai-agent-service
+              uri: lb://ai-agent-service
+              predicates:
+                - Path=/api/agent,/api/agent/**
             # 阶段 0 冒烟：其余 /api/** 暂转给 user-service，JWT 鉴权仍由下游拦截器承担
             - id: user-service
               uri: lb://user-service
@@ -32,3 +86,25 @@ spring:
 
 server:
   port: 8080
+
+# Swagger 文档聚合：一个入口 http://localhost:8080/swagger-ui.html，下拉切换各服务
+springdoc:
+  swagger-ui:
+    enabled: true
+    urls:
+      - name: 登录 auth-service
+        url: /auth-service/v3/api-docs
+      - name: 店铺 shop-service
+        url: /shop-service/v3/api-docs
+      - name: 商品 product-service
+        url: /product-service/v3/api-docs
+      - name: 订单 order-service
+        url: /order-service/v3/api-docs
+      - name: 售后 aftersale-service
+        url: /aftersale-service/v3/api-docs
+      - name: 用户 user-service
+        url: /user-service/v3/api-docs
+      - name: 文件 file-service
+        url: /file-service/v3/api-docs
+      - name: AI 助手 ai-agent-service
+        url: /ai-agent-service/v3/api-docs

@@ -30,7 +30,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
             // C 端商品浏览（裸路径=列表，/**=详情等子路径），只读接口免登录
             "/api/products", "/api/products/**",
             "/api/categories", "/api/categories/**",
-            "/api/tags", "/api/tags/**"
+            "/api/tags", "/api/tags/**",
+            // AI 导购助手（对话/推荐免登录；下单阶段三需登录取 userId，届时再单独收紧鉴权）
+            "/api/agent", "/api/agent/**"
     );
 
     private final JwtInterceptor jwtInterceptor;

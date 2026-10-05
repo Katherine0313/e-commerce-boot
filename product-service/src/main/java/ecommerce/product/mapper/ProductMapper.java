@@ -2,7 +2,6 @@ package ecommerce.product.mapper;
 
 import ecommerce.product.entity.Product;
 import org.apache.ibatis.annotations.Param;
-
 import java.util.List;
 
 public interface ProductMapper {
@@ -11,4 +10,7 @@ public interface ProductMapper {
 
     // 根据 id 查单个商品（含图文详情 body，仍不下发 cost_price）
     Product findById(@Param("id") Long id, @Param("shopId") Long shopId);
+
+    // 按 id 列表查上架商品（推荐接口用，不含 body/cost_price）
+    List<Product> listOnSaleByIds(@Param("ids") List<Long> ids, @Param("shopId") Long shopId);
 }
