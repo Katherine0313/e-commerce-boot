@@ -1,0 +1,43 @@
+spring:
+  application:
+    name: ai-agent-service
+  profiles:
+    active: dev
+  cloud:
+    nacos:
+      discovery:
+        # Nacos 3.x：客户端通信仍是 8848（gRPC 9848/9849），控制台另走 8080 端口
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:nacos}
+        password: ${NACOS_PASSWORD:nacos}
+  ai:
+    openai:
+      # 真实 api-key 放 application-dev.yml（gitignore），这里给空默认，避免凭据进版本库
+      api-key: ${SILICONFLOW_API_KEY:}
+      # 硅基流动 OpenAI 兼容端点
+      base-url: https://api.siliconflow.cn/v1
+      chat:
+        # Spring AI 2.0 配置已扁平化：spring.ai.openai.chat.model（不再嵌套 .options）
+        model: deepseek-ai/DeepSeek-V4-Flash
+        temperature: 0.7
+      embedding:
+        # RAG 向量化模型（硅基流动 embedding，BGE-M3 多语言）
+        model: BAAI/bge-m3
+
+server:
+  port: 9008
+
+# common 的 JwtProperties/WeChatProperties 启动时校验非空，给占位值让骨架能裸启动
+jwt:
+  secret: dev-placeholder-jwt-secret-0123456789abcdef0123456789abcdef
+  expire: 604800
+wechat:
+  appid: placeholder-appid
+  secret: placeholder-secret
+
+# 接口文档：默认关闭，dev 环境在 application-dev.yml 开启
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
