@@ -841,6 +841,30 @@ Nacos + 服务注册 + 网关路由已跑通（task_plan 阶段 0 completed）�
 - **待验证**：`PreserveHostHeader` + Host 优先改完后需重启 gateway 与 user-service 再测一遍，期望经网关返回 `http://127.0.0.1:8080/upload/avatar/...`。
 - 教训：`X-Forwarded-*` 由网关自己生成，别想当然当作「客户端原始信息」——本项目里它等于下游实例地址。
 
+## 购物车增值保障 + 库存校验（2026-10-11）
+
+购物车从「占位」补齐成完整链路，几个关键设计点：
+
+### 增值保障数据来源：前端加购弹窗，不是商品表
+
+- 前端 `ProductPopup` 三个可选保障项（全面保修 1%、一年意外保 2%、电池无忧 ¥20），多选后随 `addToCart` 的 `insuranceDetail`（数组）+ `insuranceFee`（单件合计）传后端；后端 `AddCartDTO` 接收、`addItem` 快照进 `cart.insurance_detail`（JSON 串）+ `insurance_fee`。
+- 一度想在 `products` 表加 `insurance_fee` 固定值，但增值保障是多选、按售价比例计费，单值覆盖不了 → 字段加又删，最终回退。
+
+### subTotal 只读派生，不落库
+
+- `CartVO.subTotal = (price + insuranceFee) × quantity`，后端 `calcSubTotal` 实时算。
+- 落库要同步维护 price/quantity/insuranceFee 三处变更，成本高易脏，故只读派生。
+
+### 库存上限：实时 join + 后端权威校验
+
+- `CartMapper.listByUser` `left join products` 带出 `stock`，`Cart`/`CartVO` 加 stock。
+- `addItem`（已有 + 本次 ≤ 库存）、`updateQuantity`（目标 ≤ 库存）超了抛 400「库存不足，当前仅剩 X 件」。
+- 前端 `QuantityStepper` 加 `max` prop，输入/加号超限即时 toast；后端仍兜底（商品下架 stock null → 兜 0）。
+
+### 商品副标题重写
+
+- `products.sub_title` 全部改成「商品名 + 卖点」≤35 字（`docs/sql/product-subtitle.sql`，已执行），加购弹窗显示 subTitle。
+
 ## 视觉/浏览器发现
 
 - 本次探索读了 Node 后端（`e-commerce/server`）与前端（`e-commerce`）的本地代码与配置，并用 WebSearch 确认了 Spring Cloud Alibaba / Nacos 对 Spring Boot 4 的版本兼容（见本节「微服务版本兼容」）。

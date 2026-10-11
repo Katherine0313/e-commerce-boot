@@ -23,6 +23,7 @@ public class Cart {
     private String description;
     private String insuranceDetail;
     private BigDecimal insuranceFee;
+    private Integer stock;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 }

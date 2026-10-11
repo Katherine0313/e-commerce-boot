@@ -31,6 +31,8 @@ public class CartVO {
     private List<Map<String, Object>> insuranceDetail;
     @Schema(description = "增值保障费")
     private BigDecimal insuranceFee;
+    @Schema(description = "库存数量（前端校验数量上限用）")
+    private Integer stock;
     @Schema(description = "单品小计 = (单价 + 增值保障费) × 数量")
     private BigDecimal subTotal;
 }

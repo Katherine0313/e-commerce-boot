@@ -170,6 +170,9 @@
 | 静态资源经网关按归属服务暴露（`/image/**` → product-service、`/upload/**` → user-service）；拼绝对 URL 以 `Host` 为准，由网关对 `/api/**` 路由配 `PreserveHostHeader` 保留客户端域名，统一走 `common/utils/UrlUtil` | 网关默认把 Host 改写成下游实例地址（`192.168.92.1:9006`），而 `X-Forwarded-Host` 又被它覆盖成同一个实例地址（5.0.3 源码取 `request.getURI().getHost()`），两个头都拿不到客户端域名 → 真机加载不到头像；静态资源不在 `/api/**` 内，天然免登录 |
 | 凡是返回给前端的静态资源字段，一律由后端拼成完整 URL（`avatar` 在 `/api/wxlogin`、`/api/user/profile`、`/api/user/avatar` 三处口径一致） | 小程序把相对路径当包内资源（`Failed to load local image resource`）；前端约定「两个 avatar 字段都是完整 URL，前端不再拼域名」，口径必须一致 |
 | 小程序 C 端免登录（启动静默 wx.login 换 openid），后台 B 端保持 admin 登录 | 用户拍板（2026-10-10）：C 端头像/手机号登录越做越复杂且需真机，直接免登录；购物车/下单靠静默登录 token 定位 userId，后台不受影响 |
+| 增值保障由前端加购弹窗勾选、随 DTO 传入后端快照，不在商品表存固定保障费 | 增值保障是可多选（全面保修/一年意外保/电池无忧），价格按售价比例或固定、加购时才确定；商品表存单值覆盖不了多选场景 |
+| 购物车数量上限用「实时 join products 取 stock + 后端校验」，不落 stock 快照 | stock 随下单/补货实时变化，快照会过期；join 实时取最准，后端 addItem/updateQuantity 权威校验兜底 |
+| 购物车单品小计 subTotal 只读计算不落库 | subTotal = (price + insuranceFee) × quantity，是纯派生值；落库要同步维护 price/quantity/insuranceFee 三处变更，成本高且易脏 |
 
 ## 遇到的错误
 

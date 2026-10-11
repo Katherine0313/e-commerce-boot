@@ -4,13 +4,15 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="ecommerce.order.mapper.CartMapper">
 
-    <!-- 某用户购物车列表（按加购时间倒序） -->
+    <!-- 某用户购物车列表（按加购时间倒序），join products 带出实时库存供前端校验数量上限 -->
     <select id="listByUser" resultType="ecommerce.order.entity.Cart">
-        select id, shop_id, user_id, product_id, quantity, name, image, price, description,
-               insurance_detail, insurance_fee, created_at, updated_at
-        from cart
-        where user_id = #{userId} and shop_id = #{shopId}
-        order by created_at desc, id desc
+        select c.id, c.shop_id, c.user_id, c.product_id, c.quantity, c.name, c.image, c.price,
+               c.description, c.insurance_detail, c.insurance_fee, c.created_at, c.updated_at,
+               p.stock
+        from cart c
+        left join products p on p.id = c.product_id and p.shop_id = c.shop_id
+        where c.user_id = #{userId} and c.shop_id = #{shopId}
+        order by c.created_at desc, c.id desc
     </select>
 
     <!-- 某用户购物车里某个商品的行 -->

@@ -353,6 +353,22 @@
   - `/api/user/phone` 走网关 `/api/**` 兜底路由，无需改网关
   - `getPhoneNumber` 必须真机（开发者工具模拟 code 换不到真实手机号）；接口已实现但前端未接入，保留备用
 
+### 阶段 S：购物车增值保障 + 库存校验 + 商品副标题（2026-10-11）
+- **状态：** 完成（后端 order-service 编译通过；前端购物车页/加购弹窗/角标全链路落地）
+- 背景：购物车此前「加购写死 insurance 空数组/0」，增值保障选了不落库；数量无库存上限校验；商品副标题（sub_title）是一句干瘪的「XX旗舰手机」。
+- 执行的操作：
+  - 购物车单品小计 `subTotal`：`CartVO` 加只读字段，后端 `calcSubTotal = (price + insuranceFee) × quantity` 实时算，不落库
+  - 增值保障接入：`AddCartDTO` 加 `insuranceDetail`/`insuranceFee`，`addItem` 快照（`toInsuranceJson` 序列化明细数组）；前端加购弹窗勾选随请求带上
+  - 库存校验：`Cart`/`CartVO` 加 `stock`，`CartMapper.listByUser` left join products 带实时库存；`addItem`（已有 + 本次 ≤ 库存）、`updateQuantity`（目标 ≤ 库存）超了抛 400「库存不足，当前仅剩 X 件」
+  - 商品副标题重写：`products.sub_title` 全部改成「商品名 + 卖点」≤35 字（`docs/sql/product-subtitle.sql`，已执行）
+  - 配套前端加购弹窗：右上角叉叉关闭 + 底部双按钮（加入购物车图标 + 立即购买文字，立即购买占位待接下单）
+- 创建/修改的文件：
+  - 修改 `order-service/.../vo/CartVO.java`、`entity/Cart.java`、`dto/AddCartDTO.java`、`service/impl/CartServiceImpl.java`、`mappers/order/CartMapper.xml`
+  - 新增 `docs/sql/product-subtitle.sql`
+- 说明：
+  - `products.insurance_fee` 字段曾加又删（一度想在商品表存保障费，最终增值保障来自前端加购弹窗勾选、随 DTO 传入，商品表不需要该字段）
+  - 购物车列表 join products 取实时库存，商品下架/删除时 stock 为 null，前端不限制、后端兜底 0 件
+
 ## 测试结果
 
 | 测试 | 输入 | 预期结果 | 实际结果 | 状态 |

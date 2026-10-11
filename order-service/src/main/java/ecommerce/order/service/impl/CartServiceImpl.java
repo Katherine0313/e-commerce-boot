@@ -62,9 +62,17 @@ public class CartServiceImpl implements CartService {
         }
 
         Cart existing = cartMapper.findByUserAndProduct(userId, dto.getProductId(), TEMPLATE_SHOP_ID);
+
+        // 库存校验：购物车已有数量 + 本次加购不能超过库存
+        int stock = product.getStock() == null ? 0 : product.getStock();
+        int existingQty = existing == null ? 0 : existing.getQuantity();
+        if (existingQty + quantity > stock) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "库存不足，当前仅剩 " + stock + " 件");
+        }
+
         if (existing != null) {
             // 已存在：累加数量并刷新快照（商品可能已改价/改名/保障变化）
-            existing.setQuantity(existing.getQuantity() + quantity);
+            existing.setQuantity(existingQty + quantity);
             existing.setName(product.getName());
             existing.setImage(product.getImage());
             existing.setPrice(product.getSalesPrice());
@@ -99,7 +107,16 @@ public class CartServiceImpl implements CartService {
         if (existing == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不在购物车中");
         }
-        existing.setQuantity(Math.max(1, quantity));
+
+        // 库存校验：目标数量不能超过库存
+        Product product = productMapper.findById(productId, TEMPLATE_SHOP_ID);
+        int stock = product == null ? 0 : (product.getStock() == null ? 0 : product.getStock());
+        int target = Math.max(1, quantity);
+        if (target > stock) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "库存不足，当前仅剩 " + stock + " 件");
+        }
+
+        existing.setQuantity(target);
         cartMapper.update(existing);
     }
 
@@ -136,6 +153,7 @@ public class CartServiceImpl implements CartService {
                 .quantity(cart.getQuantity())
                 .insuranceDetail(parseInsurance(cart.getInsuranceDetail()))
                 .insuranceFee(cart.getInsuranceFee())
+                .stock(cart.getStock())
                 .subTotal(calcSubTotal(cart))
                 .build();
     }
