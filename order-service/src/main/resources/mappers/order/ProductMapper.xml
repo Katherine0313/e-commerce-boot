@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.ProductMapper">
+
+    <!-- 查商品快照：加购/下单时校验商品存在 + 拿 name/image/price/description/stock -->
+    <select id="findById" resultType="ecommerce.order.entity.Product">
+        select id, name, image, sales_price, description, stock
+        from products
+        where id = #{id} and shop_id = #{shopId}
+    </select>
+
+    <!-- 扣库存：stock >= quantity 条件防超卖，返回 0 表示库存不足 -->
+    <update id="deductStock">
+        update products set stock = stock - #{quantity}
+        where id = #{id} and stock >= #{quantity}
+    </update>
+
+    <!-- 恢复库存 -->
+    <update id="restoreStock">
+        update products set stock = stock + #{quantity}
+        where id = #{id}
+    </update>
+
+</mapper>

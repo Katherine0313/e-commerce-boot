@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.OrderMapper">
+
+    <!-- 创建订单：初始状态待付款，is_deleted 默认 0，sign_status 默认 unsigned -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into orders (shop_id, user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
+                            remark, consignee, phone, region, detail_address, shipping_type, courier, created_at)
+        values (#{shopId}, #{userId}, #{orderNo}, 0, #{payAmount}, #{payType}, #{orderStatus},
+                #{remark}, #{consignee}, #{phone}, #{region}, #{detailAddress}, #{shippingType}, #{courier}, now())
+    </insert>
+
+    <select id="findById" resultType="ecommerce.order.entity.Order">
+        select id, shop_id, user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
+               remark, consignee, phone, region, detail_address, shipping_type, courier, tracking_number,
+               sign_status, created_at, pay_at, ship_at, confirm_at, finish_at, updated_at
+        from orders
+        where id = #{id} and shop_id = #{shopId} and is_deleted = 0
+    </select>
+
+    <select id="listByUser" resultType="ecommerce.order.entity.Order">
+        select id, shop_id, user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
+               remark, consignee, phone, region, detail_address, shipping_type, courier, tracking_number,
+               sign_status, created_at, pay_at, ship_at, confirm_at, finish_at, updated_at
+        from orders
+        where user_id = #{userId} and shop_id = #{shopId} and is_deleted = 0
+        order by created_at desc, id desc
+    </select>
+
+    <!-- 状态流转：按目标状态自动记录对应时间戳
+         status 数字（OrderStatusEnum）：2=待确认(付款,记 pay_at) 3=待发货(记 confirm_at)
+         4=已发货(记 ship_at+courier+单号) 5=已完成(记 finish_at+签收) 6=已取消 -->
+    <update id="updateStatus">
+        update orders
+        set order_status = #{status},
+            updated_at = now()
+        <if test="status == 2">
+            , pay_at = now()
+            <if test="payType != null">, pay_type = #{payType}</if>
+        </if>
+        <if test="status == 3">
+            , confirm_at = now()
+        </if>
+        <if test="status == 4">
+            , ship_at = now(), courier = #{courier}, tracking_number = #{trackingNumber}
+        </if>
+        <if test="status == 5">
+            , finish_at = now(), sign_status = 'signed'
+        </if>
+        where id = #{id} and shop_id = #{shopId}
+    </update>
+
+    <!-- 软删除 -->
+    <update id="delete">
+        update orders set is_deleted = 1, updated_at = now()
+        where id = #{id} and shop_id = #{shopId}
+    </update>
+
+    <!-- 查超时待付款订单：created_at <= 阈值（定时任务用） -->
+    <select id="findExpiredPendingPay" resultType="ecommerce.order.entity.Order">
+        select id, shop_id, user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
+               remark, consignee, phone, region, detail_address, shipping_type, courier, tracking_number,
+               sign_status, created_at, pay_at, ship_at, confirm_at, finish_at, updated_at
+        from orders
+        where order_status = #{status} and is_deleted = 0 and created_at &lt;= #{threshold}
+    </select>
+
+</mapper>
