@@ -21,7 +21,7 @@ import java.util.Map;
  * 购物车 Service 实现。
  * <p>
  * 快照字段（name/image/price/description）加购时从 products 表查出，不信任前端传入的价格；
- * 增值保障（insurance）小程序暂未接入，固定写空数组 / 0 费用，字段保留供后续扩展。
+ * 增值保障（insuranceDetail/insuranceFee）由加购弹窗随请求传入，快照到购物车（不选则空数组 / 0）。
  */
 @Service
 public class CartServiceImpl implements CartService {
