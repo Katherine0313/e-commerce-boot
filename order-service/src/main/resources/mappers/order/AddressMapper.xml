@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.AddressMapper">
+
+    <!-- 某用户地址列表（按 id 倒序，最新在前） -->
+    <select id="listByUser" resultType="ecommerce.order.entity.Address">
+        select id, shop_id, user_id, consignee, phone, region, detail_address, is_default, created_at, updated_at
+        from address
+        where user_id = #{userId} and shop_id = #{shopId}
+        order by id desc
+    </select>
+
+    <!-- 查单个地址（带 shopId 校验归属） -->
+    <select id="findById" resultType="ecommerce.order.entity.Address">
+        select id, shop_id, user_id, consignee, phone, region, detail_address, is_default, created_at, updated_at
+        from address
+        where id = #{id} and shop_id = #{shopId}
+    </select>
+
+    <!-- 新增，回填自增 id -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        insert into address (shop_id, user_id, consignee, phone, region, detail_address, is_default, created_at)
+        values (#{shopId}, #{userId}, #{consignee}, #{phone}, #{region}, #{detailAddress}, #{isDefault}, now())
+    </insert>
+
+    <!-- 更新（按 id + shopId 定位） -->
+    <update id="update">
+        update address
+        set consignee = #{consignee},
+            phone = #{phone},
+            region = #{region},
+            detail_address = #{detailAddress},
+            is_default = #{isDefault},
+            updated_at = now()
+        where id = #{id} and shop_id = #{shopId}
+    </update>
+
+    <!-- 删除（按 id + shopId 定位） -->
+    <delete id="deleteById">
+        delete from address where id = #{id} and shop_id = #{shopId}
+    </delete>
+
+    <!-- 把某用户所有地址的默认标志清 0 -->
+    <update id="clearDefault">
+        update address set is_default = 0
+        where user_id = #{userId} and shop_id = #{shopId}
+    </update>
+
+    <!-- 把某用户最新一条（id 最大）设为默认：派生表绕开「update 不能直接 select 同表」限制 -->
+    <update id="setDefaultToLatest">
+        update address
+        set is_default = 1
+        where id = (
+            select t.id
+            from (select id from address where user_id = #{userId} and shop_id = #{shopId} order by id desc limit 1) t
+        )
+    </update>
+
+</mapper>
