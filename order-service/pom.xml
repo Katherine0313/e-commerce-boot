@@ -16,6 +16,17 @@
 			<groupId>ecommerce</groupId>
 			<artifactId>common</artifactId>
 		</dependency>
+		<!-- ORM：CartMapper / ProductMapper + XML -->
+		<dependency>
+			<groupId>org.mybatis.spring.boot</groupId>
+			<artifactId>mybatis-spring-boot-starter</artifactId>
+		</dependency>
+		<!-- MySQL 驱动 -->
+		<dependency>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<scope>runtime</scope>
+		</dependency>
 		<dependency>
 			<groupId>com.alibaba.cloud</groupId>
 			<artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>

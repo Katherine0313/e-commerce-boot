@@ -20,4 +20,10 @@ public interface UserMapper {
     // 更新昵称
     int updateName(@Param("id") Long id, @Param("name") String name);
 
+    // 更新手机号
+    int updatePhone(@Param("id") Long id, @Param("phone") String phone);
+
+    // 软删除（注销）：is_deleted 置 1，不物理删（orders.user_id 是 RESTRICT）
+    int softDelete(@Param("id") Long id);
+
 }

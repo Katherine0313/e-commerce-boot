@@ -73,16 +73,33 @@ spring:
               uri: lb://product-service
               predicates:
                 - Path=/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**,/image/**
+            # 购物车 + 订单 → order-service；放在 /api/** 通配之前（操作需登录，鉴权由下游 JwtInterceptor 承担）
+            - id: order-service
+              uri: lb://order-service
+              predicates:
+                - Path=/api/cart,/api/cart/**,/api/orders,/api/orders/**
             # AI 导购助手 → ai-agent-service；同样放在 /api/** 通配之前
             - id: ai-agent-service
               uri: lb://ai-agent-service
               predicates:
                 - Path=/api/agent,/api/agent/**
+            # 用户头像等上传文件 → user-service：库里存相对路径 /upload/avatar/xxx，
+            # 静态映射见 common WebMvcConfig（/upload/** → file:upload/）。
+            # 与 /image/**（商品图）对称：都是静态资源，不在 /api/** 内，免登录。
+            - id: user-service-upload
+              uri: lb://user-service
+              predicates:
+                - Path=/upload/**
             # 阶段 0 冒烟：其余 /api/** 暂转给 user-service，JWT 鉴权仍由下游拦截器承担
             - id: user-service
               uri: lb://user-service
               predicates:
                 - Path=/api/**
+              filters:
+                # 保留客户端原始 Host：user-service 用它拼头像等绝对 URL（UrlUtil.fullUrl）。
+                # 不保留时下游看到的 Host 是 lb 解析出的实例地址（如 192.168.92.1:9006），
+                # 而网关又会把 X-Forwarded-Host 覆盖成同一个实例地址，两个头都拿不到客户端域名 → 真机加载不到头像。
+                - PreserveHostHeader
 
 server:
   port: 8080

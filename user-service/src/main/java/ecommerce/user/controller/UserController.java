@@ -2,9 +2,11 @@ package ecommerce.user.controller;
 
 
 import ecommerce.common.Result;
+import ecommerce.user.dto.PhoneDTO;
 import ecommerce.user.dto.UpdateNameDTO;
 import ecommerce.user.service.UserService;
 import ecommerce.user.vo.UserProfileVO;
+import ecommerce.utils.UrlUtil;
 import ecommerce.utils.UserContext;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -65,12 +67,26 @@ public class UserController {
         return Result.success(userService.updateName(userId, dto.getName()));
     }
 
+    // 绑定手机号：用 getPhoneNumber 按钮授权拿到的 code 换手机号并写库
+    @Operation(summary = "绑定手机号")
+    @PostMapping("/phone")
+    public Result<String> bindPhone(@RequestBody PhoneDTO dto) {
+        // 从上下文拿到当前登录用户 ID，交给业务层处理
+        Long userId = UserContext.getUserId();
+        return Result.success(userService.bindPhone(userId, dto.getCode()));
+    }
+
+    // 注销账号：软删除当前用户（is_deleted=1）并清空购物车，同一事务
+    @Operation(summary = "注销账号")
+    @PostMapping("/deactivate")
+    public Result<Void> deactivate() {
+        userService.deactivate(UserContext.getUserId());
+        return Result.success();
+    }
+
     public String fullUrl(HttpServletRequest request, String relativeUrl) {
-        // 1.先判断相对路径是否为空
-        if (relativeUrl == null) {
-            return null;
-        }
-        return request.getScheme() + "://" + request.getHeader("Host") + relativeUrl;
+        // 拼域名统一走 UrlUtil（经网关时 Host 会被改写，详见该类注释）
+        return UrlUtil.fullUrl(request, relativeUrl);
     }
 
 }

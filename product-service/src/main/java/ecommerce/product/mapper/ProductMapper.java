@@ -13,4 +13,7 @@ public interface ProductMapper {
 
     // 按 id 列表查上架商品（推荐接口用，不含 body/cost_price）
     List<Product> listOnSaleByIds(@Param("ids") List<Long> ids, @Param("shopId") Long shopId);
+
+    // 按一级分类（父类）查上架商品：商品挂在二级分类，按 parent_id 聚合到父类（不含 body/cost_price）
+    List<Product> listOnSaleByCategory(@Param("categoryId") Long categoryId, @Param("shopId") Long shopId);
 }

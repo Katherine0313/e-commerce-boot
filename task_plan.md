@@ -14,7 +14,7 @@
 | 微服务落地程度 | **真·多服务部署**（Nacos 注册 + Gateway 网关 + Feign 调用，独立部署） |
 | 数据库 | SQLite → MySQL（表结构重设计，去掉号段 hack） |
 | 前端对接 | 接口路径 `/api/**` 不变，前端 baseURL 指向网关；后台对应 `admin` 模块 |
-| 分布式中间件 | **后置**（Seata/Redis/MQ/分布式锁/分布式 ID 本轮不上，微服务骨架跑通后按需补） |
+| 分布式中间件 | Redis **已接入**（分类树缓存）；Seata/MQ/分布式锁/分布式 ID 仍后置 |
 
 ## 微服务拆分方案
 
@@ -53,13 +53,14 @@
 | Gateway | Spring Cloud Gateway | 网关 |
 | 服务调用 | OpenFeign | |
 | AI 框架 | Spring AI 2.0.1（官方） | 不用 Spring AI Alibaba（Boot 4 兼容性）；LLM 走硅基流动 DeepSeek-V4-Flash |
-| 数据库 | MySQL（每服务独立库或共享库待定，见风险） | 现状 MySQL |
+| 数据库 | MySQL 8.0（Docker 容器 `mysql-dev`，开发期端口 3307） | 数据用命名卷 `mysql-dev-data` 持久化；本机 MySQL80 仍在 3306 可回退 |
 | ORM | MyBatis + XML（现状，不引入 MP） | 保持已有约定 |
+| Redis | 5.0.14（Windows 本机，`D:\Software\tools\redis\Redis-x64-5.0.14.1`） | 分类树缓存，StringRedisTemplate + Jackson 纯 JSON（无 @class） |
 
 ## 各阶段
 
 ### 阶段 0：基础设施 + 版本兼容验证（关键，先行）
-- [x] Docker：装 Docker Desktop（用户级安装到 `AppData\Local\Programs\DockerDesktop`）；`docker-compose` 只起 Nacos（MySQL 复用本机 MySQL80，3306 已占用、库 `e_commerce_db` 已建好）；8 个业务服务开发期用 IDE/mvn 跑，跑通后再逐个容器化
+- [x] Docker：装 Docker Desktop（用户级安装到 `AppData\Local\Programs\DockerDesktop`）；`docker-compose` 起 Nacos + MySQL（MySQL 走 Docker 容器，端口 3307 避开本机 MySQL80 的 3306，数据用命名卷 `mysql-dev-data` 持久化，数据已从本机 mysqldump 迁入）；8 个业务服务开发期用 IDE/mvn 跑，跑通后再逐个容器化
 - [x] 改造为 Maven 多模块父工程（现 `e-commerce-boot` 变父工程，抽 `common` 模块下沉 `Result`/`BusinessException`/`GlobalExceptionHandler`/`JwtUtil`/`UserContext`/`JwtInterceptor` 等框架层）—— 已完成，10 模块 `mvn clean compile` 全绿
 - [x] 引入 Spring Cloud 2025.1.3 + SCA 2025.1.0.0 + Nacos + Gateway，验证 Boot 4.1.0 兼容性（编译通过；Gateway 用 `spring-cloud-starter-gateway-server-webflux`，路由前缀 `spring.cloud.gateway.server.webflux.routes`，`lb://` 需配 loadbalancer）
 - [x] 起最小服务 + 注册到 Nacos + Gateway 路由打通：auth-service、user-service 均注册成功（`nacos registry ... register finished`）；gateway 8080 经 `lb://user-service` 转发到 9006，返回一致（HTTP 401 + Result 结构），链路已验证
@@ -85,14 +86,20 @@
 ### 阶段 3：product-service（最大域）
 - [x] 商品浏览只读接口骨架：`GET /api/products`、`/api/products/{id}`、`/api/categories`、`/api/tags`（controller/service/impl/vo 分层 + 占位数据，不接库）；接入免登录白名单 `EXCLUDE_AUTH_PATHS`，gateway 补 product-service 路由
 - [x] products / categories / tags 表已建 + 数据迁入（32 商品含下架、22 分类、1 标签）+ 图片转 webp 迁入 + 浏览接口接库（真实查询替换占位数据）
+- [x] Redis 分类树缓存：`category:parent:{id}` 按一级父分类一棵树一个 key + `category:parent:ids` 索引，纯 JSON 序列化（见 findings「Redis 缓存（分类树）」）
 - [ ] parameters / stock / business_onsale 表；商品 CRUD、分类树、标签绑定、参数组/参数项、库存调整、促销（单规格：价格/库存直接挂商品上，不做多规格 SKU）
 - **状态：** in_progress（商品浏览已接库、数据+图片已迁；其余表与 CRUD 未做）
 
 ### 阶段 4：order-service
-- [ ] orders / order_items / cart 表
-- [ ] 下单（Feign 查 product）、支付/取消/发货/确认收货/完成、购物车 CRUD
-- [ ] 待付款超时自动关闭（迁移原 30s 定时扫 → 微服务内定时任务）
-- **状态：** pending
+- [x] orders / order_items / cart / consignee_address 表 + 数据迁移（`docs/sql/order.sql` 建表 + `order-data.sql` 迁数据：52 订单 / 76 订单项 / 1 购物车 / 15 地址；consignee_address 表已随迁，但服务归属按约定仍归 user-service，接口未做）
+- [x] 购物车 CRUD（CartController 5 接口：列表 / 加购 / 改数量 / 移除 / 清空；商品快照同库直接查 products 表，不信任前端价格）
+- [ ] 购物车：下单成功后从购物车移除已下单商品（`OrderServiceImpl` 当前完全未引用 cart，下单不清购物车）
+- [ ] 购物车：加购时校验库存 / 上架状态（现仅校验商品存在，`ProductMapper.findById` 无 `stock` / `listing_status` 过滤）
+- [ ] 购物车端到端验证（5 接口未实测）+ 前端 uniapp 补 cart api 模块（`pages/cart/cart.vue` 未调接口）
+- [x] 下单 + 支付/确认收款/发货/完成/取消（OrderStatusEnum 数字枚举 + 状态机 + 库存扣减/恢复 + order_status 字段迁移字符串→数字；**迁移脚本已于 2026-10-09 在 Docker 3307 执行**）
+- [x] 待付款超时自动关闭（@Scheduled 每分钟扫，超 30 分钟恢复库存+改取消，不软删除保留订单记录，并发二次确认）
+- [ ] 取消订单自动生成退款售后单（only_refund），关联 aftersale
+- **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD 已实现并编译通过；购物车有 3 项缺口见上，售后关联未做、未启动端到端验证）
 
 ### 阶段 5：aftersale-service
 - [ ] after_sales + 三类子表（仅退款/退货退款/换货）
@@ -151,6 +158,18 @@
 | 数据库迁移脚本一律带 `--default-character-set=utf8mb4` 导入 | Windows mysql 客户端默认 gbk，不带会中文乱码（双重编码，gbk 查询还会假还原） |
 | 商品域加物理外键 | products.tag_id/category_id → tags/categories（ON DELETE SET NULL）、categories.parent_id → categories（ON DELETE CASCADE）；用户只用模板店不克隆沙箱，物理外键可行且可靠，级联由 DB 兜底 |
 | 商品域表只留主键 + 外键自动索引 | 手动普通索引全去；外键列（tag_id/category_id/parent_id）索引是 InnoDB 建外键自动创建的，删不掉也不该删 |
+| 分类缓存按一级父分类拆（`category:parent:{id}`），不用全量单 key | 一个父分类一棵树一个 key，更新按父 id 精准失效；商品不缓存（分类页懒加载按父类查商品） |
+| Redis 值序列化用纯 JSON（StringRedisTemplate + Jackson），不用 @class | 用户要求禁止 @class；反序列化显式指定类型，避开 default typing 的安全与兼容坑 |
+| 新表排序规则显式 `COLLATE utf8mb4_general_ci` | 服务器是 MySQL 5.7 不支持 8.0 默认的 0900_ai_ci，导出导入会失败；旧的 product/admin 表与已建表不管 |
+| 订单域时间字段用 `created_at/updated_at`（_at 风格） | 忠于原 sqlite，orders 表内与 pay_at/confirm_at 等事件时间统一；与商品域 create_time/update_time 有意不同 |
+| 订单域加物理外键（含 user_id → user.id） | 延续商品域「DB 兜底级联」；order_items.product_id 不加外键（订单项是下单快照，商品删了历史仍可读） |
+| 购物车快照同库直接查 products 表 | 用户选「同库查表」：不信任前端价格，加购时后端查商品 name/image/price/description 落快照 |
+| MySQL 走 Docker 容器（开发期 3307，volume 持久化） | 环境与生产一致、可一键起、可回退；端口 3307 避开本机 MySQL80，数据用命名卷 `mysql-dev-data` |
+| Docker 数据挂载取舍：数据库用 volume，代码/配置用 bind mount | 数据库数据不该用 bind mount（性能差、Windows 文件锁）；以后容器化 Java 服务/Nginx 时，jar/配置/静态文件用 bind mount（`宿主机路径:容器路径`），改本机文件即生效 |
+| 订单状态用数字 TINYINT + 枚举（OrderStatusEnum） | 电商标准做法：省存储、索引快、防拼写脏数据；状态机流转用枚举 canTransition 强校验 |
+| 静态资源经网关按归属服务暴露（`/image/**` → product-service、`/upload/**` → user-service）；拼绝对 URL 以 `Host` 为准，由网关对 `/api/**` 路由配 `PreserveHostHeader` 保留客户端域名，统一走 `common/utils/UrlUtil` | 网关默认把 Host 改写成下游实例地址（`192.168.92.1:9006`），而 `X-Forwarded-Host` 又被它覆盖成同一个实例地址（5.0.3 源码取 `request.getURI().getHost()`），两个头都拿不到客户端域名 → 真机加载不到头像；静态资源不在 `/api/**` 内，天然免登录 |
+| 凡是返回给前端的静态资源字段，一律由后端拼成完整 URL（`avatar` 在 `/api/wxlogin`、`/api/user/profile`、`/api/user/avatar` 三处口径一致） | 小程序把相对路径当包内资源（`Failed to load local image resource`）；前端约定「两个 avatar 字段都是完整 URL，前端不再拼域名」，口径必须一致 |
+| 小程序 C 端免登录（启动静默 wx.login 换 openid），后台 B 端保持 admin 登录 | 用户拍板（2026-10-10）：C 端头像/手机号登录越做越复杂且需真机，直接免登录；购物车/下单靠静默登录 token 定位 userId，后台不受影响 |
 
 ## 遇到的错误
 

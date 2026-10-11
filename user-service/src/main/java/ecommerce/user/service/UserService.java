@@ -22,4 +22,14 @@ public interface UserService {
      */
     String updateName(Long userId, String name);
 
+    /**
+     * 绑定手机号：用 getPhoneNumber 授权 code 换手机号并写回 user.phone，返回手机号
+     */
+    String bindPhone(Long userId, String code);
+
+    /**
+     * 注销账号：软删除用户（is_deleted=1）并清空其购物车，两者同一事务
+     */
+    void deactivate(Long userId);
+
 }

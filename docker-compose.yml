@@ -1,18 +1,22 @@
-# 开发期中间件编排：Docker 只起 Nacos；MySQL 复用本机已装的 MySQL80（3306 已占用，库 e_commerce_db 已建好）
+# 开发期中间件编排：Nacos + MySQL
 #
 # 启动：docker compose up -d
 # 停止：docker compose down
 # 查看：docker compose ps
-# 日志：docker compose logs -f nacos
+# 日志：docker compose logs -f nacos  /  docker compose logs -f mysql
 #
 # 端口说明：
-#   Nacos  8848       客户端通信（SCA 注册/配置，各服务 application.yml 里的 server-addr）
-#   Nacos  9848       gRPC 客户端长连接（必须映射，否则服务心跳上报会失败）
-#   Nacos  9849       gRPC 服务端监听
-#   Nacos  ->8080     Nacos 3.x 控制台（映射到宿主 18080，避开 gateway 的 8080）
+#   Nacos  8848       客户端通信（SCA 注册/配置）
+#   Nacos  9848/9849  gRPC 长连接
+#   Nacos  ->8080     控制台（映射到宿主 18080，避开 gateway 的 8080）
+#   MySQL  3307       宿主 3307 -> 容器 3306（避开本机 MySQL80 占用的 3306）
 #
-# Nacos 3.x 默认开启鉴权，且 2.2.1+ 移除了鉴权变量的默认值，必须显式配置否则启动报错。
-# 客户端凭据在业务服务 application.yml 里，默认 nacos/nacos，与此处默认账号对齐。
+# MySQL 说明：
+#   - Docker 部署，数据落在 mysql-dev-data 卷持久化，容器删了数据还在
+#   - 字符集/排序规则对齐 utf8mb4_general_ci（不是 8.0 默认的 0900_ai_ci，保证将来能导出到 MySQL 5.7 服务器）
+#   - 端口用 3307 避开本机 MySQL80，业务服务 application-dev.yml 连 localhost:3307
+#   - 数据从本机 MySQL80 用 mysqldump 迁移（首次手动迁移，之后数据都在本卷里）
+#   - 想彻底重来：docker compose down -v 会连 mysql-dev-data 卷一起删掉
 
 services:
   nacos:
@@ -20,8 +24,8 @@ services:
     container_name: nacos
     environment:
       MODE: standalone                                  # 单机模式，内嵌 derby 存储，不依赖 MySQL
-      NACOS_AUTH_ENABLE: "false"                        # 开发期关闭鉴权（3.x 默认开启，但默认账号机制和 2.x 不同，开启后 nacos/nacos 登录会报 User not found，生产再按需开启）
-      NACOS_AUTH_TOKEN: SecretKey01234567890123456789012345678901234567890123456789  # 启动脚本强制要求非空（即使关闭鉴权也要设，否则 exit 255）
+      NACOS_AUTH_ENABLE: "false"                        # 开发期关闭鉴权
+      NACOS_AUTH_TOKEN: SecretKey01234567890123456789012345678901234567890123456789  # 启动脚本强制要求非空
       NACOS_AUTH_IDENTITY_KEY: nacos
       NACOS_AUTH_IDENTITY_VALUE: nacos
     ports:
@@ -30,3 +34,21 @@ services:
       - "9849:9849"
       - "18080:8080"
     restart: unless-stopped
+
+  mysql:
+    image: mysql:8.0
+    container_name: mysql-dev
+    environment:
+      MYSQL_ROOT_PASSWORD: 123456
+      MYSQL_DATABASE: e_commerce_db
+    # 字符集/排序规则对齐 utf8mb4_general_ci，避免 8.0 默认 0900_ai_ci 导致导出到 5.7 服务器失败
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_general_ci
+    ports:
+      - "3307:3306"
+    volumes:
+      # 数据持久化到命名卷
+      - mysql-dev-data:/var/lib/mysql
+    restart: unless-stopped
+
+volumes:
+  mysql-dev-data:

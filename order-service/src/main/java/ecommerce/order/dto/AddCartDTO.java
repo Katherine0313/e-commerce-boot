@@ -1,0 +1,17 @@
+package ecommerce.order.dto;
+
+import lombok.Data;
+
+import java.math.BigDecimal;
+import java.util.List;
+import java.util.Map;
+
+@Data
+public class AddCartDTO {
+    private Long productId;
+    private Integer quantity;
+    // 增值保障明细（加购弹窗里勾选的保障项数组）；空表示不买
+    private List<Map<String, Object>> insuranceDetail;
+    // 单件增值保障费合计
+    private BigDecimal insuranceFee;
+}

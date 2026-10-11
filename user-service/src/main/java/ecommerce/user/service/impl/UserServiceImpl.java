@@ -5,6 +5,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import ecommerce.exception.BusinessException;
 import ecommerce.user.entity.User;
+import ecommerce.user.mapper.CartMapper;
 import ecommerce.user.mapper.UserMapper;
 import ecommerce.user.service.UserService;
 import ecommerce.user.vo.WxLoginVO;
@@ -13,6 +14,7 @@ import ecommerce.utils.HttpClientUtil;
 import ecommerce.utils.JwtUtil;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
@@ -27,15 +29,22 @@ public class UserServiceImpl implements UserService {
     private final HttpClientUtil httpClientUtil;
     private final ObjectMapper objectMapper;
     private final UserMapper userMapper;
+    private final CartMapper cartMapper;
     private final JwtUtil jwtUtil;
+
+    /** 微信 access_token 内存缓存：全局一份，2 小时有效，提前 5 分钟刷新，避免临界点拿到失效 token */
+    private volatile String cachedAccessToken;
+    private volatile long accessTokenExpireAt;
 
 
     public UserServiceImpl(WeChatProperties weChatProperties, HttpClientUtil httpClientUtil,
-                           ObjectMapper objectMapper, UserMapper userMapper, JwtUtil jwtUtil) {
+                           ObjectMapper objectMapper, UserMapper userMapper, CartMapper cartMapper,
+                           JwtUtil jwtUtil) {
         this.weChatProperties = weChatProperties;
         this.httpClientUtil = httpClientUtil;
         this.objectMapper = objectMapper;
         this.userMapper = userMapper;
+        this.cartMapper = cartMapper;
         this.jwtUtil = jwtUtil;
 
     }
@@ -64,6 +73,9 @@ public class UserServiceImpl implements UserService {
         if (user == null) {
             user = User.builder().openid(openid).build();
             userMapper.insertUser(user); // insertUser 会自动把自增 id 回填到 user.id
+        } else if (isDeleted(user)) {
+            // 已注销用户禁止再登录（新注册用户 is_deleted 走库默认 0，不会走到这）
+            throw new BusinessException(HttpStatus.FORBIDDEN, "账号已注销");
         }
         // 4. 生成 token 返回给调用方
         return WxLoginVO.builder()
@@ -73,16 +85,63 @@ public class UserServiceImpl implements UserService {
                 .build();
     }
 
+    // 绑定手机号：用 getPhoneNumber 按钮授权拿到的 code 换手机号并写回 user.phone，返回手机号
+    @Override
+    public String bindPhone(Long userId, String code) {
+        // 1. 手机号授权 code 不能为空
+        if (code == null || code.isBlank()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "手机号授权 code 不能为空");
+        }
+        // 2. 用户必须存在且未注销
+        findActiveUser(userId);
+        // 3. code 换手机号：先取 access_token，再调 getuserphonenumber（POST JSON）
+        String accessToken = getAccessToken();
+        String url = "https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=" + accessToken;
+        String respBody = httpClientUtil.doPostJson(url, objectMapper.writeValueAsString(Map.of("code", code)));
+        JsonNode node = objectMapper.readTree(respBody);
+        // 4. 微信 errcode 非 0 即失败（code 无效/过期、无权限等）
+        int errcode = node.path("errcode").asInt(0);
+        if (errcode != 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "获取手机号失败：" + node.path("errmsg").asText(""));
+        }
+        // 5. 取纯手机号（不含国家码）写库
+        String phone = node.path("phone_info").path("purePhoneNumber").asText(null);
+        if (phone == null || phone.isBlank()) {
+            throw new BusinessException("微信未返回手机号");
+        }
+        userMapper.updatePhone(userId, phone);
+        return phone;
+    }
+
+    // 获取微信 access_token：内存缓存，未过期直接用，过期（或首次）调微信 token 接口刷新
+    private String getAccessToken() {
+        long now = System.currentTimeMillis();
+        if (cachedAccessToken != null && now < accessTokenExpireAt) {
+            return cachedAccessToken;
+        }
+        Map<String, String> params = new HashMap<>();
+        params.put("grant_type", "client_credential");
+        params.put("appid", weChatProperties.getAppid());
+        params.put("secret", weChatProperties.getSecret());
+        String respBody = httpClientUtil.doGet("https://api.weixin.qq.com/cgi-bin/token", params);
+        JsonNode node = objectMapper.readTree(respBody);
+        String token = node.path("access_token").asText(null);
+        if (token == null || token.isBlank()) {
+            throw new BusinessException("获取微信 access_token 失败：" + respBody);
+        }
+        // expires_in 单位秒，提前 5 分钟过期，避免临界点拿到失效 token
+        long expiresIn = node.path("expires_in").asLong(7200);
+        cachedAccessToken = token;
+        accessTokenExpireAt = now + (expiresIn - 300) * 1000;
+        return token;
+    }
+
     //查询用户，用户不存在就报错；查到了就把实体数据组装成 VO 返回，给前端展示个人资料（包含头像）。
     @Override
     public UserProfileVO getProfile(Long userId) {
-        // 1. 根据用户id查询该用户
-        User user = userMapper.findById(userId);
-        // 2.如果查不到用户，抛出业务异常
-        if (user == null) {
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, "用户不存在");
-        }
-        // 3.构建vo对象，最终返回给前端
+        // 1. 取用户：不存在或已注销都视为不可用（令牌可能还在有效期内，靠这里兜住）
+        User user = findActiveUser(userId);
+        // 2.构建vo对象，最终返回给前端
         return UserProfileVO.builder()
                 .id(user.getId())
                 .name(user.getName())
@@ -107,14 +166,23 @@ public class UserServiceImpl implements UserService {
         if (trimmed.length() > 32) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "昵称不能超过 32 个字符");
         }
-        // 4. 用户必须存在（登录态有效但账号可能已被删），否则更新影响 0 行
-        User user = userMapper.findById(userId);
-        if (user == null) {
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, "用户不存在");
-        }
+        // 4. 用户必须存在且未注销（登录态有效但账号可能已注销），否则更新影响 0 行
+        findActiveUser(userId);
         // 5. 写库，返回最终入库的昵称
         userMapper.updateName(userId, trimmed);
         return trimmed;
+    }
+
+    // 注销账号：软删用户 + 清购物车，同一事务（任一步失败一起回滚）
+    @Override
+    @Transactional
+    public void deactivate(Long userId) {
+        // 1. 用户必须存在且未注销，否则抛 401（重复注销在这里就被挡住）
+        findActiveUser(userId);
+        // 2. 置 is_deleted = 1（不物理删：orders.user_id 是 RESTRICT，订单要保留）
+        userMapper.softDelete(userId);
+        // 3. 清空该用户购物车（cart 同库直连删；订单/收货地址不动，地址快照已冗余进订单）
+        cartMapper.deleteByUser(userId);
     }
 
 
@@ -147,8 +215,7 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "只支持 png / jpg / gif / webp 格式的图片");
         }
         // 上传前先记下旧头像路径，等新文件保存成功后再删旧文件，避免反复上传堆满磁盘
-        User user = userMapper.findById(userId);
-        String oldAvatar = user == null ? null : user.getAvatar();
+        String oldAvatar = findActiveUser(userId).getAvatar();
 
         // 保存文件：upload/avatar/{userId}_{时间戳}.{后缀}
         String filename = userId + "_" + System.currentTimeMillis() + "." + suffix;
@@ -168,6 +235,20 @@ public class UserServiceImpl implements UserService {
         deleteOldAvatarFile(oldAvatar);
         return relativeUrl;
     }
+    // 取「可用」用户：不存在或已注销都抛 401，供资料/昵称/头像等按 id 操作的入口复用
+    private User findActiveUser(Long userId) {
+        User user = userMapper.findById(userId);
+        if (user == null || isDeleted(user)) {
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "用户不存在");
+        }
+        return user;
+    }
+
+    // 是否已注销（is_deleted = 1）
+    private boolean isDeleted(User user) {
+        return Integer.valueOf(1).equals(user.getIsDeleted());
+    }
+
     // 归一化 Content-Type：统一小写、去掉「;」后面的参数（如 charset），便于按白名单比对；空值原样返回
     private String normalizeContentType(String contentType) {
         if (contentType == null) {

@@ -21,13 +21,19 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
       pool-name: MyHikariCP
-
+  data:
+    redis:
+      # 本地 Redis 默认无密码；生产需要密码时补一行 password: ${REDIS_PASSWORD}
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      database: ${REDIS_DATABASE:0}
 server:
   port: 9003
 
-# product-service 不做登录，但 common 的 JwtProperties 启动校验非空，给占位值让骨架能裸启动
+# jwt.secret 统一从环境变量 JWT_SECRET 读取。当前接口都在免登录白名单里，暂不校验令牌，
+# 但 common 的 JwtProperties 启动时校验非空，未设置 JWT_SECRET 时服务直接启动失败。
 jwt:
-  secret: dev-placeholder-jwt-secret-0123456789abcdef0123456789abcdef
+  secret: ${JWT_SECRET}
   expire: 604800
 wechat:
   appid: placeholder-appid

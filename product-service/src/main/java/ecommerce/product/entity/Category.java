@@ -22,5 +22,7 @@ public class Category {
     private Integer sortOrder;
     private Integer status;
     private Integer recommend;
+    /** 分类图片路径（如 /image/category/phone.png），C 端小程序分类入口展示用 */
+    private String image;
     private Integer productCount;
 }

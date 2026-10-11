@@ -26,6 +26,8 @@ public class CategoryVO {
     private Integer status;
     @Schema(description = "是否推荐：1 是 0 否")
     private Integer recommend;
+    @Schema(description = "分类图片路径，C 端小程序分类入口展示用")
+    private String image;
     @Schema(description = "该分类下直接挂靠的商品数")
     private Integer productCount;
 }

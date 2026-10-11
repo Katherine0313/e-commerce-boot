@@ -1,6 +1,6 @@
 package ecommerce.product.service;
 
-import ecommerce.product.vo.CategoryVO;
+import ecommerce.product.vo.CategoryTreeVO;
 import ecommerce.product.vo.ProductVO;
 import ecommerce.product.vo.TagVO;
 
@@ -12,6 +12,11 @@ public interface ProductService {
      * 商品列表（占位：返回固定示例数据，接库后改为查 products 表）
      */
     List<ProductVO> listProducts();
+
+    /**
+     * 按一级分类（父类）查上架商品：聚合该父类名下所有二级分类的商品
+     */
+    List<ProductVO> listProductsByCategory(Long categoryId);
 
     /**
      * 商品详情；商品不存在时抛 404
@@ -28,9 +33,9 @@ public interface ProductService {
     List<ProductVO> listProductsByIds(List<Long> ids);
 
     /**
-     * 分类列表（parentId 构成分类树）
+     * 分类树列表：每个元素是一级父分类（含 children 子分类）
      */
-    List<CategoryVO> listCategories();
+    List<CategoryTreeVO> listCategories();
 
     /**
      * 标签列表

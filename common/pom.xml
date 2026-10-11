@@ -30,6 +30,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-restclient</artifactId>
 		</dependency>
+		<!-- Redis：各业务服务共用缓存（商品/分类/登录态等），RedisTemplate 序列化见 RedisConfig -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-data-redis</artifactId>
+		</dependency>
 		<!-- 接口文档：Result 的 @Schema、OpenApiConfig 的 GlobalOpenApiCustomizer -->
 		<dependency>
 			<groupId>org.springdoc</groupId>

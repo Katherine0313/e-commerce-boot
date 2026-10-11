@@ -35,6 +35,18 @@ docker compose logs -f nacos  # 看启动过程，出现 "Nacos started successf
 Nacos 冷启动约 20~40 秒，**别起完容器立刻起服务**，等 8848 通了再走下一步。
 验证：`Test-NetConnection 127.0.0.1 -Port 8848` 返回 True。
 
+**起 Redis（product-service 分类树缓存需要，不测分类接口可跳过）**
+
+本地 Redis 是 Windows 原生版，不占 Docker；路径 `D:\Software\tools\redis\Redis-x64-5.0.14.1`。
+
+```powershell
+D:\Software\tools\redis\Redis-x64-5.0.14.1\redis-server.exe D:\Software\tools\redis\Redis-x64-5.0.14.1\redis.windows.conf
+```
+
+验证：`Test-NetConnection 127.0.0.1 -Port 6379` 返回 True。
+
+> ⚠️ 不起 Redis 的话，`GET /api/categories`（分类树）会直接 500——`listCategories()` 第一步就查 Redis，连不上就抛异常；商品列表/详情接口不依赖 Redis，不受影响。
+
 **第 3 步：起后端服务**
 
 顺序不强制，先起 gateway 也可以（它靠 `lb://` 懒解析，不要求下游先就绪）。
@@ -74,6 +86,7 @@ curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 
 | Nacos | 8848 / 9848 / 9849 | — | — |
 | Nacos 控制台 | 18080（容器内 8080） | — | — |
 | MySQL | 3306（本机原生） | — | — |
+| Redis | 6379（本机原生，非 Docker） | — | — |
 
 ### 已知坑：jar 可能落后于源码
 
@@ -103,6 +116,7 @@ docker compose down    # 停 Nacos（数据在容器内嵌 derby，开发期无�
 | 服务日志停在注册阶段、报 Nacos 连接失败 | Docker Desktop 没起 / Nacos 容器没起 |
 | `tasklist` 里 Java 进程只有 IDEA | 后端一个都没起（正常现象，它不会自启） |
 | 启动报 `DB_USERNAME` 占位符解析失败 | 该服务的 `application-dev.yml` 缺失（或被 gitignore 后没本地补上） |
+| `GET /api/categories` 返回 500 | Redis 没启动（分类树缓存依赖 Redis，连不上就 500）；起 Redis 即可 |
 
 ## 需求
 
@@ -125,9 +139,9 @@ docker compose down    # 停 Nacos（数据在容器内嵌 derby，开发期无�
 
 | 端 | 身份 | JWT type | 路径前缀 | 说明 |
 |---|---|---|---|---|
-| 顾客端 C（小程序） | 用户 user | `user` | `/api/**` | wx.login 换 openid 登录 |
+| 顾客端 C（小程序） | 用户 user | `user` | `/api/**` | 免登录：启动静默 wx.login 换 openid |
 | 顾客端 C（PC 端商城） | 用户 user | `user` | `/api/**` | 账号密码 / 验证码登录 |
-| 后台 B（PC 端管理系统） | 管理员 admin | `admin` | `/api/admin/**` | 账号密码登录 |
+| 后台 B（PC 端管理系统） | 管理员 admin | `admin` | `/api/admin/**` | 账号密码登录（必须登录） |
 
 小程序与 PC 端商城 **共用同一个用户账号体系**（同一张 `user` 表、同一套 C 端业务接口），只是登录方式不同。真正区分端的地方只有两处：**登录入口** 和 **前端 UI**，后端业务逻辑是同一套。
 
@@ -625,6 +639,207 @@ Nacos + 服务注册 + 网关路由已跑通（task_plan 阶段 0 completed）�
 - Python 连 MySQL 的密码走环境变量，不进 git（对齐项目现有凭据规范）。
 - 新增 `/api/products/recommend` 后按约定同步 `docs/openapi.yaml`。
 - 数据稀疏（3 用户），第一版不追指标；后续数据多了可再加内容相似度（categoryId/tagId）加权融合。
+
+## Redis 缓存（分类树）（2026-10-07）
+
+### 设计定案
+
+- 只缓存**分类**（`GET /api/categories`），商品不缓存（分类页懒加载按父类查商品 `GET /api/products?categoryId=x`）。
+- key 结构：
+  - `category:parent:ids` → 所有一级父分类 id 数组 `[1,2,3,4,5,6]`
+  - `category:parent:{父id}` → 该父分类 + children 子分类，组装成树形 VO（父对象里含 children 数组）
+- 查询：读 `category:parent:ids` → `MGET` 各父分类树 → 合并返回；索引或任一父树缺失则整体重建（分类少、变更不频繁，重建最省事）。
+- 更新（后台写接口接入时做）：改任意分类 → 找到其一级父 id → `DEL category:parent:{父id}`；增/删一级父分类 → 维护 `category:parent:ids` 数组 + `DEL category:parent:{父id}`。
+- `GET /api/categories` 返回结构从扁平列表改为**树形**（`List<CategoryTreeVO>`），前端 `CategoryPanel`/`category.vue` 相应改用 `item.children` 提取二级分类。
+
+### 踩坑点（Spring Boot 4.1 + Jackson 3）
+
+1. **Redis 配置前缀仍是 `spring.data.redis`，但配置类改名 `DataRedisProperties`**（Boot 4 包名 `org.springframework.boot.data.redis.autoconfigure`，不再是旧的 `RedisProperties`）。
+2. **Jackson 3 序列化器**：Spring Data Redis 4.1 提供 `GenericJacksonJsonRedisSerializer`（收 `tools.jackson.databind.ObjectMapper`），不是 Jackson 2 的 `GenericJackson2JsonRedisSerializer`（名字多一个「2」，照抄旧资料会编译不过）。
+3. **default typing 的坑**：`GenericJacksonJsonRedisSerializer(ObjectMapper)` 构造器**不会自动启用 @class**，直接传 Spring 默认 ObjectMapper 时，序列化不带 @class、反序列化退化成 `LinkedHashMap`（类型丢失）。用 builder 的 `enableDefaultTyping` 才带 @class，但又引入类型校验：`ProductVO` 的 `BigDecimal`（非 final）会写 @class，若 validator 只允许 `java.util.`，反序列化 `java.math.BigDecimal` 报 500。
+4. **最终方案（按用户要求）**：不用 @class，改 `StringRedisTemplate` + `ObjectMapper` 手动序列化成**纯 JSON**，反序列化显式指定类型（`readValue(json, CategoryTreeVO.class)`），删除自定义 RedisConfig（含 default typing）。
+
+## 订单域迁移 + 购物车后端（2026-10-08）
+
+> 从原 Node 的 SQLite 迁移订单域 4 张表到 MySQL，并在 order-service 实现小程序购物车后端。
+
+### 1. 订单域 4 表迁移
+
+- `docs/sql/order.sql`：建表（orders / order_items / cart / consignee_address），只建表不落数据，幂等。
+- `docs/sql/order-data.sql`：数据迁移（52 订单 / 76 订单项 / 1 购物车 / 15 地址），INSERT IGNORE 幂等。
+- 迁移规则延续 product.sql：BIGINT AUTO_INCREMENT、Unix 秒 → DATETIME（FROM_UNIXTIME）、REAL → DECIMAL(10,2)。
+
+### 2. 关键决策
+
+| 决策 | 结论 |
+|------|------|
+| 排序规则 | 新表显式 `COLLATE utf8mb4_general_ci`（服务器 MySQL 5.7 不支持 8.0 的 0900_ai_ci，导出导入会失败）；旧的 product/admin 表及已建表用户决定不管 |
+| 时间字段命名 | 订单域用 `created_at/updated_at`（忠于原表 _at 风格，与 pay_at/confirm_at 统一）；与商品域 create_time/update_time 有意不同 |
+| 外键 | 加物理外键含 user_id → user.id（orders RESTRICT、cart/address CASCADE）；order_items.product_id 不加（订单项是快照 + 孤儿数据） |
+| user_id 映射 | 原 sqlite user_id=1/2/3 是后台账号表（admin/user/user2），与小程序 user 表不同体系 → 插 3 个占位用户（显式 id=5/6/7），订单/购物车/地址 1:1 映射 |
+
+### 3. 踩坑点
+
+- **TEXT 列不能带字面量默认值**：`insurance_detail TEXT DEFAULT '[]'` 报 `ERROR 1101` → 改 `VARCHAR(512)`。
+- **孤儿数据**：order_items 有 1 条 `product_id=41` 指向已删商品，用户决定丢弃；随后发现 sqlite 已被重新导出、该条已消失（77→76 条）。
+- **orders.id 不连续**（8~100 跳号）：保持原 id 迁移，order_items.order_id 无需改。
+- **中文乱码**：迁移脚本用 Python 读 sqlite 直接写 UTF-8 的 INSERT SQL（绕过终端 GBK），导入加 `--default-character-set=utf8mb4`。
+
+### 4. 购物车后端（order-service）
+
+- 5 接口照搬原 Node：`GET /api/cart`、`POST /api/cart`、`PUT /api/cart/{productId}`、`DELETE /api/cart/{productId}`、`DELETE /api/cart`（清空，可选 body.productIds 批量删）。
+- 快照来源：**同库直接查 products 表**（用户选），加购时后端查 name/image/price/description 落快照，不信任前端传的价格。
+- 鉴权：`/api/cart/**` 不在 `EXCLUDE_AUTH_PATHS` 白名单，`JwtInterceptor` 自动要求 user 令牌。
+- 包结构：`ecommerce.order` 下分 controller/service/mapper/entity/dto/vo，`@MapperScan("ecommerce.order.mapper")`。
+- gateway 补路由 `/api/cart/** → order-service`（否则落到 `/api/**` 的 user-service 兜底）。
+- 编译通过（BUILD SUCCESS）；未启动端到端验证（用户选择先不测）。
+
+## 订单功能实现 + Docker MySQL（2026-10-08）
+
+### 1. 订单状态数字枚举 + 状态机
+
+- `OrderStatusEnum`：6 状态数字 code（1待付款 2待确认 3待发货 4已发货 5已完成 6已取消），照原 Node orderStatus.js。
+- 状态机：pending_pay → pending_confirm → pending_ship → shipped → finished，前三态可 cancel；`canTransition` 强校验非法流转。
+- `order_status` 字段从 VARCHAR 字符串迁到 TINYINT 数字（`docs/sql/order-status-migrate.sql`：临时列映射 + 换列）。
+- **迁移已于 2026-10-09 执行**（打 Docker `127.0.0.1:3307`）：自检列类型 = `tinyint`，分布 `2→10 / 3→4 / 4→2 / 5→11 / 6→25`，与迁移前英文值一一对应（pending_confirm 10 / pending_ship 4 / shipped 2 / finished 11 / cancel 25）。
+  - 迁移前存在**代码与库不一致**：`OrderStatusEnum` 与 Mapper 全按 `Integer` 读写，库里列却是 `varchar(32)` 英文值 → 读老数据会 `NumberFormatException`；本次一并消除。
+  - **本机 3306 未迁**（回退库，保持英文原样）；只迁了服务实际连接的 3307。
+  - 脚本非幂等，重复执行在「加临时列」处报 `Duplicate column`；`CASE` 的 `ELSE 1` 兜底（未收录值/NULL → 1待付款），执行前已确认库中 52 行均为已知值。
+  - ⚠️ 同类遗留：`orders.sign_status` 仍是 varchar 英文（`signed`/`unsigned`），`tags.type` 是 varchar（`custom`），未迁。
+
+### 2. 订单功能（order-service）
+
+- 8 接口：下单/列表/详情/支付/确认收款/发货/完成/取消。
+- 下单：查商品 → 校验库存 → 扣库存（乐观锁 `stock >= quantity`）→ 写订单+明细（初始待付款），`@Transactional` 保证原子性。
+- 状态流转自动记时间戳：支付记 pay_at、确认记 confirm_at、发货记 ship_at+单号、完成记 finish_at+签收（OrderMapper.xml 动态 SQL）。
+- 超时关闭：`@Scheduled` 每分钟扫，`created_at` 超 30 分钟（1800s）的待付款订单恢复库存+改 cancel（**不软删除**——待付款订单是有效记录，超时只是状态流转，保留供用户查看），**二次确认**防与支付并发误取消。
+- 库存：下单扣、取消/超时恢复（restoreStock）。
+
+### 3. Docker 部署 MySQL
+
+- `docker-compose.yml` 启用 mysql 服务：镜像 8.0，端口 3307 避开本机 MySQL80，字符集 utf8mb4_general_ci，命名卷 mysql-dev-data 持久化，restart: unless-stopped。
+- 数据从本机 mysqldump 迁移（9 张表；admin 表两边都缺——admin.sql 从没执行过）。
+- 4 个服务的 application-dev.yml 数据库连接 3306 → 3307。
+- 本机 MySQL80 仍在 3306（可回退）。
+- ⚠️ **3306 已成落后库（2026-10-09 起两库分叉）**：3307 后来新增 `user.is_deleted`、把 `orders.order_status` 从 varchar 迁成 tinyint，**3306 两者都没有** → 用现在的代码连 3306 会 `Unknown column 'is_deleted'`、读旧 `order_status` 抛 `NumberFormatException`。日常一律连 **3307**。
+  - **IDE（IntelliJ）数据源也必须指向 3307**：指向 3306 时，`CartMapper.xml` 报「Unable to resolve table 'cart'」、`UserMapper.xml` 报「Unable to resolve column 'is_deleted'」——这是 **IDE 元数据过期**（连的是缺列/缓存旧的 3306），**不是代码或库的问题**；切 3307 并 Refresh 后消失。
+
+## 购物车实现盘点（2026-10-09）
+
+> 只读盘点：核对 order-service 购物车实际代码，确认已实现范围与缺口。**本次未改任何代码**。
+
+### 已实现（事实）
+
+- 5 接口（`CartController`，`/api/cart`）：列表 `GET` / 加购 `POST` / 改数量 `PUT /{productId}` / 移除 `DELETE /{productId}` / 清空+批量删 `DELETE`（body 可选 `productIds`）。
+- 分层齐全（均在 `order-service` 的 `ecommerce.order` 包）：`controller/CartController`、`service/CartService(+impl/CartServiceImpl)`、`mapper/CartMapper(+resources/mappers/order/CartMapper.xml)`、`entity/Cart`、`entity/Product`+`mapper/ProductMapper(+XML)`、`dto/AddCartDTO`+`UpdateQuantityDTO`+`ClearCartDTO`、`vo/CartVO`。
+- 表：`docs/sql/order.sql:80` 的 `cart` 表，唯一键 `uk_cart_user_product(user_id, product_id)`（一人一商品一行）、外键 user_id→user / product_id→products（ON DELETE CASCADE）。
+- 鉴权：`/api/cart/**` 不在 `EXCLUDE_AUTH_PATHS` → `JwtInterceptor` 自动要求 user 令牌，用户 id 从 `UserContext.getUserId()` 取（前端不传 userId，防越权）。
+- 网关：`gateway/application.yml:80` `/api/cart,/api/cart/** → lb://order-service`（排在 `/api/**` user-service 兜底之前）。
+
+### 与 Node 原版的关键差异
+
+- Node `cartController.addItem` **信任前端传入的** `name/image/price/description` 直接落快照；Spring 版改为**后端查 products 表**（`ProductMapper.findById`）生成快照，**不信任前端价格**——防篡改，是刻意的改进。
+- 其余 5 接口路径/语义照搬 Node（与 `routes/cartRoutes.js` 对照一致）。
+
+### 还缺 / 要注意
+
+| # | 项 | 现状 | 影响 / 补法 |
+|---|---|---|---|
+| 1 | **下单不清购物车** | `OrderServiceImpl` 完全未引用 cart | 下单成功后购物车项不会自动移除；若要「下单即移除」需在下单事务里补 `cartMapper.deleteByProducts(...)` |
+| 2 | **加购不校验库存/上架** | `ProductMapper.xml` 的 `findById` 只按 `id + shop_id` 查，无 `stock` / `listing_status` 过滤 | 允许加购下架/无货商品；库存校验只在下单时做。是否加购即拦取决于产品口径 |
+| 3 | **未端到端验证** | 5 个接口未实际启动 order-service 测过 | 存在运行时未知数（用户当时选择先不测） |
+| 4 | **前端未接** | uniapp `api/` 只有 categories/login/product，**无 cart api 模块**；`pages/cart/cart.vue` 未调接口 | 前端这一层待做（`cart.vue` 里没有任何 api 调用） |
+| 5 | **多租户固定模板店** | `CartServiceImpl.TEMPLATE_SHOP_ID = 1` 硬编码 | 沙箱隔离接入前按模板店跑 |
+| 6 | `insurance_detail` / `insurance_fee` | 固定 `"[]"` / 0（历史遗留） | 小程序未启用，通常为空，可忽略 |
+
+### 文档约定变更（顺带核实）
+
+- **手写的 `docs/openapi.yaml` 已不存在**：2026-10-05 提交 `8228496` 删除（525 行），改为 springdoc 按 `@Schema` / `@Operation` / `@Tag` 注解**自动生成**，入口见新增的 `docs/swagger-addresses.md`（网关聚合 `http://localhost:8080/swagger-ui.html`）。
+- 因此本文档「项目架构约定」里「接口改动必须手工同步 `docs/openapi.yaml`」一条**已过时**——现在只需保证注解齐全，文档自动出。**遗留：该节其余处仍按 openapi.yaml 描述，尚未修订。**
+
+## 用户软删除（user.is_deleted，2026-10-09）
+
+### 背景
+
+`orders.user_id` 是 `ON DELETE RESTRICT`（订单不随用户删），而 `user` 表原先**没有**任何生命周期字段 → 「用户注销」无处落地：删不掉也标不了。故给 `user` 加软删除字段。
+
+### 落地
+
+- **表**：`ALTER TABLE user ADD COLUMN is_deleted TINYINT NOT NULL DEFAULT 0 COMMENT '软删除：1 已删除 0 正常'`（AFTER avatar）。命名/类型对齐 `orders.is_deleted`，遵循「状态类字段存 TINYINT 0/1，不存英文」。
+- **实体**：`User.isDeleted`（`Integer`）。`select *` + `spring` 的 `mybatis.configuration.map-underscore-to-camel-case: true` → `is_deleted` 自动映射，**无需手写 resultMap**。
+  - 用 `Integer` 而非 `boolean`：Lombok 对 `boolean isDeleted` 会生成 `isDeleted()/setDeleted()`（getter 名与字段名不一致），MyBatis 反射映射会踩坑；`Integer` 生成 `getIsDeleted/setIsDeleted`，映射正常。
+- **判断**：`UserServiceImpl` 加私有 `isDeleted(user)` / `findActiveUser(userId)`；登录时已注销 → 403「账号已注销」，`getProfile`/`updateName`/`uploadAvatar` 统一走 `findActiveUser`（已注销 → 401）。
+
+### 关键坑：注销不能只靠 SQL 过滤（uk_openid）
+
+`user.openid` 有 `UNIQUE KEY uk_openid`。注销只是把行标记 `is_deleted=1`，**该行仍在、openid 仍被占用**。所以：
+
+- **`findByOpenid` 不能加 `and is_deleted = 0` 过滤**：一旦过滤，同一微信号再登录会「查不到 → 走首次注册 insert → 撞 uk_openid 报错」。
+- 正解：查询照常返回该行，**由 Service 判 `is_deleted` 拒绝登录**（已实现）。若将来要允许注销用户重登，得在注销时把 `openid` 置空/改写，而不是靠过滤。
+
+### 注销接口（2026-10-09 实现）
+
+- `POST /api/user/deactivate`（需登录，取 `UserContext.getUserId()`）→ `UserServiceImpl.deactivate`：
+  `@Transactional` 内 ① `findActiveUser` 校验（已注销 → 401，重复注销在此被挡）② `UPDATE user SET is_deleted=1` ③ `DELETE FROM cart WHERE user_id=?`。
+- **为什么由 user-service 直连同库删 cart**：cart 表归 order-service，但要让两步**同一事务**，只能由同一服务用同一连接执行（跨服务调用无原子性，Seata 尚未引入）。沿用 order-service 直查 products 的同库直连先例；将来拆库 / 上 Seata 再改。
+- user-service 新增 `mapper/CartMapper`（+ `mappers/user/CartMapper.xml`），是 user-service 里唯一碰 cart 表的地方。
+- **订单（39 条）与收货地址保留**：订单是财务数据（`RESTRICT` 的意义所在）；地址快照已冗余进订单，可留可清，本次不动。
+- 路由：`/api/user/deactivate` 未被 auth-service 的精确路径（`/api/user/info`）匹配，落到 `/api/**` → user-service，**网关无需改**。
+- ⚠️ 语义澄清：**软删除（UPDATE）不会触发 FK CASCADE**——CASCADE 只在父行被物理 DELETE 时生效。所以注销后 cart/address 不会自动跟删，必须由代码显式清（本接口做的就是清 cart）。
+
+### 未做（遗留）
+
+- 无后台 admin 侧的「注销指定用户」接口（当前只有 C 端自助注销）。
+- `consignee_address` 未清（可留）。
+
+## 头像静态资源路由 + 绝对 URL 拼接（2026-10-10）
+
+### 背景：加购/看资料时头像显示不出来
+
+小程序点「加入购物车」未登录会先弹 `LoginPopup`，其 `startLogin` 走 `ensureLogin` + `getProfile`；头像 URL 由 user-service 的 `UserController.fullUrl` 拼成**绝对地址**后直接交给 `<image :src>`（前端不再补域名）。前端 `findings.md` 早已把该静态资源记为 `http://127.0.0.1:8080/upload/avatar/...`，但网关**没有 `/upload/**` 路由**（只有 `/image/**` → product-service）→ 经网关取头像必然 404。
+
+同时确认加购/头像这条链路所需模块（回答「要开哪些服务」）：MySQL（Docker 3307）+ Nacos 8848 + gateway 8080 + user-service 9006（`/api/wxlogin`、`/api/user/profile`、`/api/user/avatar`）+ order-service 9004（`POST /api/cart`）；product-service 9003 只在浏览商品时需要（加购请求本身是 order-service 同库查 `products`），**Redis 不用**（只有 product-service 商品缓存用它）。
+
+### 改动 1：网关补 `/upload/**` → `lb://user-service`
+
+与 `/image/**` 对称。静态资源不在 `/api/**` 内，`JwtInterceptor` 不拦，天然免登录。
+
+### 改动 2：`fullUrl` 读到的 Host 经网关是下游实例地址
+
+- 网关转发时 Host 被重写成目标实例地址（实测经网关是 `192.168.92.1:9006`，即 Nacos 注册的那个实例；直连 9006 时才是 `127.0.0.1:9006`），不是客户端访问的 8080。
+- 后果：原实现拼出 `http://192.168.92.1:9006/upload/avatar/xxx.jpg`。开发者工具在本机能加载（本机恰好可达该地址，所以看着「好了」），**真机必坏**。
+- **抽到 common**：新增 `common/utils/UrlUtil.java`（`fullUrl` / `forwardHeader`），`UserController` 与 `WxLoginController` 共用，不再各自拼域名。
+- 顺带拦外链：已经以 `http(s)://` 开头的 avatar 原样返回，否则会拼成 `http://hosthttps://thirdwx.qlogo.cn/...`（与 `UserServiceImpl.deleteOldAvatarFile` 只认本地 `/upload/avatar/` 前缀的处理一致）。
+- ⚠️ 期间一度改成「优先读 `X-Forwarded-Host`」，**实测走不通**，见改动 4。
+
+### 改动 3：`/api/wxlogin` 返回相对路径（渲染层报错的直接根因）
+
+小程序报 `Failed to load local image resource /upload/avatar/9_1791625414298.jpg`（附 500）：
+
+- `/api/user/profile` 的 avatar 走 `fullUrl` 拼域名，但 `/api/wxlogin` 直接把库里原始值返回（`UserServiceImpl.login` 里 `.avatar(user.getAvatar())`）→ 前端 `ensureLogin` 把 `res.avatar`（相对路径）写进 Pinia store → `<image :src="/upload/avatar/...">` 被小程序**当成包内路径**，本地找不到就报这个错。
+- 那个 500 **不是后端返回的**：实测同一文件 `curl http://127.0.0.1:8080/upload/avatar/9_1791625414298.jpg` = **200**（直连 9006 也 200），500 出自开发者工具自己的本地静态服务。
+- 前端 `findings.md:47` 早已约定「两个 avatar 字段都是完整 URL，前端不要再拼域名」——是实现漏了 wxlogin，故修在 `WxLoginController`：`vo.setAvatar(UrlUtil.fullUrl(request, vo.getAvatar()))`。
+
+### 改动 4：`X-Forwarded-*` 不可信 → 网关保留客户端 Host
+
+用自签 HS512 令牌实测 `GET /api/user/profile`（`JWT_SECRET` 与运行时同值，指纹比对一致；最初 401 是因为 id=9 那个用户已不存在，换库里 10 号用户即 200）：
+
+| 请求 | 返回的 avatar |
+|---|---|
+| 直连 9006 | `http://127.0.0.1:9006/upload/avatar/10_...jpg`（Host 即客户端值，回退逻辑本身没错） |
+| 经网关 8080（不加任何头） | `http://192.168.92.1:9006/upload/avatar/10_...jpg` |
+| 经网关 8080 + 客户端自塞 `X-Forwarded-Host: probe1.example.com` | **同上，客户端值被覆盖** |
+
+- 根因（读 `spring-cloud-gateway-server-webflux:5.0.3` 源码）：`XForwardedHeadersFilter` 取的是 `request.getURI().getHost()`——`lb://` 此时已解析成实例地址，所以它产出的 `X-Forwarded-Host` 恒等于下游实例地址，**客户端自带的值也会被覆盖**；`X-Forwarded-Proto` 同理（恒为「网关→下游」的协议）。
+- 正解：**网关侧保留客户端 Host**——`gateway/application.yml` 给 `/api/**`（user-service）路由加 `filters: - PreserveHostHeader`（该类在 5.0.3 里存在，配置名有效）；`UrlUtil` 取值顺序改回 **Host 优先、`X-Forwarded-Host` 仅兜底**。
+- 协议仍是遗留项：网关对外是 https 时 `X-Forwarded-Proto` 会给出 http，需要在网关/Nginx 层显式透传客户端协议（已写进 `UrlUtil` 注释）。
+
+### 验证
+
+- **静态资源**：经网关 8080 取 `upload/avatar/9_...jpg` = 200，直连 9006 也 200 → `/upload/**` 路由与 `WebMvcConfig` 静态映射都通。
+- **接口返回**：见改动 4 的表（自签令牌实测），据此才发现 `X-Forwarded-*` 这条路不可用。
+- **待验证**：`PreserveHostHeader` + Host 优先改完后需重启 gateway 与 user-service 再测一遍，期望经网关返回 `http://127.0.0.1:8080/upload/avatar/...`。
+- 教训：`X-Forwarded-*` 由网关自己生成，别想当然当作「客户端原始信息」——本项目里它等于下游实例地址。
 
 ## 视觉/浏览器发现
 

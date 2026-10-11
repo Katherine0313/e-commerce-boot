@@ -1,5 +1,6 @@
 package ecommerce.utils;
 
+import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.util.UriComponentsBuilder;
@@ -27,6 +28,15 @@ public class HttpClientUtil {
         }
         return restClient.get()
                 .uri(builder.build().encode().toUri())
+                .exchange((request, response) -> response.bodyTo(String.class));
+    }
+
+    // 发起 POST 请求，body 为 JSON 字符串（Content-Type: application/json），用于调微信「手机号」等 JSON 入参接口
+    public String doPostJson(String url, String jsonBody){
+        return restClient.post()
+                .uri(UriComponentsBuilder.fromUriString(url).build().encode().toUri())
+                .contentType(MediaType.APPLICATION_JSON)
+                .body(jsonBody)
                 .exchange((request, response) -> response.bodyTo(String.class));
     }
 }
