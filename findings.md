@@ -865,6 +865,25 @@ Nacos + 服务注册 + 网关路由已跑通（task_plan 阶段 0 completed）�
 
 - `products.sub_title` 全部改成「商品名 + 卖点」≤35 字（`docs/sql/product-subtitle.sql`，已执行），加购弹窗显示 subTitle。
 
+## 收货地址模块（2026-10-11）
+
+### 表：consignee_address 改名 address
+
+- 订单域已有 `consignee_address` 表（含 user_id 索引 + user_id 外键 + 历史数据），收货地址模块直接复用、改名 `address`。
+- `region` / `detail_address` 原为 NULL（从原 sqlite 系统原样迁移），改成 NOT NULL（不填无法发货）。
+- 注意：数据库里外键名还是 `fk_consignee_address_user`（改名时未同步改），order.sql 文档已写 `fk_address_user`，命名有出入但功能无影响。
+
+### 默认地址设计
+
+- 不单独提供 GET /address/default 接口，列表全量返回，前端拿 is_default=1 那条做默认。
+- 唯一性靠 Service 层事务：新增/修改设默认前先 clearDefault（清 0 其他），第一条地址自动设默认；删除默认地址后 setDefaultToLatest 自动把 id 最大一条设为默认。
+- 「设为默认」通过 PUT /api/address/{id} 改 is_default=1 实现，不单独开接口。
+
+### 省市区级联
+
+- 前端用微信原生 `picker mode="region"`（数据微信内置、自动级联、零包体积），region 存「省 市 区」字符串。
+- 不拆 province/city/district 三字段、不建省市区表：收货地址只是展示 + 发货，结构化查询（按省筛选/运费模板）才需要拆。
+
 ## 视觉/浏览器发现
 
 - 本次探索读了 Node 后端（`e-commerce/server`）与前端（`e-commerce`）的本地代码与配置，并用 WebSearch 确认了 Spring Cloud Alibaba / Nacos 对 Spring Boot 4 的版本兼容（见本节「微服务版本兼容」）。

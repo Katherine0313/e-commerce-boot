@@ -173,6 +173,9 @@
 | 增值保障由前端加购弹窗勾选、随 DTO 传入后端快照，不在商品表存固定保障费 | 增值保障是可多选（全面保修/一年意外保/电池无忧），价格按售价比例或固定、加购时才确定；商品表存单值覆盖不了多选场景 |
 | 购物车数量上限用「实时 join products 取 stock + 后端校验」，不落 stock 快照 | stock 随下单/补货实时变化，快照会过期；join 实时取最准，后端 addItem/updateQuantity 权威校验兜底 |
 | 购物车单品小计 subTotal 只读计算不落库 | subTotal = (price + insuranceFee) × quantity，是纯派生值；落库要同步维护 price/quantity/insuranceFee 三处变更，成本高且易脏 |
+| 默认地址不单独接口，列表全量返回、前端取 is_default=1 | 地址数量少（≤几十），一次全量返回简单；单独 GET /address/default 多一次请求收益不大 |
+| 默认地址唯一性由 Service 层事务保证（clearDefault 先清 0 + 落新默认）；删除默认自动把最新一条设为默认 | 「同一用户只有一个默认」前端保证不了，必须后端事务兜底；删默认后自动补位保证用户始终有默认，下单体验顺 |
+| 省市区用微信原生 picker mode="region"，region 存「省 市 区」字符串 | 数据微信内置、零包体积（此前踩过 4MB 包上限）、自动级联；收货地址只是展示+发货，字符串够用，不拆 province/city/district、不建省市区表 |
 
 ## 遇到的错误
 

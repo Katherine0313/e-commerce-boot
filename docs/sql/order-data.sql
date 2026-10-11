@@ -147,8 +147,8 @@ INSERT IGNORE INTO `order_items` (`id`, `shop_id`, `order_id`, `product_id`, `pr
 INSERT IGNORE INTO `cart` (`id`, `shop_id`, `user_id`, `product_id`, `quantity`, `name`, `image`, `price`, `description`, `insurance_detail`, `insurance_fee`, `created_at`, `updated_at`) VALUES
 (1, 1, 5, 1, 1, '苹果iPhone 15 Pro', '/image/upload/1.webp', 9999.00, '苹果 iPhone 15 Pro 采用 A17 Pro 芯片，6.1 英寸超视网膜 XDR 显示屏，钛金属边框设计，配备 Pro 级摄像系统。', '[]', 0.00, FROM_UNIXTIME(1790243262), NULL);
 
--- consignee_address
-INSERT IGNORE INTO `consignee_address` (`id`, `shop_id`, `user_id`, `consignee`, `phone`, `region`, `detail_address`, `is_default`, `created_at`, `updated_at`) VALUES
+-- address
+INSERT IGNORE INTO `address` (`id`, `shop_id`, `user_id`, `consignee`, `phone`, `region`, `detail_address`, `is_default`, `created_at`, `updated_at`) VALUES
 (12, 1, 5, '宗小杰', '17825006666', '河北省 唐山市 路北区', '大屁股沟子352号', 0, FROM_UNIXTIME(1785630385), NULL),
 (13, 1, 5, '张三', '13800138001', '广东省 深圳市 南山区', '科技园A栋1201', 0, FROM_UNIXTIME(1785601944), NULL),
 (14, 1, 5, '小米', '12053077988', '山西省 长治市 屯留区', '南瓜路979号', 1, FROM_UNIXTIME(1785601944), FROM_UNIXTIME(1788921446)),

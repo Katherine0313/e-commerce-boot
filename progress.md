@@ -369,6 +369,21 @@
   - `products.insurance_fee` 字段曾加又删（一度想在商品表存保障费，最终增值保障来自前端加购弹窗勾选、随 DTO 传入，商品表不需要该字段）
   - 购物车列表 join products 取实时库存，商品下架/删除时 stock 为 null，前端不限制、后端兜底 0 件
 
+### 阶段 T：收货地址模块（2026-10-11）
+- **状态：** 完成（后端 order-service 编译通过；前端未做）
+- 背景：下单/结算需要收货地址，把订单域已有的 `consignee_address` 表改名 `address` 作为收货地址模块的数据表。
+- 执行的操作：
+  - 表改名 + 字段约束：`consignee_address` → `address`（保留原有 user_id 索引 + 外键）；`region`/`detail_address` 由 NULL 改 NOT NULL
+  - 后端 CRUD：entity/vo/dto/mapper/service/controller 全套，接口 `GET/POST/PUT/DELETE /api/address`
+  - 默认地址逻辑：第一条自动设默认；设默认（is_default=1）先清其他默认；删除默认地址自动把最新一条（id 最大）设为默认；`@Transactional` 保证唯一
+  - 网关补 `/api/address` → order-service 路由
+- 创建/修改的文件：
+  - 新增 `order-service/.../entity/Address.java`、`vo/AddressVO.java`、`dto/AddAddressDTO.java`、`dto/UpdateAddressDTO.java`、`mapper/AddressMapper.java`、`mappers/order/AddressMapper.xml`、`service/AddressService.java`、`service/impl/AddressServiceImpl.java`、`controller/AddressController.java`
+  - 修改 `gateway/application.yml`（加 /api/address 路由）、`docs/sql/order.sql`、`order-data.sql`、`docs/test.md`（表名同步）
+- 说明：
+  - 数据库 address 表外键名仍是旧名 `fk_consignee_address_user`（用户改名时未改），文档 order.sql 已写 `fk_address_user`，命名有出入但不影响功能
+  - 省市区采用微信原生 `picker mode="region"`（数据微信内置），region 存「省 市 区」字符串，后端不拆字段、不建省市区表
+
 ## 测试结果
 
 | 测试 | 输入 | 预期结果 | 实际结果 | 状态 |

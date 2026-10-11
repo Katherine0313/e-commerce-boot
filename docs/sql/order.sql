@@ -19,7 +19,7 @@
 --        order_items.order_id -> orders.id          ON DELETE CASCADE（原表就有）
 --        cart.product_id      -> products.id        ON DELETE CASCADE（原表就有）
 --        cart.user_id         -> user.id            ON DELETE CASCADE（用户决策新增）
---        consignee_address.user_id -> user.id       ON DELETE CASCADE（用户决策新增）
+--        address.user_id -> user.id                ON DELETE CASCADE（用户决策新增）
 --        orders.user_id       -> user.id            ON DELETE RESTRICT（订单是重要数据，不随用户删）
 --      ⚠️ order_items.product_id 故意【不加】外键：原表本就没有；订单项是下单时的商品快照
 --        （已冗余存 product_name/image/sales_price），商品日后删除时订单历史仍要可读。
@@ -98,17 +98,17 @@ CREATE TABLE IF NOT EXISTS `cart` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '购物车';
 
 -- ==================== 收货地址 ====================
-CREATE TABLE IF NOT EXISTS `consignee_address` (
+CREATE TABLE IF NOT EXISTS `address` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '地址 ID',
     `shop_id`        BIGINT       NOT NULL DEFAULT 1      COMMENT '所属店铺（模板店=1）',
     `user_id`        BIGINT       NOT NULL                COMMENT '用户 ID',
     `consignee`      VARCHAR(64)  NOT NULL                COMMENT '收货人姓名',
     `phone`          VARCHAR(32)  NOT NULL                COMMENT '收货人手机号',
-    `region`         VARCHAR(255) DEFAULT NULL            COMMENT '省市区',
-    `detail_address` VARCHAR(512) DEFAULT NULL            COMMENT '详细地址',
+    `region`         VARCHAR(255) NOT NULL                COMMENT '省市区',
+    `detail_address` VARCHAR(512) NOT NULL                COMMENT '详细地址',
     `is_default`     TINYINT      NOT NULL DEFAULT 0      COMMENT '是否默认地址：1 是 0 否',
     `created_at`     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `updated_at`     DATETIME     DEFAULT NULL            COMMENT '更新时间',
     PRIMARY KEY (`id`),
-    CONSTRAINT `fk_consignee_address_user` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE CASCADE
+    CONSTRAINT `fk_address_user` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '收货地址';

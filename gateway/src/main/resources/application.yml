@@ -77,7 +77,7 @@ spring:
             - id: order-service
               uri: lb://order-service
               predicates:
-                - Path=/api/cart,/api/cart/**,/api/orders,/api/orders/**
+                - Path=/api/cart,/api/cart/**,/api/orders,/api/orders/**,/api/address,/api/address/**
             # AI 导购助手 → ai-agent-service；同样放在 /api/** 通配之前
             - id: ai-agent-service
               uri: lb://ai-agent-service
