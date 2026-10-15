@@ -5,31 +5,31 @@
 <mapper namespace="ecommerce.product.mapper.ProductMapper">
     <!-- 上架商品列表：不查 body（大字段）和 cost_price（C 端不下发成本价） -->
     <select id="listOnSale" resultType="ecommerce.product.entity.Product">
-        select id, shop_id, category_id, tag_id, name, sub_title, brand, description, image,
+        SELECT id, shop_id, category_id, tag_id, name, sub_title, brand, description, image,
                sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
                create_time, update_time
-        from products
-        where shop_id = #{shopId} and listing_status = 1
-        order by id asc
+        FROM products
+        WHERE shop_id = #{shopId} AND listing_status = 1
+        ORDER BY id ASC
     </select>
 
     <!-- 商品详情：查 body，仍不下发 cost_price -->
     <select id="findById" resultType="ecommerce.product.entity.Product">
-        select id, shop_id, category_id, tag_id, name, sub_title, brand, description, image, body,
+        SELECT id, shop_id, category_id, tag_id, name, sub_title, brand, description, image, body,
                sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
                create_time, update_time
-        from products
-        where id = #{id} and shop_id = #{shopId}
+        FROM products
+        WHERE id = #{id} AND shop_id = #{shopId}
     </select>
 
     <!-- 按 id 列表查上架商品（推荐接口用），不含 body/cost_price -->
     <select id="listOnSaleByIds" resultType="ecommerce.product.entity.Product">
-        select id, shop_id, category_id, tag_id, name, sub_title, brand, description, image,
+        SELECT id, shop_id, category_id, tag_id, name, sub_title, brand, description, image,
         sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
         create_time, update_time
-        from products
-        where shop_id = #{shopId} and listing_status = 1
-        and id in
+        FROM products
+        WHERE shop_id = #{shopId} AND listing_status = 1
+        AND id IN
         <foreach collection="ids" item="id" open="(" separator="," close=")">
             #{id}
         </foreach>
@@ -37,13 +37,13 @@
 
     <!-- 按一级分类查上架商品：商品挂在二级分类，join categories 按 parent_id 聚合到父类，不含 body/cost_price -->
     <select id="listOnSaleByCategory" resultType="ecommerce.product.entity.Product">
-        select p.id, p.shop_id, p.category_id, p.tag_id, p.name, p.sub_title, p.brand, p.description, p.image,
+        SELECT p.id, p.shop_id, p.category_id, p.tag_id, p.name, p.sub_title, p.brand, p.description, p.image,
                p.sales_mode, p.listing_status, p.sales_price, p.market_price, p.product_code, p.stock, p.weight, p.volume,
                p.create_time, p.update_time
-        from products p
-        join categories c on p.category_id = c.id
-        where p.shop_id = #{shopId} and p.listing_status = 1
-          and c.parent_id = #{categoryId}
-        order by p.id asc
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        WHERE p.shop_id = #{shopId} AND p.listing_status = 1
+          AND c.parent_id = #{categoryId}
+        ORDER BY p.id ASC
     </select>
 </mapper>

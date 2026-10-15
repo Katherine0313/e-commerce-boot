@@ -37,6 +37,9 @@ public interface OrderService {
     /** 取消：恢复库存 + 状态改取消 */
     OrderVO cancelOrder(Long id);
 
+    /** 删除订单（软删：is_deleted=1，不物理删除） */
+    void deleteOrder(Long id);
+
     /** 超时关闭待付款订单（定时任务调用） */
     void sweepExpiredPendingPayOrders();
 }

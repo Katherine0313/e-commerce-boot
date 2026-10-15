@@ -4,13 +4,13 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="ecommerce.auth.mapper.AdminMapper">
     <select id="findByUsername" resultType="ecommerce.auth.entity.Admin">
-        select *
-        from `admin`
-        where username = #{username}
+        SELECT *
+        FROM `admin`
+        WHERE username = #{username}
     </select>
     <select id="findById" resultType="ecommerce.auth.entity.Admin">
-        select *
-        from `admin`
-        where id = #{id}
+        SELECT *
+        FROM `admin`
+        WHERE id = #{id}
     </select>
 </mapper>

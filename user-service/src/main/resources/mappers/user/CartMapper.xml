@@ -6,7 +6,7 @@
 
     <!-- 注销时清空该用户购物车（与 user.is_deleted 置位同事务） -->
     <delete id="deleteByUser">
-        delete from cart where user_id = #{userId}
+        DELETE FROM cart WHERE user_id = #{userId}
     </delete>
 
 </mapper>

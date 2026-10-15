@@ -5,10 +5,10 @@
 <mapper namespace="ecommerce.product.mapper.TagMapper">
     <!-- product_count 读物化列（写操作维护），不实时算 -->
     <select id="listTags" resultType="ecommerce.product.entity.Tag">
-        select id, shop_id, name, code, type, color, sort_order, status, product_count,
+        SELECT id, shop_id, name, code, type, color, sort_order, status, product_count,
                create_time, created_by, update_time, updated_by
-        from tags
-        where shop_id = #{shopId}
-        order by sort_order asc, id asc
+        FROM tags
+        WHERE shop_id = #{shopId}
+        ORDER BY sort_order ASC, id ASC
     </select>
 </mapper>

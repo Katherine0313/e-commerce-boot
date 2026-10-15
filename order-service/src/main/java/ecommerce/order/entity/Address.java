@@ -1,15 +1,8 @@
 package ecommerce.order.entity;
 
-import lombok.AllArgsConstructor;
-import lombok.Builder;
-import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.*;
 
 import java.time.LocalDateTime;
-
-/**
- * 收货地址实体（对应 address 表，模板店 shopId=1）。
- */
 @Data
 @AllArgsConstructor
 @NoArgsConstructor
@@ -17,7 +10,7 @@ import java.time.LocalDateTime;
 public class Address {
     private Long id;
     private Long shopId;
-    private Long userId;
+    private  Long userId;
     private String consignee;
     private String phone;
     private String region;

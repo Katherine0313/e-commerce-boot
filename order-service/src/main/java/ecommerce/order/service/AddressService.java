@@ -11,11 +11,11 @@ import java.util.List;
  */
 public interface AddressService {
 
-    List<AddressVO> list();
+   List<AddressVO> list();
 
-    void add(AddAddressDTO dto);
+   AddressVO add(AddAddressDTO dto);
 
-    void update(Long id, UpdateAddressDTO dto);
+   void update(Long id, UpdateAddressDTO dto);
 
-    void remove(Long id);
+   void remove(Long id);
 }

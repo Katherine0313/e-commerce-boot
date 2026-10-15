@@ -5,33 +5,33 @@
 <mapper namespace="ecommerce.user.mapper.UserMapper">
     <!-- user 是 MySQL 关键字，表名统一用反引号包裹 -->
     <!-- 注意：findByOpenid 故意【不加】is_deleted = 0 过滤——注销用户的 openid 仍占着 uk_openid 唯一键，
-         若这里过滤掉，"查不到→重新 insert" 会撞唯一键报错；是否允许登录交给 Service 判 is_deleted -->
+         若这里过滤掉，"查不到→重新 INSERT" 会撞唯一键报错；是否允许登录交给 Service 判 is_deleted -->
     <select id="findByOpenid" resultType="ecommerce.user.entity.User">
-        select *
-        from `user`
-        where openid = #{openid}
+        SELECT *
+        FROM `user`
+        WHERE openid = #{openid}
     </select>
     <select id="findById" resultType="ecommerce.user.entity.User">
-        select *
-        from `user`
-        where id = #{id}
+        SELECT *
+        FROM `user`
+        WHERE id = #{id}
     </select>
     <insert id="insertUser" useGeneratedKeys="true" keyProperty="id">
-        insert into `user`(openid, name, phone, sex, id_number, avatar)
-        values(#{openid},#{name},#{phone},#{sex},#{idNumber},#{avatar})
+        INSERT INTO `user`(openid, name, phone, sex, id_number, avatar)
+        VALUES(#{openid},#{name},#{phone},#{sex},#{idNumber},#{avatar})
     </insert>
     <update id="updateAvatar">
-        update `user` set avatar = #{avatar}, update_time = now() where id = #{id}
+        UPDATE `user` SET avatar = #{avatar}, update_time = NOW() WHERE id = #{id}
     </update>
     <update id="updateName">
-        update `user` set name = #{name}, update_time = now() where id = #{id}
+        UPDATE `user` SET name = #{name}, update_time = NOW() WHERE id = #{id}
     </update>
     <update id="updatePhone">
-        update `user` set phone = #{phone}, update_time = now() where id = #{id}
+        UPDATE `user` SET phone = #{phone}, update_time = NOW() WHERE id = #{id}
     </update>
     <!-- 软删除（注销）：置 is_deleted = 1；is_deleted = 0 保证重复注销不重复计数 -->
     <update id="softDelete">
-        update `user` set is_deleted = 1, update_time = now() where id = #{id} and is_deleted = 0
+        UPDATE `user` SET is_deleted = 1, update_time = NOW() WHERE id = #{id} AND is_deleted = 0
     </update>
 
 

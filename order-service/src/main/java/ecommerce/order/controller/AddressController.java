@@ -43,9 +43,8 @@ public class AddressController {
 
     @Operation(summary = "新增地址")
     @PostMapping
-    public Result<Void> add(@RequestBody AddAddressDTO dto) {
-        addressService.add(dto);
-        return Result.success();
+    public Result<AddressVO> add(@RequestBody AddAddressDTO dto) {
+        return Result.success(addressService.add(dto));
     }
 
     @Operation(summary = "修改地址")

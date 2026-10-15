@@ -36,7 +36,7 @@ CREATE TABLE IF NOT EXISTS `orders` (
     `is_deleted`     TINYINT       NOT NULL DEFAULT 0      COMMENT '软删除：1 已删除 0 正常',
     `pay_amount`     DECIMAL(10,2) DEFAULT NULL            COMMENT '实付金额',
     `pay_type`       VARCHAR(32)   DEFAULT NULL            COMMENT '支付方式：WeChat/Alipay/BankCard',
-    `order_status`   VARCHAR(32)   DEFAULT NULL            COMMENT '订单状态：pending_confirm 待确认 / pending_ship 待发货 / shipped 已发货 / finished 已完成 / cancel 已取消',
+    `order_status`   TINYINT       NOT NULL DEFAULT 1      COMMENT '订单状态：1待付款 2待确认 3待发货 4已发货 5已完成 6已取消',
     `remark`         VARCHAR(512)  DEFAULT NULL            COMMENT '买家备注',
     `consignee`      VARCHAR(64)   DEFAULT NULL            COMMENT '收货人姓名快照',
     `phone`          VARCHAR(32)   DEFAULT NULL            COMMENT '收货人手机号快照',
@@ -54,6 +54,8 @@ CREATE TABLE IF NOT EXISTS `orders` (
     `updated_at`     DATETIME      DEFAULT NULL            COMMENT '更新时间',
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_orders_order_no` (`order_no`),
+    KEY `idx_orders_status_created` (`order_status`, `created_at`),
+    KEY `idx_orders_shop_user` (`shop_id`, `user_id`),
     CONSTRAINT `fk_orders_user` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE RESTRICT
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单';
 
@@ -73,6 +75,7 @@ CREATE TABLE IF NOT EXISTS `order_items` (
     `is_deleted`       TINYINT       NOT NULL DEFAULT 0      COMMENT '软删除：1 已删除 0 正常',
     `created_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
+    KEY `idx_order_shop` (`order_id`, `shop_id`),
     CONSTRAINT `fk_order_items_order` FOREIGN KEY (`order_id`) REFERENCES `orders`(`id`) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单项';
 

@@ -85,4 +85,11 @@ public class OrderController {
     public Result<OrderVO> cancelOrder(@PathVariable Long id) {
         return Result.success(orderService.cancelOrder(id));
     }
+
+    @Operation(summary = "删除订单（软删：is_deleted=1）")
+    @DeleteMapping("/{id}")
+    public Result<Void> deleteOrder(@PathVariable Long id) {
+        orderService.deleteOrder(id);
+        return Result.success(null);
+    }
 }
