@@ -1,0 +1,32 @@
+package ecommerce.aftersale.service;
+
+import ecommerce.aftersale.dto.CreateAfterSaleDTO;
+import ecommerce.aftersale.dto.SubmitReturnDTO;
+import ecommerce.aftersale.vo.AfterSaleStatusConstantsVO;
+import ecommerce.aftersale.vo.AfterSaleVO;
+
+import java.util.List;
+
+/**
+ * 售后 Service。
+ * <p>
+ * 当前登录用户从 UserContext.getUserId() 取，店铺固定模板店（shopId=1）。
+ * C 端接口按用户归属隔离（通过 order_id JOIN orders 的 user_id）。
+ */
+public interface AfterSaleService {
+
+    /** 申请售后（整单），初始状态 reviewing */
+    AfterSaleVO create(CreateAfterSaleDTO dto);
+
+    /** 当前用户售后列表（可选按状态筛选，不含明细/子表字段） */
+    List<AfterSaleVO> list(String status);
+
+    /** 售后详情（含明细 + 子表平铺字段） */
+    AfterSaleVO getById(Long id);
+
+    /** 用户提交退货方式（status=returning 时可调用） */
+    AfterSaleVO submitReturn(Long id, SubmitReturnDTO dto);
+
+    /** 售后状态/原因/类型常量 */
+    AfterSaleStatusConstantsVO statusConstants();
+}

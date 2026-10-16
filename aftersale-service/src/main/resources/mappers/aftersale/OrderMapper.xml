@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.aftersale.mapper.OrderMapper">
+
+    <select id="findById" resultType="ecommerce.aftersale.entity.Order">
+        SELECT id, shop_id, user_id, order_no, order_status
+        FROM orders
+        WHERE id = #{id} AND shop_id = #{shopId} AND is_deleted = 0
+    </select>
+
+    <select id="listItems" resultType="ecommerce.aftersale.entity.OrderItem">
+        SELECT id, order_id, product_id, product_name, image, sales_price,
+               quantity, sub_total, insurance_detail, insurance_fee
+        FROM order_items
+        WHERE order_id = #{orderId} AND shop_id = #{shopId} AND is_deleted = 0
+        ORDER BY id ASC
+    </select>
+
+</mapper>

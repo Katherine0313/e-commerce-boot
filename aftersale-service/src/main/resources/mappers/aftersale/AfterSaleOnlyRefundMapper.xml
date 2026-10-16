@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.aftersale.mapper.AfterSaleOnlyRefundMapper">
+
+    <!-- 插入占位行：创建售后时写，时间戳先为 NULL -->
+    <insert id="insertPlaceholder" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO after_sale_only_refunds (shop_id, after_sale_id, is_deleted, created_at, updated_at)
+        VALUES (#{shopId}, #{afterSaleId}, 0, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="findByAfterSaleId" resultType="ecommerce.aftersale.entity.AfterSaleOnlyRefund">
+        SELECT id, shop_id, after_sale_id, review_at, rejected_at, refund_at, refunded_at, is_deleted, created_at, updated_at
+        FROM after_sale_only_refunds
+        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId} AND is_deleted = 0
+    </select>
+
+</mapper>
