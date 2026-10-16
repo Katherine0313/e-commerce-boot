@@ -28,6 +28,8 @@ public class OrderVO {
     private BigDecimal payAmount;
     @Schema(description = "支付方式")
     private String payType;
+    @Schema(description = "支付方式中文描述")
+    private String payTypeDesc;
     @Schema(description = "订单状态 code")
     private Integer orderStatus;
     @Schema(description = "订单状态中文描述")

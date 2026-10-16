@@ -7,6 +7,7 @@ import ecommerce.order.entity.Order;
 import ecommerce.order.entity.OrderItem;
 import ecommerce.order.entity.Product;
 import ecommerce.order.enums.OrderStatusEnum;
+import ecommerce.order.enums.PayTypeEnum;
 import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductMapper;
@@ -187,8 +188,8 @@ public class OrderServiceImpl implements OrderService {
     }
 
     @Override
-    public List<OrderVO> listOrders() {
-        return orderMapper.listByUser(currentUserId(), TEMPLATE_SHOP_ID).stream()
+    public List<OrderVO> listOrders(String keyword) {
+        return orderMapper.listByUser(currentUserId(), TEMPLATE_SHOP_ID, keyword).stream()
                 .map(this::toVO)
                 .toList();
     }
@@ -346,12 +347,14 @@ public class OrderServiceImpl implements OrderService {
 
     private OrderVO toVO(Order order) {
         OrderStatusEnum status = OrderStatusEnum.fromCode(order.getOrderStatus());
+        PayTypeEnum payType = PayTypeEnum.fromCode(order.getPayType());
         List<OrderItem> items = orderItemMapper.listByOrderId(order.getId(), order.getShopId());
         return OrderVO.builder()
                 .id(order.getId())
                 .orderNo(order.getOrderNo())
                 .payAmount(order.getPayAmount())
                 .payType(order.getPayType())
+                .payTypeDesc(payType == null ? null : payType.getDesc())
                 .orderStatus(order.getOrderStatus())
                 .orderStatusDesc(status == null ? null : status.getDesc())
                 .remark(order.getRemark())

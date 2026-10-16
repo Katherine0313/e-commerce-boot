@@ -19,8 +19,8 @@ public interface OrderService {
     /** 订单详情 */
     OrderVO getOrder(Long id);
 
-    /** 当前用户订单列表 */
-    List<OrderVO> listOrders();
+    /** 当前用户订单列表（keyword 为空查全部，非空按订单号/收货人/商品名模糊搜索） */
+    List<OrderVO> listOrders(String keyword);
 
     /** 支付：待付款 → 待确认 */
     OrderVO payOrder(Long id, String payType);

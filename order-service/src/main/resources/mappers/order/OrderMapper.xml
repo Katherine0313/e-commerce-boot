@@ -21,12 +21,18 @@
     </select>
 
     <select id="listByUser" resultType="ecommerce.order.entity.Order">
-        SELECT id, shop_id, user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
-               remark, consignee, phone, region, detail_address, shipping_type, courier, tracking_number,
-               sign_status, created_at, pay_at, ship_at, confirm_at, finish_at, updated_at
-        FROM orders
-        WHERE user_id = #{userId} AND shop_id = #{shopId} AND is_deleted = 0
-        ORDER BY created_at DESC, id DESC
+        SELECT o.id, o.shop_id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.pay_type, o.order_status,
+               o.remark, o.consignee, o.phone, o.region, o.detail_address, o.shipping_type, o.courier, o.tracking_number,
+               o.sign_status, o.created_at, o.pay_at, o.ship_at, o.confirm_at, o.finish_at, o.updated_at
+        FROM orders o
+        WHERE o.user_id = #{userId} AND o.shop_id = #{shopId} AND o.is_deleted = 0
+        <if test="keyword != null and keyword != ''">
+            AND (o.order_no LIKE CONCAT('%', #{keyword}, '%')
+                 OR o.consignee LIKE CONCAT('%', #{keyword}, '%')
+                 OR EXISTS (SELECT 1 FROM order_items oi
+                            WHERE oi.order_id = o.id AND oi.product_name LIKE CONCAT('%', #{keyword}, '%')))
+        </if>
+        ORDER BY o.created_at DESC, o.id DESC
     </select>
 
     <!-- 状态流转：按目标状态自动记录对应时间戳

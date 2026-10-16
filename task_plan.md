@@ -34,7 +34,7 @@
 
 **跨服务调用关系（Feign）：**
 - `order-service` 下单 → `product-service` 查商品价格库存；支付/取消 → 回写库存（`product-service` 暴露库存内部接口）
-- `aftersale-service` → `order-service` 查订单关联
+- `aftersale-service` 查订单（归属校验 + 明细快照）：共享库直接读 `orders`/`order_items` 表（同 order-service 直接读 products），不跨服务 Feign
 - `shop-service` 回收沙箱 → 调各业务服务「按 shopId 清数据」的内部接口
 
 **多租户在微服务下的落法：**
@@ -87,6 +87,7 @@
 - [✓] 商品浏览只读接口骨架：`GET /api/products`、`/api/products/{id}`、`/api/categories`、`/api/tags`（controller/service/impl/vo 分层 + 占位数据，不接库）；接入免登录白名单 `EXCLUDE_AUTH_PATHS`，gateway 补 product-service 路由
 - [✓] products / categories / tags 表已建 + 数据迁入（32 商品含下架、22 分类、1 标签）+ 图片转 webp 迁入 + 浏览接口接库（真实查询替换占位数据）
 - [✓] Redis 分类树缓存：`category:parent:{id}` 按一级父分类一棵树一个 key + `category:parent:ids` 索引，纯 JSON 序列化（见 findings「Redis 缓存（分类树）」）
+- [✓] 商品关键词搜索（`GET /api/products?keyword=` 匹配 name/sub_title/brand；前端 search 页 + 首页/分类页顶部搜索框跳转）
 - [ ] parameters / stock / business_onsale 表；商品 CRUD、分类树、标签绑定、参数组/参数项、库存调整、促销（单规格：价格/库存直接挂商品上，不做多规格 SKU）
 - **状态：** in_progress（商品浏览已接库、数据+图片已迁；其余表与 CRUD 未做）
 
@@ -102,13 +103,18 @@
 - [✓] 下单幂等（idempotencyKey + Redis SETNX 占位 + 4 个 safe* 降级；防弱网重试/双击重复下单）
 - [✓] 小程序前端下单链路接入：下单确认页 + 三条入口（立即购买/去结算/猜你喜欢）+ 幂等键前端用法
 - [✓] 删除订单（软删 `is_deleted=1`，`DELETE /api/orders/{id}`，校验归属不限状态；前端「删除订单」按钮已接）
+- [✓] 订单关键词搜索（`GET /api/orders?keyword=` 按订单号/收货人/商品名模糊匹配；前端列表页搜索框）
+- [✓] 支付方式枚举 PayTypeEnum（payType 存英文 code，OrderVO 返回 payTypeDesc 中文；fromCode 忽略大小写兼容 wechat/WeChat）
+- [✓] 订单状态双文案（OrderStatusEnum desc=顾客视角 / adminDesc=商家视角：待确认→顾客「待发货」、待发货→顾客「处理中」）
 - [ ] 取消订单自动生成退款售后单（only_refund），关联 aftersale
 - **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 3 项缺口见上，售后关联未做、未启动端到端验证）
 
 ### 阶段 5：aftersale-service
-- [ ] after_sales + 三类子表（仅退款/退货退款/换货）
-- [ ] 售后单 CRUD、提交退货、状态流转；Feign 关联订单
-- **状态：** pending
+- [✓] after_sales + 三类子表建表 + 数据迁移（`docs/sql/after-sale-data.sql`：28 售后单 / 43 明细 / 7 退货 / 17 仅退款 / 4 换货；丢弃 11 条孤儿 only_refund，`after_sale_items` 字段名 ALTER 统一为 `after_sale_id`）
+- [✓] C 端售后接口（`AfterSaleController` 5 接口：申请/列表/详情/状态常量/提交退货；用户归属隔离通过 `order_id LEFT JOIN orders` 的 `user_id`，修正原 Node 越权；gateway 补 `/api/after-sales/**` 路由）
+- [ ] 后台审核/删除（`review`/`delete`，走 `/api/admin/after-sales/**`）
+- [ ] 取消订单自动生成退款售后单（关联 order-service，见阶段 4）
+- **状态：** in_progress（C 端售后接口已实现并编译通过；后台审核/删除未做、端到端未验证）
 
 ### 阶段 6：user-service + file-service
 - [✓] user-service：整合现有 user 模块（小程序登录/资料/头像/昵称/注销链路已在 user-service 跑通）；收货地址已实现在 order-service（address 表），不归 user-service
@@ -118,10 +124,11 @@
 ### 阶段 7：前端对接联调
 - [✓] 前端 baseURL 指向网关，登录响应结构对齐（商品浏览/加购/下单链路已接入）
 - [✓] 小程序下单链路：下单确认页 + 三条入口（立即购买/去结算/猜你喜欢）已通，支付用模拟微信支付弹窗（6 位密码框 + 数字键盘，未接真实微信支付）
-- [✓] 订单列表页（全部/待发货/待收货，已取消订单的「删除订单/再来一单」）+ 待付款页（倒计时 + 取消/付款）已做
+- [✓] 订单列表页 6 Tab（全部/待付款/待发货/待收货/评论/售后）+ 搜索框 + 从「我的」页跳转定位 Tab；订单卡片抽成模块内组件 OrderCard（pages/order/component/，非全局）
+- [✓] 待发货订单详情页（pending-ship.vue，支付方式/下单时间/地址/商品/金额）+ 商品搜索页（search.vue）+ 收货地址管理页（address.vue 列表 + address-edit.vue 编辑，设默认/删除）
 - [ ] 端到端跑通商品/订单/售后全链路（确认收款/发货是商家操作，走后台）
 - [✓] 接口文档改为 springdoc 自动生成（手写 `docs/openapi.yaml` 已删）；Result 结构与前端拦截器已对齐
-- **状态：** in_progress（商品/购物车/下单/订单列表链路已通，售后未做、端到端未验证）
+- **状态：** in_progress（商品/购物车/下单/订单列表链路已通；售后 C 端接口已实现；订单/商品搜索、订单列表 6 Tab、待发货详情、地址管理页已做，端到端未验证）
 
 ### 阶段 8：ai-agent-service（AI 导购 Agent，小程序悬浮 AI）
 - [✓] 新建 ai-agent-service 骨架（Spring AI 2.0.1 + 硅基流动 DeepSeek + OpenFeign + MCP + SimpleVectorStore），端口 9008，注册 Nacos + 接入网关 + 免登录白名单

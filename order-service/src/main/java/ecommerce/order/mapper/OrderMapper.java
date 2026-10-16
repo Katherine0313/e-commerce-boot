@@ -17,8 +17,8 @@ public interface OrderMapper {
     // 查单个订单（不含软删除）
     Order findById(@Param("id") Long id, @Param("shopId") Long shopId);
 
-    // 查某用户订单列表（按创建时间倒序）
-    List<Order> listByUser(@Param("userId") Long userId, @Param("shopId") Long shopId);
+    // 查某用户订单列表（按创建时间倒序；keyword 非空时按订单号/收货人/商品名模糊搜索）
+    List<Order> listByUser(@Param("userId") Long userId, @Param("shopId") Long shopId, @Param("keyword") String keyword);
 
     /**
      * 状态流转：更新状态 + 自动记录对应时间戳。

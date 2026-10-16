@@ -19,6 +19,11 @@ public interface ProductService {
     List<ProductVO> listProductsByCategory(Long categoryId);
 
     /**
+     * 按关键词搜索上架商品：匹配商品名 / 副标题 / 品牌
+     */
+    List<ProductVO> searchProducts(String keyword);
+
+    /**
      * 商品详情；商品不存在时抛 404
      */
     ProductVO getProduct(Long id);

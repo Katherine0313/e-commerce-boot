@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -43,8 +44,8 @@ public class OrderController {
 
     @Operation(summary = "订单列表")
     @GetMapping
-    public Result<List<OrderVO>> listOrders() {
-        return Result.success(orderService.listOrders());
+    public Result<List<OrderVO>> listOrders(@RequestParam(required = false) String keyword) {
+        return Result.success(orderService.listOrders(keyword));
     }
 
     @Operation(summary = "订单详情")

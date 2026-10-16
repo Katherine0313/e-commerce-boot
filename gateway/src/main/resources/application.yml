@@ -78,6 +78,11 @@ spring:
               uri: lb://order-service
               predicates:
                 - Path=/api/cart,/api/cart/**,/api/orders,/api/orders/**,/api/address,/api/address/**
+            # 售后 → aftersale-service；放在 /api/** 通配之前（操作需登录，鉴权由下游 JwtInterceptor 承担）
+            - id: aftersale-service
+              uri: lb://aftersale-service
+              predicates:
+                - Path=/api/after-sales,/api/after-sales/**
             # AI 导购助手 → ai-agent-service；同样放在 /api/** 通配之前
             - id: ai-agent-service
               uri: lb://ai-agent-service

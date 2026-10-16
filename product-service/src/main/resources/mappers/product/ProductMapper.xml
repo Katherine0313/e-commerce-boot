@@ -46,4 +46,17 @@
           AND c.parent_id = #{categoryId}
         ORDER BY p.id ASC
     </select>
+
+    <!-- 按关键词搜索上架商品：匹配商品名/副标题/品牌，不含 body/cost_price -->
+    <select id="searchOnSale" resultType="ecommerce.product.entity.Product">
+        SELECT id, shop_id, category_id, tag_id, name, sub_title, brand, description, image,
+               sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
+               create_time, update_time
+        FROM products
+        WHERE shop_id = #{shopId} AND listing_status = 1
+          AND (name LIKE CONCAT('%', #{keyword}, '%')
+               OR sub_title LIKE CONCAT('%', #{keyword}, '%')
+               OR brand LIKE CONCAT('%', #{keyword}, '%'))
+        ORDER BY id ASC
+    </select>
 </mapper>

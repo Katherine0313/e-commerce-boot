@@ -76,6 +76,14 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
     }
 
+    // 按关键词搜索上架商品（商品名/副标题/品牌模糊匹配）
+    @Override
+    public List<ProductVO> searchProducts(String keyword) {
+        return productMapper.searchOnSale(keyword, TEMPLATE_SHOP_ID).stream()
+                .map(this::toVO)
+                .toList();
+    }
+
     @Override
     public ProductVO getProduct(Long id) {
         Product product = productMapper.findById(id, TEMPLATE_SHOP_ID);

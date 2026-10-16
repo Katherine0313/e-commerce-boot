@@ -10,11 +10,22 @@
 	</parent>
 	<artifactId>aftersale-service</artifactId>
 	<name>aftersale-service</name>
-	<description>售后：仅退款/退货退款/换货（占位骨架）</description>
+	<description>售后：仅退款/退货退款/换货</description>
 	<dependencies>
 		<dependency>
 			<groupId>ecommerce</groupId>
 			<artifactId>common</artifactId>
+		</dependency>
+		<!-- ORM：售后 Mapper + XML -->
+		<dependency>
+			<groupId>org.mybatis.spring.boot</groupId>
+			<artifactId>mybatis-spring-boot-starter</artifactId>
+		</dependency>
+		<!-- MySQL 驱动 -->
+		<dependency>
+			<groupId>com.mysql</groupId>
+			<artifactId>mysql-connector-j</artifactId>
+			<scope>runtime</scope>
 		</dependency>
 		<dependency>
 			<groupId>com.alibaba.cloud</groupId>

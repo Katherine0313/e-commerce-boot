@@ -431,3 +431,34 @@ Redis 宕机 = 幂等自动失效、退化为普通下单。
 - 修复：`OrderServiceImpl.doCreateOrder` 的 `createdAt` 改用 `LocalDateTime.now()`（JVM 北京时间），`OrderMapper.xml` insert 的 `NOW()` 改 `#{createdAt}`，与 `orderNo` 同源
 - 遗留：`updateStatus` 里 `pay_at`/`ship_at`/`confirm_at`/`finish_at` 仍是 `NOW()`（UTC），后续展示这些时间字段时需一并统一成 Java 时间
 
+## 售后域迁移 + C 端接口（2026-10-16）
+
+### 1. 售后主表无 user_id，归属靠 order_id 关联
+- 原 Node 售后主表 `after_sales` 没有 `user_id`，只存 `order_id`；C 端「我的售后」按用户隔离必须 `LEFT JOIN orders` 取 `o.user_id`。
+- 原 Node 的 `getAll`/`getById`/`submitReturn` 只按 `shopId` 过滤，**任何登录用户能看到/操作同店所有人的售后单**（越权 bug）。迁移时修正：所有 C 端查询/操作都校验 `o.user_id == 当前用户`（通过 `AfterSaleMapper` 的 JOIN 查询带出 `user_id`）。
+
+### 2. 售后数据迁移的孤儿记录处理
+- `after_sale_only_refunds` 有 11 条孤儿（`after_sale_id=23` 与 `9108~9117` 的售后主单已被源库删除），直接插入违反外键，迁移时丢弃（保留 17/28）。
+- `after_sale_items` 一条悬空引用（`id=39` 的 `order_item_id=74`/`product_id=41`，对应订单迁移被丢弃的孤儿订单项），该列无外键，保留原值维持售后历史。
+- `after_sales` 保留 `9104/9106/9107` 跳号 id（源库 ID_BLOCK 遗留），四张子表都靠这些 id 关联，重映射风险大故保留。
+
+### 3. 字段名统一 + 时间约定
+- `after_sale_items` 实际建表时字段是 `after_sales_id`（复数），与其它三张子表的 `after_sale_id`（单数）不一致，已 `ALTER` 统一为单数。
+- 售后时间戳用 Java `LocalDateTime.now()` 落库（与订单域同约定，避开 MySQL `NOW()` 的 UTC 时区坑）。
+- gateway 补 `/api/after-sales/**` → `lb://aftersale-service` 路由（原会落到 user-service 兜底）。
+
+## 订单/商品搜索 + 状态双文案 + 前端订单模块（2026-10-16）
+
+### 1. 订单/商品关键词搜索
+- 订单：`GET /api/orders?keyword=` 按 `order_no`/`consignee`/`product_name`（EXISTS 子查询）模糊匹配，keyword 为空时 `<if>` 不拼条件。
+- 商品：`GET /api/products?keyword=` 按 `name`/`sub_title`/`brand` LIKE；与 categoryId 互斥（keyword 优先）。
+- 前端搜索框：订单列表页用真输入框（筛当前列表）；商品搜索用独立页（首页/分类页顶部假搜索框 `@search` 跳转，此前三层缺口——没人接 `@search`、没搜索页、后端没 keyword）。
+
+### 2. 状态/支付方式双文案（C 端 vs 后台）
+- `OrderStatusEnum` 加 `adminDesc` 字段（`desc`=顾客视角 / `adminDesc`=商家视角）：`PENDING_CONFIRM` 顾客「待发货」后台「待确认」、`PENDING_SHIP` 顾客「处理中」后台「待发货」。顾客付款后就是「等发货」，不该看到商家视角的「待确认」。
+- `PayTypeEnum`：payType 存英文 code（WeChat/Alipay/BankCard），`OrderVO` 返回 `payTypeDesc` 中文；`fromCode` 用 `equalsIgnoreCase`（历史数据 WeChat 与新数据 wechat 大小写不一致）。
+
+### 3. 前端订单模块组件化
+- `OrderCard`（订单卡片）只归 order 模块（list + pending-pay 复用），放 `pages/order/component/` 局部注册，不进全局 `components/`——全局 `components/` 只放跨模块公共组件（Guess/AddressPopup/QuantityStepper 等）。
+- `utils/format.js` 抽金额/时间/图片 URL 三个纯函数（`fmtMoney`/`formatOrderTime`/`parseOrderTime`/`goodsImgUrl`），消除 list/pending-pay 的重复。
+

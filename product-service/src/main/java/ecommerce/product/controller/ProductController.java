@@ -31,9 +31,13 @@ public class ProductController {
         this.productService = productService;
     }
 
-    @Operation(summary = "商品列表（可选 categoryId 按一级分类过滤）")
+    @Operation(summary = "商品列表（可选 categoryId 按一级分类过滤 / keyword 关键词搜索）")
     @GetMapping("/products")
-    public Result<List<ProductVO>> listProducts(@RequestParam(required = false) Long categoryId) {
+    public Result<List<ProductVO>> listProducts(@RequestParam(required = false) Long categoryId,
+                                                @RequestParam(required = false) String keyword) {
+        if (keyword != null && !keyword.isBlank()) {
+            return Result.success(productService.searchProducts(keyword));
+        }
         return Result.success(categoryId == null
                 ? productService.listProducts()
                 : productService.listProductsByCategory(categoryId));
