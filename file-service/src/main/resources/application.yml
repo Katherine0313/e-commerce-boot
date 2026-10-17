@@ -24,6 +24,6 @@ wechat:
 # 占位服务没有 Controller，接口文档一律关闭，避免暴露
 springdoc:
   api-docs:
-    enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}
   swagger-ui:
-    enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}

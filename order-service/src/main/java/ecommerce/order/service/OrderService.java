@@ -1,6 +1,7 @@
 package ecommerce.order.service;
 
 import ecommerce.order.dto.CreateOrderDTO;
+import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderVO;
 
 import java.util.List;
@@ -39,6 +40,9 @@ public interface OrderService {
 
     /** 删除订单（软删：is_deleted=1，不物理删除） */
     void deleteOrder(Long id);
+
+    /** 物流轨迹（假数据，参考旧 Node getLogistics） */
+    LogisticsVO getLogistics(Long id);
 
     /** 超时关闭待付款订单（定时任务调用） */
     void sweepExpiredPendingPayOrders();

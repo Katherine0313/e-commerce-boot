@@ -22,15 +22,15 @@
 
     <select id="listByUser" resultType="ecommerce.order.entity.Order">
         SELECT o.id, o.shop_id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.pay_type, o.order_status,
-               o.remark, o.consignee, o.phone, o.region, o.detail_address, o.shipping_type, o.courier, o.tracking_number,
-               o.sign_status, o.created_at, o.pay_at, o.ship_at, o.confirm_at, o.finish_at, o.updated_at
+        o.remark, o.consignee, o.phone, o.region, o.detail_address, o.shipping_type, o.courier, o.tracking_number,
+        o.sign_status, o.created_at, o.pay_at, o.ship_at, o.confirm_at, o.finish_at, o.updated_at
         FROM orders o
         WHERE o.user_id = #{userId} AND o.shop_id = #{shopId} AND o.is_deleted = 0
         <if test="keyword != null and keyword != ''">
             AND (o.order_no LIKE CONCAT('%', #{keyword}, '%')
-                 OR o.consignee LIKE CONCAT('%', #{keyword}, '%')
-                 OR EXISTS (SELECT 1 FROM order_items oi
-                            WHERE oi.order_id = o.id AND oi.product_name LIKE CONCAT('%', #{keyword}, '%')))
+            OR o.consignee LIKE CONCAT('%', #{keyword}, '%')
+            OR EXISTS (SELECT 1 FROM order_items oi
+            WHERE oi.order_id = o.id AND oi.product_name LIKE CONCAT('%', #{keyword}, '%')))
         </if>
         ORDER BY o.created_at DESC, o.id DESC
     </select>
@@ -41,26 +41,26 @@
     <update id="updateStatus">
         UPDATE orders
         SET order_status = #{status},
-            updated_at = NOW()
+        updated_at = #{now}
         <if test="status == 2">
-            , pay_at = NOW()
+            , pay_at = #{now}
             <if test="payType != null">, pay_type = #{payType}</if>
         </if>
         <if test="status == 3">
-            , confirm_at = NOW()
+            , confirm_at = #{now}
         </if>
         <if test="status == 4">
-            , ship_at = NOW(), courier = #{courier}, tracking_number = #{trackingNumber}
+            , ship_at = #{now}, courier = #{courier}, tracking_number = #{trackingNumber}
         </if>
         <if test="status == 5">
-            , finish_at = NOW(), sign_status = 'signed'
+            , finish_at = #{now}, sign_status = 'signed'
         </if>
         WHERE id = #{id} AND shop_id = #{shopId}
     </update>
 
     <!-- 软删除 -->
     <update id="delete">
-        UPDATE orders SET is_deleted = 1, updated_at = NOW()
+        UPDATE orders SET is_deleted = 1, updated_at = #{now}
         WHERE id = #{id} AND shop_id = #{shopId}
     </update>
 

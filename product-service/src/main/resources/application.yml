@@ -1,8 +1,6 @@
 spring:
   application:
     name: product-service
-  profiles:
-    active: dev
   cloud:
     nacos:
       discovery:
@@ -48,9 +46,13 @@ mybatis:
 # 接口文档：默认关闭作为安全兜底（生产不暴露 /swagger-ui.html 和 /v3/api-docs），开发期在 application-dev.yml 开启
 springdoc:
   api-docs:
-    enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}
   swagger-ui:
-    enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}
+
+logging:
+  level:
+    ecommerce.product.mapper: ${SQL_DEBUG:INFO}
 
 # Python 推荐服务地址（猜你喜欢）；超时毫秒，防止慢调用拖垮商品浏览
 recommend:

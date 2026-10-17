@@ -1,8 +1,6 @@
 spring:
   application:
     name: user-service
-  profiles:
-    active: dev
   main:
     log-startup-info: false
   cloud:
@@ -70,6 +68,6 @@ jwt:
 # 这样生产环境即使配错 profile 也不会把 /swagger-ui.html 和 /v3/api-docs 暴露出去。
 springdoc:
   api-docs:
-    enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}
   swagger-ui:
-    enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}

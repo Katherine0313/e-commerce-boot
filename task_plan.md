@@ -60,21 +60,29 @@
 ## 各阶段
 
 ### 阶段 0：基础设施 + 版本兼容验证（关键，先行）
-- [✓] Docker：装 Docker Desktop（用户级安装到 `AppData\Local\Programs\DockerDesktop`）；`docker-compose` 起 Nacos + MySQL（MySQL 走 Docker 容器，端口 3307 避开本机 MySQL80 的 3306，数据用命名卷 `mysql-dev-data` 持久化，数据已从本机 mysqldump 迁入）；8 个业务服务开发期用 IDE/mvn 跑，跑通后再逐个容器化
-- [✓] 改造为 Maven 多模块父工程（现 `e-commerce-boot` 变父工程，抽 `common` 模块下沉 `Result`/`BusinessException`/`GlobalExceptionHandler`/`JwtUtil`/`UserContext`/`JwtInterceptor` 等框架层）—— 已完成，10 模块 `mvn clean compile` 全绿
-- [✓] 引入 Spring Cloud 2025.1.3 + SCA 2025.1.0.0 + Nacos + Gateway，验证 Boot 4.1.0 兼容性（编译通过；Gateway 用 `spring-cloud-starter-gateway-server-webflux`，路由前缀 `spring.cloud.gateway.server.webflux.routes`，`lb://` 需配 loadbalancer）
-- [✓] 起最小服务 + 注册到 Nacos + Gateway 路由打通：auth-service、user-service 均注册成功（`nacos registry ... register finished`）；gateway 8080 经 `lb://user-service` 转发到 9006，返回一致（HTTP 401 + Result 结构），链路已验证
+- [✓] Docker：装 Docker Desktop（用户级安装到 `AppData\Local\Programs\DockerDesktop`）
+  - `docker-compose` 起 Nacos + MySQL（端口 3307 避开本机 MySQL80 的 3306，数据命名卷 `mysql-dev-data` 持久化，已从本机迁入）
+  - 8 个业务服务开发期用 IDE/mvn 跑，跑通后再逐个容器化
+- [✓] 改造为 Maven 多模块父工程：`e-commerce-boot` 变父工程，抽 `common` 下沉框架层
+  - 下沉 `Result`/`BusinessException`/`GlobalExceptionHandler`/`JwtUtil`/`UserContext`/`JwtInterceptor`
+  - 已完成，10 模块 `mvn clean compile` 全绿
+- [✓] 引入 Spring Cloud 2025.1.3 + SCA 2025.1.0.0 + Nacos + Gateway，验证 Boot 4.1.0 兼容性
+  - 编译通过；Gateway 用 `spring-cloud-starter-gateway-server-webflux`，路由前缀 `spring.cloud.gateway.server.webflux.routes`，`lb://` 需配 loadbalancer
+- [✓] 起最小服务 + 注册到 Nacos + Gateway 路由打通
+  - auth-service、user-service 均注册成功；gateway 8080 经 `lb://user-service` 转发到 9006，返回一致（HTTP 401 + Result 结构），链路已验证
 - [✓] Nacos 3.1.1 与 Boot 4.1 兼容性验证通过，无需降级 Boot 或换注册中心（踩坑细节见 findings.md「Nacos 3.x 部署踩坑」）
 - **状态：** completed（Nacos 已起、服务注册成功、网关路由打通）
 
 ### 阶段 1：gateway + auth-service
-- [✓] auth-service 登录接口代码：`POST /api/login`（admin 账号密码）、`GET /api/user/info`、`POST /api/logout`；`JwtUtil.generateAdminToken` claims 加 `id`/`username`/`role`/`shopId`
-- [✓] admin 表建表脚本 `docs/sql/admin.sql`（建表 + 种子 admin/admin123）—— 待执行（按规范不代跑 DB 初始化）
+- [✓] auth-service 登录接口代码：`POST /api/login`（admin 账号密码）、`GET /api/user/info`、`POST /api/logout`
+  - `JwtUtil.generateAdminToken` claims 加 `id`/`username`/`role`/`shopId`
+- [✓] admin 表建表脚本 `docs/sql/admin.sql`（建表 + 种子 admin/admin123，含 `phone` 字段）
 - [✓] gateway 路由：`/api/login`、`/api/logout`、`/api/user/info` → `lb://auth-service`
-- [ ] admin 表实际执行建表（`mysql -uroot -p123456 e_commerce_db < docs/sql/admin.sql`，幂等，建表 + 种子 admin/admin123）+ RBAC 权限表（role/permission 拆分）
+- [✓] admin 表已执行建表 + 种子 admin/admin123（2026-10-17 手动执行，含 `phone` 字段）
+- [ ] RBAC 权限表（role/permission 拆分）
 - [ ] gateway：CORS、JWT 校验过滤器、`X-Shop-Id` 透传、限流
 - [ ] 前端登录/登出/鉴权这条链路端到端跑通（需先执行建表脚本）
-- **状态：** in_progress（登录接口已就绪并编译通过，待建表 + 端到端验证）
+- **状态：** in_progress（登录接口已就绪并编译通过，admin 表 + 种子账号已建；待端到端验证 + RBAC）
 
 ### 阶段 2：shop-service（多租户基础设施）
 - [✓] shops 表 + 商品域 4 表（shops/categories/tags/products）建表脚本 `docs/sql/product.sql` + 模板店种子数据（已迁入，见 findings「商品域数据库迁移踩坑点」）
@@ -85,33 +93,40 @@
 
 ### 阶段 3：product-service（最大域）
 - [✓] 商品浏览只读接口骨架：`GET /api/products`、`/api/products/{id}`、`/api/categories`、`/api/tags`（controller/service/impl/vo 分层 + 占位数据，不接库）；接入免登录白名单 `EXCLUDE_AUTH_PATHS`，gateway 补 product-service 路由
-- [✓] products / categories / tags 表已建 + 数据迁入（32 商品含下架、22 分类、1 标签）+ 图片转 webp 迁入 + 浏览接口接库（真实查询替换占位数据）
+- [✓] products / categories / tags 表已建 + 数据迁入（32 商品含下架、22 分类、1 标签）
+  - 图片转 webp 迁入 + 浏览接口接库（真实查询替换占位数据）
 - [✓] Redis 分类树缓存：`category:parent:{id}` 按一级父分类一棵树一个 key + `category:parent:ids` 索引，纯 JSON 序列化（见 findings「Redis 缓存（分类树）」）
 - [✓] 商品关键词搜索（`GET /api/products?keyword=` 匹配 name/sub_title/brand；前端 search 页 + 首页/分类页顶部搜索框跳转）
 - [ ] parameters / stock / business_onsale 表；商品 CRUD、分类树、标签绑定、参数组/参数项、库存调整、促销（单规格：价格/库存直接挂商品上，不做多规格 SKU）
 - **状态：** in_progress（商品浏览已接库、数据+图片已迁；其余表与 CRUD 未做）
 
 ### 阶段 4：order-service
-- [✓] orders / order_items / cart / address 表 + 数据迁移（`docs/sql/order.sql` 建表 + `order-data.sql` 迁数据：52 订单 / 76 订单项 / 1 购物车 / 15 地址；address 表原名 consignee_address，收货地址 CRUD 已实现在 order-service）
+- [✓] orders / order_items / cart / address 表 + 数据迁移（`order.sql` 建表 + `order-data.sql` 迁数据：52 订单 / 76 订单项 / 15 地址）
+  - address 表原名 consignee_address，收货地址 CRUD 已实现在 order-service
 - [✓] 购物车 CRUD（CartController 5 接口：列表 / 加购 / 改数量 / 移除 / 清空；商品快照同库直接查 products 表，不信任前端价格）
 - [ ] 购物车：下单成功后从购物车移除已下单商品（后端 `OrderServiceImpl` 未引用 cart，现由前端下单成功后 `clearCart` 兜底）
 - [✓] 购物车：加购时校验库存（addItem/updateQuantity 超库存抛 400，实时 join products 取 stock）
 - [ ] 购物车：加购时校验上架状态（`ProductMapper.findById` 无 `listing_status` 过滤）
 - [ ] 购物车端到端验证（5 接口未实测；前端 cart api 模块 + 购物车页已做）
-- [✓] 下单 + 支付/确认收款/发货/完成/取消（OrderStatusEnum 数字枚举 + 状态机 + 库存扣减/恢复 + order_status 字段迁移字符串→数字；**迁移脚本已于 2026-10-09 在 Docker 3307 执行**）
+- [✓] 下单 + 支付/确认收款/发货/完成/取消
+  - OrderStatusEnum 数字枚举 + 状态机 + 库存扣减/恢复 + order_status 迁移字符串→数字（2026-10-09 在 Docker 3307 执行）
 - [✓] 待付款超时自动关闭（@Scheduled 每分钟扫，超 30 分钟恢复库存+改取消，不软删除保留订单记录，并发二次确认）
 - [✓] 下单幂等（idempotencyKey + Redis SETNX 占位 + 4 个 safe* 降级；防弱网重试/双击重复下单）
 - [✓] 小程序前端下单链路接入：下单确认页 + 三条入口（立即购买/去结算/猜你喜欢）+ 幂等键前端用法
 - [✓] 删除订单（软删 `is_deleted=1`，`DELETE /api/orders/{id}`，校验归属不限状态；前端「删除订单」按钮已接）
 - [✓] 订单关键词搜索（`GET /api/orders?keyword=` 按订单号/收货人/商品名模糊匹配；前端列表页搜索框）
-- [✓] 支付方式枚举 PayTypeEnum（payType 存英文 code，OrderVO 返回 payTypeDesc 中文；fromCode 忽略大小写兼容 wechat/WeChat）
-- [✓] 订单状态双文案（OrderStatusEnum desc=顾客视角 / adminDesc=商家视角：待确认→顾客「待发货」、待发货→顾客「处理中」）
+- [✓] 支付方式枚举 PayTypeEnum（payType 存英文 code，OrderVO 返回 payTypeDesc 中文；fromCode 忽略大小写兼容 wechat/WeChat；前端已统一传 WeChat、下单默认 WECHAT，2026-10-17 修 pay_type 存 NULL/小写）
+- [✓] 订单状态双文案（OrderStatusEnum desc=顾客视角 / adminDesc=商家视角：待确认→顾客「待发货」、待发货→顾客「待发货」，2026-10-17 把「处理中」统一为「待发货」）
+- [✓] 订单物流轨迹（假数据）：`CourierEnum` + `GET /api/orders/{id}/logistics`（参考旧 Node）+ `OrderVO` 附 logisticsStatus/latestTrace（courier 转中文），前端物流行/物流卡/物流详情页（2026-10-17）
+- [✓] 订单时间时区修复收尾：`updateStatus`/`delete` 的 MySQL `NOW()` 全改 Java `LocalDateTime.now()` 传参，存量 created_at>pay_at 脏数据已修（2026-10-17）
 - [ ] 取消订单自动生成退款售后单（only_refund），关联 aftersale
 - **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 3 项缺口见上，售后关联未做、未启动端到端验证）
 
 ### 阶段 5：aftersale-service
-- [✓] after_sales + 三类子表建表 + 数据迁移（`docs/sql/after-sale-data.sql`：28 售后单 / 43 明细 / 7 退货 / 17 仅退款 / 4 换货；丢弃 11 条孤儿 only_refund，`after_sale_items` 字段名 ALTER 统一为 `after_sale_id`）
-- [✓] C 端售后接口（`AfterSaleController` 5 接口：申请/列表/详情/状态常量/提交退货；用户归属隔离通过 `order_id LEFT JOIN orders` 的 `user_id`，修正原 Node 越权；gateway 补 `/api/after-sales/**` 路由）
+- [✓] after_sales + 三类子表建表 + 数据迁移（`after-sale-data.sql`：28 售后单 / 43 明细 / 17 仅退款 / 4 换货）
+  - 丢弃 11 条孤儿 only_refund，`after_sale_items` 字段名 ALTER 统一为 `after_sale_id`
+- [✓] C 端售后接口（`AfterSaleController` 5 接口：申请/列表/详情/状态常量/提交退货）
+  - 归属隔离通过 `order_id LEFT JOIN orders` 的 `user_id`，修正原 Node 越权；gateway 补 `/api/after-sales/**` 路由
 - [ ] 后台审核/删除（`review`/`delete`，走 `/api/admin/after-sales/**`）
 - [ ] 取消订单自动生成退款售后单（关联 order-service，见阶段 4）
 - **状态：** in_progress（C 端售后接口已实现并编译通过；后台审核/删除未做、端到端未验证）
@@ -124,7 +139,7 @@
 ### 阶段 7：前端对接联调
 - [✓] 前端 baseURL 指向网关，登录响应结构对齐（商品浏览/加购/下单链路已接入）
 - [✓] 小程序下单链路：下单确认页 + 三条入口（立即购买/去结算/猜你喜欢）已通，支付用模拟微信支付弹窗（6 位密码框 + 数字键盘，未接真实微信支付）
-- [✓] 订单列表页 6 Tab（全部/待付款/待发货/待收货/评论/售后）+ 搜索框 + 从「我的」页跳转定位 Tab；订单卡片抽成模块内组件 OrderCard（pages/order/component/，非全局）
+- [✓] 订单列表页 6 Tab（全部/待付款/待发货/待收货/评论/售后）+ 搜索框 + 从「我的」页跳转定位 Tab；订单卡片抽成模块内组件 OrderCard（pages/order/，非全局）
 - [✓] 待发货订单详情页（pending-ship.vue，支付方式/下单时间/地址/商品/金额）+ 商品搜索页（search.vue）+ 收货地址管理页（address.vue 列表 + address-edit.vue 编辑，设默认/删除）
 - [ ] 端到端跑通商品/订单/售后全链路（确认收款/发货是商家操作，走后台）
 - [✓] 接口文档改为 springdoc 自动生成（手写 `docs/openapi.yaml` 已删）；Result 结构与前端拦截器已对齐
@@ -132,7 +147,8 @@
 
 ### 阶段 8：ai-agent-service（AI 导购 Agent，小程序悬浮 AI）
 - [✓] 新建 ai-agent-service 骨架（Spring AI 2.0.1 + 硅基流动 DeepSeek + OpenFeign + MCP + SimpleVectorStore），端口 9008，注册 Nacos + 接入网关 + 免登录白名单
-- [✓] 对话接口（普通 + SSE 流式）+ 意图路由（Graph 工作流轻量版）+ 商品查询工具（@Tool 调 product-service）+ 下单工具预留（OrderTool）+ RAG（DocumentLoader/Embedding/RagRetriever）+ MCP（@McpTool）
+- [✓] 对话接口（普通 + SSE 流式）+ 意图路由（Graph 工作流轻量版）+ 商品查询工具（@Tool 调 product-service）
+  - 下单工具预留（OrderTool）+ RAG（DocumentLoader/Embedding/RagRetriever）+ MCP（@McpTool）
 - [✓] 编译通过 + 启动验证（Nacos 注册、对话、Tool Calling、SSE 流式、MCP 工具注册均实测通过）
 - [ ] 真实商品推荐端到端（product-service 已接库启动，待重新验证；早前 product-service 未启动时返回 DeepSeek 幻觉商品）
 - [ ] AI 下单闭环：依赖 order-service 下单接口（阶段 4），OrderTool.placeOrder 接 Feign + HITL
@@ -200,7 +216,7 @@
 | 清理过期优惠券 | 待定 | 建 `coupon` 表（当前仅 `business_onsale.allow_coupon` 布尔字段，无独立券实体） |
 | 清理过期临时文件 / 失效购物车 | file-service / order-service | file-service 未做；cart 表已有 |
 | 会员到期提醒 + 营销消息推送 | user-service | 会员等级表 + 微信订阅消息模板授权 |
-| 第三方物流状态同步 | order-service | 接物流 API（当前 `courier`+单号仅手动录入字段） |
+| 第三方物流状态同步 | order-service | 接物流 API（当前为假数据：`getLogistics` 用订单 id 生成假轨迹，`courier`+单号仍手动录入） |
 
 > 注：库存预警/同步**不需要**定时任务——项目库存是实时 join `products` 查（task_plan 已决策），无冗余副本可同步。
 >
@@ -213,7 +229,7 @@
 | 1 | ~~Nacos 对 Boot 4.1 的实际兼容性~~（已解决：阶段 0 实测通过） | 阶段 0 首验，不通过全盘阻塞 | 已验证兼容，无需降级 Boot |
 | 2 | 每服务独立库 vs 共享库（多租户） | 影响事务边界与 Feign 调用复杂度 | 建议先「共享库共享表 + shopId」起步，后续按需拆库 |
 | 3 | 沙箱回收的跨服务一致性 | shop-service 调多个服务清数据，非事务 | 用「软删除 + 最终一致」而非强事务，回收失败重试 |
-| 4 | 前端登录返回结构差异（Node `{token,user}` vs Spring Result） | 前端解包字段 | 阶段 1 对齐，或 auth-service 兼容返回 |
+| 4 | 前端登录返回结构差异（Node `{token,user,shop}` vs Spring `{token,user}`） | 前端登录后若用 `shop` 字段会拿不到 | 前端有独立 `GET /api/shops/current`，大概率不依赖登录响应的 shop；待前端联调确认 |
 | 5 | 现有 `user` 模块（小程序）与 `admin`（后台）账号体系并存 | 两套登录入口 | admin 走 auth-service，user 走 user-service，JWT type 区分 |
 | 6 | Spring Cloud 组件在 Boot 4 下的学习/调试成本 | 单人项目进度 | 阶段 0 先搭最小可跑骨架再铺开 |
 | 7 | 阶段 11 实时提醒的**推送端点归属**：网关内做 / 新建独立推送服务 / 挂在 order-service | 决定连接数、部署形态、前端要连几条 WS | 倾向**新建独立推送服务**（网关保持无状态、前端只连一条；端口避开 9009 用 9010）；动手前先与用户确认 |

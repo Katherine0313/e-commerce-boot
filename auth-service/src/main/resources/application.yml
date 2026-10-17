@@ -1,8 +1,6 @@
 spring:
   application:
     name: auth-service
-  profiles:
-    active: dev
   main:
     log-startup-info: false
   cloud:
@@ -46,6 +44,6 @@ wechat:
 # 接口文档：安全兜底默认关闭，避免生产环境暴露
 springdoc:
   api-docs:
-    enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}
   swagger-ui:
-    enabled: false
+    enabled: ${SPRINGDOC_ENABLED:false}

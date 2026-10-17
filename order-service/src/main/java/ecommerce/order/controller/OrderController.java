@@ -3,6 +3,7 @@ package ecommerce.order.controller;
 import ecommerce.common.Result;
 import ecommerce.order.dto.CreateOrderDTO;
 import ecommerce.order.service.OrderService;
+import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -52,6 +53,12 @@ public class OrderController {
     @GetMapping("/{id}")
     public Result<OrderVO> getOrder(@PathVariable Long id) {
         return Result.success(orderService.getOrder(id));
+    }
+
+    @Operation(summary = "物流轨迹（假数据）")
+    @GetMapping("/{id}/logistics")
+    public Result<LogisticsVO> getLogistics(@PathVariable Long id) {
+        return Result.success(orderService.getLogistics(id));
     }
 
     @Operation(summary = "支付（待付款 → 待确认）")

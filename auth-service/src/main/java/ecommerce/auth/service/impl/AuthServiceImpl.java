@@ -8,9 +8,11 @@ import ecommerce.auth.vo.AdminLoginVO;
 import ecommerce.auth.vo.AdminUserVO;
 import ecommerce.exception.BusinessException;
 import ecommerce.utils.JwtUtil;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+@Slf4j
 @Service
 public class AuthServiceImpl implements AuthService {
 
@@ -24,6 +26,8 @@ public class AuthServiceImpl implements AuthService {
 
     @Override
     public AdminLoginVO login(AdminLoginDTO dto) {
+        // 测试日志：打印登录入参（含明文密码，仅测试期用，生产要删或脱敏）
+        log.info("管理员登录请求: {}", dto);
         // 1. 参数校验：用户名/密码都不能为空
         if (dto == null || dto.getUsername() == null || dto.getUsername().isBlank()
                 || dto.getPassword() == null || dto.getPassword().isBlank()) {
@@ -31,6 +35,8 @@ public class AuthServiceImpl implements AuthService {
         }
         // 2. 按用户名查管理员；查不到或密码不符统一回「用户名或密码错误」，不暴露账号是否存在
         Admin admin = adminMapper.findByUsername(dto.getUsername().trim());
+        // ⚠️ 密码目前明文存储、明文比较（admin 表 password 存明文），仅开发期可用。
+        //    上线前必须改成 BCrypt：入库时加密、这里改用 matches 校验，否则等于明文裸奔。
         if (admin == null || !dto.getPassword().equals(admin.getPassword())) {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "用户名或密码错误");
         }

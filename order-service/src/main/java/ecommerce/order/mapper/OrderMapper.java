@@ -26,10 +26,11 @@ public interface OrderMapper {
      */
     int updateStatus(@Param("id") Long id, @Param("shopId") Long shopId,
                      @Param("status") Integer status, @Param("payType") String payType,
-                     @Param("courier") String courier, @Param("trackingNumber") String trackingNumber);
+                     @Param("courier") String courier, @Param("trackingNumber") String trackingNumber,
+                     @Param("now") LocalDateTime now);
 
     // 软删除（is_deleted=1）
-    int delete(@Param("id") Long id, @Param("shopId") Long shopId);
+    int delete(@Param("id") Long id, @Param("shopId") Long shopId, @Param("now") LocalDateTime now);
 
     // 查超时的待付款订单（定时关闭用）：status 且 created_at <= threshold 且未删除
     List<Order> findExpiredPendingPay(@Param("status") Integer status, @Param("threshold") LocalDateTime threshold);

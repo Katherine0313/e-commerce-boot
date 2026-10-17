@@ -208,7 +208,9 @@ ecommerce
 - **同步时机**：新增 / 修改 / 删除 Controller 接口，或 DTO / VO 字段变化时，同步更新 `docs/openapi.yaml`。
 - **为什么**：`docs/openapi.yaml` 是给前端看的静态契约文档，不会随代码自动更新，必须手动同步。
 - **响应结构**：统一按 `Result<T>` 的实际字段写 —— `success` / `data` / `message` / `code`；HTTP 状态码真实返回（成功 200，失败 400/401/403/404/500），不要沿用旧的 `code`/`msg`、HTTP 恒 200 的写法。
-- **要不要带令牌怎么声明**：根级 `security: - bearerAuth: []` 表示全文档默认要带令牌，登录接口用 `security: []` 单独关掉；`commonFailureResponsesCustomizer` 按 `EXCLUDE_AUTH_PATHS` 自动补这个覆盖，Swagger UI 上登录接口不显示锁图标。令牌方案 `bearerAuth`（`type: http` / `scheme: bearer` / `bearerFormat: JWT`）在 `components.securitySchemes` 里定义一次。
+- **要不要带令牌怎么声明**：根级 `security: - bearerAuth: []` 表示全文档默认要带令牌，登录接口用 `security: []` 单独关掉
+  - `commonFailureResponsesCustomizer` 按 `EXCLUDE_AUTH_PATHS` 自动补这个覆盖，Swagger UI 上登录接口不显示锁图标
+  - 令牌方案 `bearerAuth`（`type: http` / `scheme: bearer` / `bearerFormat: JWT`）在 `components.securitySchemes` 定义一次
   - **`security` 不产生 401/403 响应**：它只声明「需要哪种鉴权」，这两件事互不相干，别指望写了 `security` 就不用管失败响应。
 - **公共失败响应全局注入，Controller 上不写任何 `@ApiResponse`**：`OpenApiConfig#commonFailureResponsesCustomizer` 按下面的规则统一注入，并把所有失败响应体统一成 `ResultVoid`。
   | 码 | 注入范围 | 产出方 |
@@ -218,12 +220,17 @@ ecommerce
   | `500` | 所有接口 | `GlobalExceptionHandler#handleOther` 兜底 |
   | `413` | 只有带 `multipart/form-data` 请求体的接口 | `GlobalExceptionHandler#handleMaxUploadSize` |
 
-  - **判据是「这个码由谁产出」，不是「看起来像不像业务码」**。凡是 `GlobalExceptionHandler` 统一产出的就是公共码，一律全局注入；只有该接口**独有语义**的码才值得本地写注解。按此判据，目前**没有任何接口需要本地注解**——`uploadAvatar` 的 413/500 曾被误当作业务码留在本地，是错的：413 出自全局的上传超限处理器，500 出自全局兜底分支，两者每个接口都可能返回。
+  - **判据是「这个码由谁产出」，不是「看起来像不像业务码」**：凡是 `GlobalExceptionHandler` 统一产出的就是公共码，一律全局注入
+  - 只有该接口**独有语义**的码才值得本地写注解；按此判据，目前没有任何接口需要本地注解
+  - `uploadAvatar` 的 413/500 曾被误当业务码留在本地是错的：413 出自全局上传超限处理器，500 出自全局兜底分支
   - 用的是 `GlobalOpenApiCustomizer` 而不是 `OpenApiCustomizer`：后者按 `GroupedOpenApi` 分组各跑一次，将来分了组会把响应重复注入。
   - 已在本接口显式声明过的码**不会**被覆盖（`containsKey` 守卫），留作将来真有接口独有码时的逃生口。
   - **413 只注入带 `multipart/form-data` 的接口**：不筛的话 `wxlogin` 这种根本不能上传的接口也会挂上 413。所以这条规则依赖下一个 bullet 的 `consumes` 声明，两者是配套的。
-- **上传接口必须声明 `consumes`**：`@PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)`。不写的话 springdoc 会套用默认的 `application/json`，运行时文档里这个接口的请求体就变成 JSON —— Swagger UI 给的是 JSON 编辑器而不是文件选择框，插了 `format: binary` 也没用；同时 413 的注入规则也会失效（判不出这是上传接口）。声明后非 multipart 请求会返回 415，这是预期行为。
-- **`docs/openapi.yaml` 里的公共码**引用 `components/responses` 下的定义（`BadRequest` / `Unauthorized` / `Forbidden` / `PayloadTooLarge` / `InternalServerError`），失败响应体统一引用 `components/schemas/ResultVoid`。静态契约不会自动更新，新增接口时按上表手工补上对应码。
+- **上传接口必须声明 `consumes`**：`@PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)`
+  - 不写的话 springdoc 套用默认 `application/json`，文档请求体变 JSON，Swagger UI 给 JSON 编辑器而非文件选择框
+  - 同时 413 注入规则失效（判不出是上传接口）；声明后非 multipart 返回 415，是预期行为
+- **`docs/openapi.yaml` 里的公共码**引用 `components/responses` 下的定义（`BadRequest` / `Unauthorized` / `Forbidden` 等）
+  - 失败响应体统一引用 `components/schemas/ResultVoid`；静态契约不会自动更新，新增接口时按上表手工补上对应码
 - **写 `@ApiResponses` 的两个坑**（当前代码里已无任何本地注解，但将来真要写时必须知道）：
   1. 方法上一旦标了 `@ApiResponses`，springdoc 就**不再自动补 200**，成功响应必须显式写 `@ApiResponse(responseCode = "200", useReturnTypeSchema = true)`，否则 Swagger UI 里该接口只剩失败码。零注解的接口才享受自动 200。
   2. 手写的失败码如果不给 `content`，springdoc 会拿方法返回值类型去填响应体（把 400 的 `data` 写成头像 URL）。所以失败响应体一律交给 `commonFailureResponsesCustomizer` 纠正，注解里不要自己写 `content`。
@@ -235,9 +242,11 @@ ecommerce
 > 头像上传（`POST /api/user/avatar`）核心闭环已完成：**库存相对路径、返回时拼完整 URL**（换域名不失效）。
 >
 > 2026-09-27 完成前两项：
-> - **图片类型白名单**：`UserServiceImpl.ALLOWED_IMAGE_TYPES` 只收 `image/png` / `image/jpeg` / `image/gif` / `image/webp`，挡掉可内嵌脚本的 `image/svg+xml`；白名单同时给出规范后缀，修掉旧写法从 Content-Type 切出 `svg+xml` 这种非法扩展名的问题。比对前先归一化 Content-Type（小写、去掉 `;` 后的参数）。
+> - **图片类型白名单**：`ALLOWED_IMAGE_TYPES` 只收 png/jpeg/gif/webp，挡掉可内嵌脚本的 `image/svg+xml`
+>   - 白名单同时给出规范后缀，修掉旧写法从 Content-Type 切出 `svg+xml` 非法扩展名的问题；比对前归一化 Content-Type（小写、去 `;` 后参数）
 > - **上传大小限制**：`spring.servlet.multipart.max-file-size: 2MB` / `max-request-size: 3MB`，配在 `application.yml`（非密配置）。超限由 `GlobalExceptionHandler` 转成 413 + 可读提示。
->   - ⚠️ **修正一处旧判断**：Spring Boot 4 / Spring Framework 7 的 `MaxUploadSizeExceededException` **本身实现了 `ErrorResponse`**，不接也会返回 413（只是提示是无信息量的「请求不合法」），并不是旧文档写的「超限返回 500」。单独接它是为了给出可读提示。
+>   - ⚠️ **修正一处旧判断**：Spring Boot 4 / Spring Framework 7 的 `MaxUploadSizeExceededException` 本身实现 `ErrorResponse`
+>     - 不接也返回 413（只是提示「请求不合法」），不是旧文档写的「超限返回 500」；单独接它是为了给出可读提示
 >
 > 上传校验的两个已知边界：
 > - **Content-Type 由客户端声明、可伪造**，白名单只能挡住「误传 svg / 可执行文件」这类情况；要挡「伪装成 png 的恶意文件」得读文件头做 magic number 校验。
@@ -289,9 +298,14 @@ ecommerce
 
 ### 背景：加购/看资料时头像显示不出来
 
-小程序点「加入购物车」未登录会先弹 `LoginPopup`，其 `startLogin` 走 `ensureLogin` + `getProfile`；头像 URL 由 user-service 的 `UserController.fullUrl` 拼成**绝对地址**后直接交给 `<image :src>`（前端不再补域名）。前端 `findings.md` 早已把该静态资源记为 `http://127.0.0.1:8080/upload/avatar/...`，但网关**没有 `/upload/**` 路由**（只有 `/image/**` → product-service）→ 经网关取头像必然 404。
+小程序点「加入购物车」未登录会先弹 `LoginPopup`，其 `startLogin` 走 `ensureLogin` + `getProfile`；头像 URL 由 user-service 的 `UserController.fullUrl` 拼成**绝对地址**后直接交给 `<image :src>`（前端不再补域名）。
 
-同时确认加购/头像这条链路所需模块（回答「要开哪些服务」）：MySQL（Docker 3307）+ Nacos 8848 + gateway 8080 + user-service 9006（`/api/wxlogin`、`/api/user/profile`、`/api/user/avatar`）+ order-service 9004（`POST /api/cart`）；product-service 9003 只在浏览商品时需要（加购请求本身是 order-service 同库查 `products`），**Redis 不用**（只有 product-service 商品缓存用它）。
+前端 `findings.md` 早已把该静态资源记为 `http://127.0.0.1:8080/upload/avatar/...`，但网关**没有 `/upload/**` 路由**（只有 `/image/**` → product-service）→ 经网关取头像必然 404。
+
+同时确认加购/头像这条链路所需模块（回答「要开哪些服务」）：
+- MySQL（Docker 3307）+ Nacos 8848 + gateway 8080
+- user-service 9006（`/api/wxlogin`、`/api/user/profile`、`/api/user/avatar`）+ order-service 9004（`POST /api/cart`）
+- product-service 9003 只在浏览商品时需要（加购请求是 order-service 同库查 `products`），**Redis 不用**（只有 product-service 商品缓存用它）
 
 ### 改动 1：网关补 `/upload/**` → `lb://user-service`
 
@@ -429,7 +443,7 @@ Redis 宕机 = 幂等自动失效、退化为普通下单。
 - 根因：MySQL 容器时区是 UTC，`NOW()` 生成的 `created_at` 比 JVM（UTC+8）少 8 小时；而订单号 `orderNo` 用 Java `LocalDateTime.now()` 是北京时间，两者差了 8 小时
 - 排查线索：同一条订单 `orderNo` 时间戳是 `21:11:11`，`createdAt` 却是 `13:11:11`，差值正好 8 小时
 - 修复：`OrderServiceImpl.doCreateOrder` 的 `createdAt` 改用 `LocalDateTime.now()`（JVM 北京时间），`OrderMapper.xml` insert 的 `NOW()` 改 `#{createdAt}`，与 `orderNo` 同源
-- 遗留：`updateStatus` 里 `pay_at`/`ship_at`/`confirm_at`/`finish_at` 仍是 `NOW()`（UTC），后续展示这些时间字段时需一并统一成 Java 时间
+- 已修复（2026-10-17）：`updateStatus` 里 `pay_at`/`ship_at`/`confirm_at`/`finish_at`/`updated_at` 的 `NOW()` 全部改为 Java 传参 `LocalDateTime.now()`（`OrderMapper.updateStatus` 加 `now` 参数，6 处调用 + `delete` 一并传），与 `createdAt` 同源；存量 5 条 `created_at > pay_at` 脏数据（4 条时区 + 1 条种子数据时间戳错）已手动 UPDATE 修复
 
 ## 售后域迁移 + C 端接口（2026-10-16）
 
@@ -455,10 +469,22 @@ Redis 宕机 = 幂等自动失效、退化为普通下单。
 - 前端搜索框：订单列表页用真输入框（筛当前列表）；商品搜索用独立页（首页/分类页顶部假搜索框 `@search` 跳转，此前三层缺口——没人接 `@search`、没搜索页、后端没 keyword）。
 
 ### 2. 状态/支付方式双文案（C 端 vs 后台）
-- `OrderStatusEnum` 加 `adminDesc` 字段（`desc`=顾客视角 / `adminDesc`=商家视角）：`PENDING_CONFIRM` 顾客「待发货」后台「待确认」、`PENDING_SHIP` 顾客「处理中」后台「待发货」。顾客付款后就是「等发货」，不该看到商家视角的「待确认」。
-- `PayTypeEnum`：payType 存英文 code（WeChat/Alipay/BankCard），`OrderVO` 返回 `payTypeDesc` 中文；`fromCode` 用 `equalsIgnoreCase`（历史数据 WeChat 与新数据 wechat 大小写不一致）。
+- `OrderStatusEnum` 加 `adminDesc` 字段（`desc`=顾客视角 / `adminDesc`=商家视角）：`PENDING_CONFIRM` 顾客「待发货」后台「待确认」、`PENDING_SHIP` 顾客「待发货」后台「待发货」（2026-10-17 把顾客视角「处理中」统一为「待发货」）。顾客付款后就是「等发货」，不该看到商家视角的「待确认」。
+- `PayTypeEnum`：payType 存英文 code（WeChat/Alipay/BankCard），`OrderVO` 返回 `payTypeDesc` 中文；前端 `confirm.vue` 已统一传 `WeChat`、下单默认 `PayTypeEnum.WECHAT.getCode()`（2026-10-17 修 pay_type 存 NULL/小写）；`fromCode` 仍用 `equalsIgnoreCase` 兜底历史小写数据。
 
 ### 3. 前端订单模块组件化
-- `OrderCard`（订单卡片）只归 order 模块（list + pending-pay 复用），放 `pages/order/component/` 局部注册，不进全局 `components/`——全局 `components/` 只放跨模块公共组件（Guess/AddressPopup/QuantityStepper 等）。
+- `OrderCard`（订单卡片）只归 order 模块（list + pending-pay 复用），放 `pages/order/` 局部注册，不进全局 `components/`——全局 `components/` 只放跨模块公共组件（Guess/AddressPopup/QuantityStepper 等）。
 - `utils/format.js` 抽金额/时间/图片 URL 三个纯函数（`fmtMoney`/`formatOrderTime`/`parseOrderTime`/`goodsImgUrl`），消除 list/pending-pay 的重复。
+
+## 订单物流轨迹（假数据）+ admin 登录表（2026-10-17）
+
+### 1. 物流轨迹（假数据，参考旧 Node getLogistics）
+- 后端：`CourierEnum`（快递公司 key→中文，照旧 Node COURIER_MAP）、`LogisticsVO`/`LogisticsTraceVO`、`GET /api/orders/{id}/logistics`（假轨迹，用订单 id 做种子生成城市/路线/快递员，`SHIPPED` 5 条 / `FINISHED` 7 条含「已签收」）。
+- `OrderVO` 加 `logisticsStatus`/`latestTrace`，`toVO` 里 courier 从英文 key 转中文——列表卡片直接展示，不额外发请求。
+- 前端：`api/order.js` 加 `getLogistics`；`order-card.vue` 物流信息行 + `pending-ship.vue` 物流卡 + 新建 `logistics.vue`（快递卡片 + 轨迹时间线）。
+- 真实物流 API（微信物流助手）未接，task_plan 定时任务档 2「第三方物流状态同步」仍挂起。
+
+### 2. admin 表（后台登录）
+- `admin` 表 + 种子账号 `admin/admin123` 已建（含 `phone` 字段，`docs/sql/admin.sql` 同步）；密码明文存储，代码已注释「生产换 BCrypt」。
+- 鉴权隐患（未修）：`GET /api/user/info` 被 `JwtInterceptor` 按 user 类型拦，admin token 调它会 403（前端当前解 token 不调此接口，故不影响登录；后台整体迁 `/api/admin/**` 时一并修）。
 

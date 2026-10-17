@@ -6,12 +6,15 @@ import ecommerce.order.dto.OrderItemDTO;
 import ecommerce.order.entity.Order;
 import ecommerce.order.entity.OrderItem;
 import ecommerce.order.entity.Product;
+import ecommerce.order.enums.CourierEnum;
 import ecommerce.order.enums.OrderStatusEnum;
 import ecommerce.order.enums.PayTypeEnum;
 import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductMapper;
 import ecommerce.order.service.OrderService;
+import ecommerce.order.vo.LogisticsTraceVO;
+import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderItemVO;
 import ecommerce.order.vo.OrderVO;
 import ecommerce.utils.UserContext;
@@ -45,6 +48,8 @@ public class OrderServiceImpl implements OrderService {
     private static final long PENDING_PAY_TIMEOUT_SECONDS = 1800;
     /** 订单号格式：ORD + 年月日时分秒毫秒（再加 4 位随机数防同毫秒撞唯一索引） */
     private static final DateTimeFormatter ORDER_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
+    /** 物流轨迹时间展示格式 */
+    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     /** 下单幂等：Redis key 前缀，key = 前缀 + userId + ":" + idempotencyKey */
     private static final String IDEMPOTENCY_KEY_PREFIX = "order:idempotency:";
     /** 幂等占位值：表示该 key 对应的下单请求正在处理中 */
@@ -161,6 +166,8 @@ public class OrderServiceImpl implements OrderService {
                 .orderNo(generateOrderNo())
                 .payAmount(totalAmount)
                 .orderStatus(OrderStatusEnum.PENDING_PAY.getCode())
+                // 下单即落默认支付方式（微信），避免 pay_type 为 NULL，与 PayTypeEnum 的 code 对齐
+                .payType(PayTypeEnum.WECHAT.getCode())
                 .remark(dto.getRemark())
                 .consignee(dto.getConsignee())
                 .phone(dto.getPhone())
@@ -199,7 +206,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO payOrder(Long id, String payType) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.PENDING_CONFIRM);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.PENDING_CONFIRM.getCode(), payType, null, null);
+        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.PENDING_CONFIRM.getCode(), payType, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -208,7 +215,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO confirmOrder(Long id) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.PENDING_SHIP);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null);
+        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -217,7 +224,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO shipOrder(Long id, String courier, String trackingNumber) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.SHIPPED);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.SHIPPED.getCode(), null, courier, trackingNumber);
+        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.SHIPPED.getCode(), null, courier, trackingNumber, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -226,7 +233,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO finishOrder(Long id) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.FINISHED);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.FINISHED.getCode(), null, null, null);
+        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.FINISHED.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -236,7 +243,7 @@ public class OrderServiceImpl implements OrderService {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.CANCEL);
         restoreStock(order.getId(), TEMPLATE_SHOP_ID);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.CANCEL.getCode(), null, null, null);
+        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -245,7 +252,12 @@ public class OrderServiceImpl implements OrderService {
     public void deleteOrder(Long id) {
         // 软删：只校验存在 + 归属（不校验状态，任何状态的订单都能删）；is_deleted=1 后列表不再返回
         getOwnedOrder(id);
-        orderMapper.delete(id, TEMPLATE_SHOP_ID);
+        orderMapper.delete(id, TEMPLATE_SHOP_ID, LocalDateTime.now());
+    }
+
+    @Override
+    public LogisticsVO getLogistics(Long id) {
+        return buildLogistics(getOwnedOrder(id));
     }
 
     /** 超时关闭待付款订单：每分钟扫一次，恢复库存 + 改 cancel（保留订单记录，不软删除） */
@@ -263,7 +275,7 @@ public class OrderServiceImpl implements OrderService {
             restoreStock(order.getId(), order.getShopId());
             // 只改状态为取消，不软删除：待付款订单是有效订单记录，超时关闭只是状态流转（pending_pay → cancel），
             // 保留下来用户才能在订单列表看到「这笔订单超时取消了」
-            orderMapper.updateStatus(order.getId(), order.getShopId(), OrderStatusEnum.CANCEL.getCode(), null, null, null);
+            orderMapper.updateStatus(order.getId(), order.getShopId(), OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
         }
         if (!expired.isEmpty()) {
             log.info("超时关闭待付款订单 {} 条", expired.size());
@@ -302,6 +314,67 @@ public class OrderServiceImpl implements OrderService {
         // order_no 有唯一索引，秒级精度同秒会撞；毫秒 + 4 位随机数保证并发下不重复
         return "ORD" + LocalDateTime.now().format(ORDER_NO_FORMATTER)
                 + String.format("%04d", ThreadLocalRandom.current().nextInt(10000));
+    }
+
+    /**
+     * 生成假物流轨迹（照旧 Node 后端 getLogistics）：
+     * 用订单 id 做种子，让每单的城市/路线/快递员不同；courier 存英文 key，这里转中文。
+     */
+    private LogisticsVO buildLogistics(Order order) {
+        int seed = (int) (order.getId() % 97);
+        List<String> cities = List.of("杭州", "北京", "上海", "广州", "深圳", "成都", "武汉", "南京", "西安", "重庆");
+        List<String> districts = List.of("萧山", "朝阳", "浦东", "天河", "南山", "武侯", "洪山", "江宁", "雁塔", "渝北");
+        String originCity = cities.get(seed % cities.size());
+        String originDistrict = districts.get((seed + 3) % districts.size());
+        String destCity = cities.get((seed + 5) % cities.size());
+
+        // 快递公司：优先用发货时选的（英文 key 转中文），否则随机挑一个
+        CourierEnum courierEnum = CourierEnum.fromCode(order.getCourier());
+        String courierName = courierEnum != null ? courierEnum.getDesc()
+                : List.of("顺丰速运", "中通快递", "圆通速递", "韵达快递", "申通快递", "极兔速递", "京东物流", "德邦快递").get((seed + 7) % 8);
+        String courierShort = courierName.replaceAll("速运|快递|速递|物流", "");
+        String trackingNumber = order.getTrackingNumber() != null ? order.getTrackingNumber() : ("YT" + System.currentTimeMillis());
+
+        List<LogisticsTraceVO> traces = new ArrayList<>();
+        LocalDateTime shipTime = order.getShipAt();
+        LocalDateTime finishTime = order.getFinishAt();
+        String[] courierStaff = {"张伟", "李强", "王磊", "刘洋", "陈明"};
+
+        if (OrderStatusEnum.SHIPPED.getCode().equals(order.getOrderStatus())) {
+            traces.add(trace(shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心"));
+            traces.add(trace(plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity));
+            traces.add(trace(plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity));
+            traces.add(trace(plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心"));
+            traces.add(trace(null, "运输中", "【" + destCity + "分拣中心】快件正在分拣，即将安排派送"));
+        } else if (OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())) {
+            traces.add(trace(shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心"));
+            traces.add(trace(plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity));
+            traces.add(trace(plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity));
+            traces.add(trace(plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心"));
+            traces.add(trace(plusHours(shipTime, 22, seed), "运输中", "【" + destCity + "分拣中心】快件正在分拣，即将安排派送"));
+            traces.add(trace(plusHours(shipTime, 24, seed), "派送中", "【" + destCity + "】" + courierShort + "快递员" + courierStaff[seed % courierStaff.length] + "正在为您派送，请保持电话畅通"));
+            traces.add(trace(finishTime, "已签收", "快件已由本人签收，感谢使用"));
+        }
+
+        return LogisticsVO.builder()
+                .courier(courierName)
+                .trackingNumber(trackingNumber)
+                .traces(traces)
+                .build();
+    }
+
+    /** 组装单条轨迹（时间空则给空串） */
+    private LogisticsTraceVO trace(LocalDateTime time, String status, String desc) {
+        return LogisticsTraceVO.builder()
+                .time(time == null ? "" : time.format(DATE_FMT))
+                .status(status)
+                .desc(desc)
+                .build();
+    }
+
+    /** 发货时间 + hours + seed%7，模拟各条轨迹的时间偏移（旧 Node 逻辑） */
+    private LocalDateTime plusHours(LocalDateTime base, long hours, int seed) {
+        return base == null ? null : base.plusHours(hours + seed % 7);
     }
 
     private Long currentUserId() {
@@ -349,6 +422,21 @@ public class OrderServiceImpl implements OrderService {
         OrderStatusEnum status = OrderStatusEnum.fromCode(order.getOrderStatus());
         PayTypeEnum payType = PayTypeEnum.fromCode(order.getPayType());
         List<OrderItem> items = orderItemMapper.listByOrderId(order.getId(), order.getShopId());
+        // courier 存英文 key，转中文返回（照旧 Node 后端）
+        CourierEnum courierEnum = CourierEnum.fromCode(order.getCourier());
+        String courierDesc = courierEnum != null ? courierEnum.getDesc() : order.getCourier();
+        // 物流摘要：已发货/已完成订单取最新一条轨迹，列表卡片直接展示，避免每卡一次请求
+        String logisticsStatus = null;
+        String latestTrace = null;
+        if (OrderStatusEnum.SHIPPED.getCode().equals(order.getOrderStatus())
+                || OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())) {
+            List<LogisticsTraceVO> traces = buildLogistics(order).getTraces();
+            if (!traces.isEmpty()) {
+                LogisticsTraceVO latest = traces.get(traces.size() - 1);
+                logisticsStatus = latest.getStatus();
+                latestTrace = latest.getDesc();
+            }
+        }
         return OrderVO.builder()
                 .id(order.getId())
                 .orderNo(order.getOrderNo())
@@ -363,9 +451,11 @@ public class OrderServiceImpl implements OrderService {
                 .region(order.getRegion())
                 .detailAddress(order.getDetailAddress())
                 .shippingType(order.getShippingType())
-                .courier(order.getCourier())
+                .courier(courierDesc)
                 .trackingNumber(order.getTrackingNumber())
                 .signStatus(order.getSignStatus())
+                .logisticsStatus(logisticsStatus)
+                .latestTrace(latestTrace)
                 .createdAt(order.getCreatedAt())
                 .payAt(order.getPayAt())
                 .shipAt(order.getShipAt())
