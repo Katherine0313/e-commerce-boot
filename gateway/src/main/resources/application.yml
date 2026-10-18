@@ -65,7 +65,7 @@ spring:
             - id: auth-service
               uri: lb://auth-service
               predicates:
-                - Path=/api/login,/api/logout,/api/user/info
+                - Path=/api/login,/api/logout,/api/admin/info
             # 商品浏览 → product-service；必须放在 user-service 的 /api/** 通配之前，更具体的规则优先匹配。
             # 裸路径（/api/products）是列表接口，/** 是详情等子路径，两者都要覆盖。
             # /image/** 是商品图片静态资源，同样由 product-service 托管（见 common WebMvcConfig 的 addResourceHandlers）。

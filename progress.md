@@ -22,6 +22,7 @@
   - `lb://` 长连接与 ThreadLocal 在 WS 下失效，跨实例推送走 Redis pub/sub
   - 订单时间用 Java `LocalDateTime.now()`，别用 MySQL `NOW()`（时区差 8h）
   - `GROUP BY` 大小写不敏感会合并枚举值，查 pay_type 用 `BINARY` 区分
+  - 凭据统一走环境变量（缺了就启动失败），别散落在 gitignore 的 dev.yml 里
 
 - **我做了什么？**
   - 阶段 0–9：8 服务骨架、auth 登录、商品域迁移、AI Agent、推荐服务、Redis 分类缓存、订单域迁移+购物车
@@ -30,6 +31,7 @@
   - 售后域数据迁移 + C 端售后接口（用户归属隔离）
   - 订单/商品关键词搜索、支付方式枚举 + 状态双文案、前端订单列表 6 Tab + 待发货详情 + 商品搜索页 + 地址管理页
   - 2026-10-17：订单物流轨迹（假数据）+ 时区修复收尾 + 订单状态文案统一 + payType 大小写统一 + admin 表建好（后台登录）
+  - 2026-10-17：删除 6 个 application-dev.yml，凭据统一环境变量（DB/JWT/微信/AI key），swagger/SQL 日志改环境变量开关
 
 ## 错误日志（最近）
 

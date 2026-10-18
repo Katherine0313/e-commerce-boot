@@ -15,6 +15,7 @@
 | 数据库 | SQLite → MySQL（表结构重设计，去掉号段 hack） |
 | 前端对接 | 接口路径 `/api/**` 不变，前端 baseURL 指向网关；后台对应 `admin` 模块 |
 | 分布式中间件 | Redis **已接入**（分类树缓存 + 下单幂等）；Seata/MQ/分布式锁/分布式 ID 仍后置 |
+| 凭据管理 | 统一走环境变量（`application-dev.yml` 已删，清单见 `docs/env.md`） |
 
 ## 微服务拆分方案
 
@@ -74,10 +75,10 @@
 - **状态：** completed（Nacos 已起、服务注册成功、网关路由打通）
 
 ### 阶段 1：gateway + auth-service
-- [✓] auth-service 登录接口代码：`POST /api/login`（admin 账号密码）、`GET /api/user/info`、`POST /api/logout`
+- [✓] auth-service 登录接口代码：`POST /api/login`（admin 账号密码）、`GET /api/admin/info`、`POST /api/logout`
   - `JwtUtil.generateAdminToken` claims 加 `id`/`username`/`role`/`shopId`
 - [✓] admin 表建表脚本 `docs/sql/admin.sql`（建表 + 种子 admin/admin123，含 `phone` 字段）
-- [✓] gateway 路由：`/api/login`、`/api/logout`、`/api/user/info` → `lb://auth-service`
+- [✓] gateway 路由：`/api/login`、`/api/logout`、`/api/admin/info` → `lb://auth-service`
 - [✓] admin 表已执行建表 + 种子 admin/admin123（2026-10-17 手动执行，含 `phone` 字段）
 - [ ] RBAC 权限表（role/permission 拆分）
 - [ ] gateway：CORS、JWT 校验过滤器、`X-Shop-Id` 透传、限流

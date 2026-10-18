@@ -32,7 +32,7 @@ public class AuthController {
     }
 
     @Operation(summary = "当前登录管理员信息")
-    @GetMapping("/user/info")
+    @GetMapping("/admin/info")
     public Result<AdminUserVO> userInfo() {
         return Result.success(authService.getInfo(UserContext.getUserId()));
     }

@@ -1,4 +1,6 @@
 spring:
+  profiles:
+    active: dev
   application:
     name: product-service
   cloud:
@@ -11,7 +13,7 @@ spring:
   datasource:
     # 连接凭据不写进版本库：本地值在 application-dev.yml（已被 gitignore），
     # 生产由环境变量提供。用户名/密码故意不给默认值，缺失就启动失败。
-    url: ${DB_URL:jdbc:mysql://localhost:3306/e_commerce_db?useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&characterEncoding=UTF-8&useUnicode=true}
+    url: ${DB_URL}
     username: ${DB_USERNAME}
     password: ${DB_PASSWORD}
     driver-class-name: com.mysql.cj.jdbc.Driver

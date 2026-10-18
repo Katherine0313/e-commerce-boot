@@ -73,7 +73,7 @@ curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 
 
 ### 端口对照表
 
-| 服务 | 端口 | 启动类 | 需要 DB 凭据（application-dev.yml） |
+| 服务 | 端口 | 启动类 | 需要 DB 凭据（环境变量） |
 |---|---|---|---|
 | gateway | 8080 | `GatewayApplication` | 否 |
 | auth-service | 9001 | `AuthServiceApplication` | **是** |
@@ -91,7 +91,7 @@ curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 
 ### 已知坑：jar 可能落后于源码
 
 `target/*.jar` 是 2026-09-30 13:48 打的，而 `product-service` 在 10-01 接库时改了 18 个源文件**没有重新打包**，
-它的 jar 里**不含 `application-dev.yml`**（源码里有）。直接 `java -jar` 跑它，会用旧代码且拿不到 DB 凭据而启动失败。
+它的 jar 是旧代码，直接 `java -jar` 跑会启动失败（现在凭据走环境变量，不打包进 jar）。
 
 所以用 jar 方式起之前，先全量重打一次：
 
@@ -115,7 +115,7 @@ docker compose down    # 停 Nacos（数据在容器内嵌 derby，开发期无�
 | `curl 127.0.0.1:8080/...` 连不上（exit 7） | gateway 没起，或 Docker/Nacos 没起导致它起不来 |
 | 服务日志停在注册阶段、报 Nacos 连接失败 | Docker Desktop 没起 / Nacos 容器没起 |
 | `tasklist` 里 Java 进程只有 IDEA | 后端一个都没起（正常现象，它不会自启） |
-| 启动报 `DB_USERNAME` 占位符解析失败 | 该服务的 `application-dev.yml` 缺失（或被 gitignore 后没本地补上） |
+| 启动报 `DB_USERNAME` 占位符解析失败 | `DB_USERNAME` 环境变量没设（凭据清单见 `docs/env.md`） |
 | `GET /api/categories` 返回 500 | Redis 没启动（分类树缓存依赖 Redis，连不上就 500）；起 Redis 即可 |
 
 ## 项目架构约定（原 `project_spec.md`）
@@ -291,8 +291,8 @@ ecommerce
 
 - 架构与约定入口：**本文档「项目架构约定」一节**（2026-09-28 由原根目录 `project_spec.md` 全文并入，含三端划分、命名规则、OpenAPI 同步约定、头像上传待办表）
 - 静态接口契约：`docs/openapi.yaml`（263 行）
-- 运行时文档：`/swagger-ui.html`、`/v3/api-docs`（仅 dev profile 开）
-- 配置：`src/main/resources/application.yml`；本地真实值在 `application-dev.yml`（gitignore）
+- 运行时文档：`/swagger-ui.html`、`/v3/api-docs`（`SPRINGDOC_ENABLED=true` 时开）
+- 配置：`src/main/resources/application.yml`；本地真实值走环境变量（清单见 `docs/env.md`）
 
 ## 头像静态资源路由 + 绝对 URL 拼接（2026-10-10）
 
@@ -486,5 +486,5 @@ Redis 宕机 = 幂等自动失效、退化为普通下单。
 
 ### 2. admin 表（后台登录）
 - `admin` 表 + 种子账号 `admin/admin123` 已建（含 `phone` 字段，`docs/sql/admin.sql` 同步）；密码明文存储，代码已注释「生产换 BCrypt」。
-- 鉴权隐患（未修）：`GET /api/user/info` 被 `JwtInterceptor` 按 user 类型拦，admin token 调它会 403（前端当前解 token 不调此接口，故不影响登录；后台整体迁 `/api/admin/**` 时一并修）。
+- 鉴权隐患（已修）：`GET /api/user/info` 原被 `JwtInterceptor` 按 user 类型拦、admin token 调它 403，已迁至 `GET /api/admin/info` 走 admin 分流（前端当前解 token 不调此接口，不影响登录）。
 
