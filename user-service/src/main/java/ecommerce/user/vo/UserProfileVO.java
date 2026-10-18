@@ -28,9 +28,6 @@ public class UserProfileVO {
     /** 性别 */
     @Schema(description = "性别，未设置时为 null")
     private String sex;
-    /** 身份证号 */
-    @Schema (description = "身份证号，未实名时为 null")
-    private String idNumber;
     /** 注册时间 */
     @Schema (description = "注册时间")
     private LocalDateTime createTime;

@@ -148,7 +148,6 @@ public class UserServiceImpl implements UserService {
                 .avatar(user.getAvatar())
                 .phone(user.getPhone())
                 .sex(user.getSex())
-                .idNumber(user.getIdNumber())
                 .createTime(user.getCreateTime())
                 .build();
     }

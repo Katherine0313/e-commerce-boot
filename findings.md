@@ -15,7 +15,7 @@ Nacos 只有一份，是 Docker 容器（根目录 `docker-compose.yml`，**该�
 
 容易踩的误解：「只把 application 跑起来就行」——不行，注册中心不在，服务起不来。
 
-对照：**MySQL 不走 Docker**（本机原生 MySQL80，3306），它不是卡点，Docker 停掉不影响它。
+对照：**MySQL 走本机 MySQL80（3306）**；2026-10-18 已把 Docker 3307 的数据迁回本机 3306，不再用 Docker 部署 MySQL。
 
 ### 启动顺序（缺一不可）
 
@@ -85,7 +85,7 @@ curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 
 | file-service | 9007 | `FileServiceApplication` | 否 |
 | Nacos | 8848 / 9848 / 9849 | — | — |
 | Nacos 控制台 | 18080（容器内 8080） | — | — |
-| MySQL | 3306（本机原生） | — | — |
+| MySQL | 3306（本机 MySQL80） | — | — |
 | Redis | 6379（本机原生，非 Docker） | — | — |
 
 ### 已知坑：jar 可能落后于源码
@@ -277,7 +277,7 @@ ecommerce
 | `JwtInterceptor.afterCompletion` 在鉴权失败（preHandle 抛异常）时不执行，`UserContext` 的 ThreadLocal 未清除 | Tomcat 线程复用，理论上可能读到上一个请求的 userId | 用户已决定暂不修 |
 | `wx_user` / `user` 表 `openid` 排序规则大小写不敏感 | 理论上有登录串号风险 | 用户已决定暂不修 |
 | 数据库凭据曾进入 git 历史，MySQL 侧明文密码未处理 | 凭据泄露面 | 配置已移出版本库，历史与库侧未清理 |
-| `CorsConfig` 放开所有来源 + `allowCredentials(true)` | 仅开发期可接受 | 注释已标注生产需收紧 |
+| `CorsConfig` 放开所有来源 + `allowCredentials(true)`（common 与 gateway 各一份，2026-10-18 补 gateway 版） | 仅开发期可接受 | 注释已标注生产需收紧 |
 
 ## 资源
 
@@ -303,7 +303,7 @@ ecommerce
 前端 `findings.md` 早已把该静态资源记为 `http://127.0.0.1:8080/upload/avatar/...`，但网关**没有 `/upload/**` 路由**（只有 `/image/**` → product-service）→ 经网关取头像必然 404。
 
 同时确认加购/头像这条链路所需模块（回答「要开哪些服务」）：
-- MySQL（Docker 3307）+ Nacos 8848 + gateway 8080
+- MySQL（本机 3306）+ Nacos 8848 + gateway 8080
 - user-service 9006（`/api/wxlogin`、`/api/user/profile`、`/api/user/avatar`）+ order-service 9004（`POST /api/cart`）
 - product-service 9003 只在浏览商品时需要（加购请求是 order-service 同库查 `products`），**Redis 不用**（只有 product-service 商品缓存用它）
 
@@ -470,7 +470,7 @@ Redis 宕机 = 幂等自动失效、退化为普通下单。
 
 ### 2. 状态/支付方式双文案（C 端 vs 后台）
 - `OrderStatusEnum` 加 `adminDesc` 字段（`desc`=顾客视角 / `adminDesc`=商家视角）：`PENDING_CONFIRM` 顾客「待发货」后台「待确认」、`PENDING_SHIP` 顾客「待发货」后台「待发货」（2026-10-17 把顾客视角「处理中」统一为「待发货」）。顾客付款后就是「等发货」，不该看到商家视角的「待确认」。
-- `PayTypeEnum`：payType 存英文 code（WeChat/Alipay/BankCard），`OrderVO` 返回 `payTypeDesc` 中文；前端 `confirm.vue` 已统一传 `WeChat`、下单默认 `PayTypeEnum.WECHAT.getCode()`（2026-10-17 修 pay_type 存 NULL/小写）；`fromCode` 仍用 `equalsIgnoreCase` 兜底历史小写数据。
+- `PayTypeEnum`：payType 存英文 code（WeChat/Alipay/BankCard），`OrderVO` 返回 `payTypeDesc` 中文；前端 `confirm.vue` 统一传 `WeChat`，下单不写 pay_type（NULL）、支付成功才写（2026-10-18 修正）；`fromCode` 仍用 `equalsIgnoreCase` 兜底历史小写数据。
 
 ### 3. 前端订单模块组件化
 - `OrderCard`（订单卡片）只归 order 模块（list + pending-pay 复用），放 `pages/order/` 局部注册，不进全局 `components/`——全局 `components/` 只放跨模块公共组件（Guess/AddressPopup/QuantityStepper 等）。
@@ -487,4 +487,60 @@ Redis 宕机 = 幂等自动失效、退化为普通下单。
 ### 2. admin 表（后台登录）
 - `admin` 表 + 种子账号 `admin/admin123` 已建（含 `phone` 字段，`docs/sql/admin.sql` 同步）；密码明文存储，代码已注释「生产换 BCrypt」。
 - 鉴权隐患（已修）：`GET /api/user/info` 原被 `JwtInterceptor` 按 user 类型拦、admin token 调它 403，已迁至 `GET /api/admin/info` 走 admin 分流（前端当前解 token 不调此接口，不影响登录）。
+
+## 后台管理端登录对接 + 网关 CORS（2026-10-18）
+
+### 1. 两个 MySQL 实例（登录报「admin 表不存在」的根因）
+
+本机实际跑着两个 MySQL：**3306**（Windows 原生 MySQL80，旧 schema：无 `admin`/`address`，地址表还是 `consignee_address`）和 **3307**（Docker `mysql-dev`，完整 schema：`admin`/`address`/`after_sale_*` 全齐、种子 `admin/admin123` 已插）。应用配置默认连 3306，而数据/建表都在 3307，于是登录查 `admin` 表报 `Table 'e_commerce_db.admin' doesn't exist`。
+
+处置：
+
+- 5 个连库服务（auth/user/product/order/aftersale）的 `application-dev.yml` 加 `DB_URL=jdbc:mysql://127.0.0.1:3307/...`；
+- `application.yml` 里 `url` 从 `${DB_URL:jdbc:mysql://localhost:3306/...}` 改为 `${DB_URL}`（删掉 3306 默认值，与 username/password 同款「不给默认值、缺失就启动失败」风格）；
+- 本机 MySQL80 服务已停（数据未删；启动类型 `AUTO_START`，重启电脑会再起，要长期关掉需 `sc config MySQL80 start= demand`）。
+
+**最终决策（2026-10-18 收尾）**：不用 Docker 部署 MySQL。将 Docker 3307 的 15 张表迁回本机 MySQL80（3306），MySQL 一律用本地 3306；远程服务器 MySQL（193.112.176.228:3306，库 `baota_ecommerce`）已连上、勿动。5 个服务 dev 配置最终为 `DB_URL=jdbc:mysql://127.0.0.1:3306/e_commerce_db`、账号 `e_commerce_db`。
+
+### 2. gateway 是 WebFlux，CORS 要单独配
+
+`common` 的 `CorsConfig` 是 Servlet 版 `CorsFilter`，gateway 是 WebFlux 且 pom 刻意不引 common（避免带入 Servlet 容器冲突），所以 gateway 一直没 CORS 处理——前端（`localhost:5173`）跨域请求 8080，预检（OPTIONS）请求直接被拒，报 `No Access-Control-Allow-Origin`。
+
+处置：新增 `gateway/src/main/java/ecommerce/gateway/config/CorsConfig.java`，用 reactive `CorsWebFilter`（`org.springframework.web.cors.reactive`，与 common 的 Servlet `CorsFilter` 不同包）。
+
+### 3. CORS 头重复（`Access-Control-Allow-Origin` 多值）
+
+gateway `CorsWebFilter` 加一次 CORS 头 + 下游 auth-service 的 common `CorsFilter` 又加一次，响应里出现两个 `Access-Control-Allow-Origin`，浏览器只允许一个值就拦（报 `header contains multiple values`）。
+
+修复：在 gateway `CorsConfig` 里加去重 `GlobalFilter`（`dedupeCorsHeaders`），响应返回前把 4 个 CORS 头各只保留第一个。
+
+### 4. 前端登录对接结论
+
+前端 `e-commerce`（Vue3 后台）的 `src/api/auth.js`（`POST /api/login`、`/api/logout`）与 Spring 端路径/返回结构/JWT payload 完全对齐，**无需改代码**；唯一改动是 `.env` 的 `VITE_API_BASE_URL` 从 `127.0.0.1:3000`（Node）改为 `127.0.0.1:8080`（网关）。前端登录后取 `res.data.data.token`、`utils/auth.js` 从 JWT payload 解 `{id,username,role}` 均兼容。
+
+### 5. 本地 MySQL 自动备份 + idNumber 字段清理（2026-10-18 收尾）
+
+- **idNumber 冗余字段**：`User` 实体的 `idNumber`「只存不用」（4 个用户全空、前端无消费），删了 entity/mapper/VO/service 4 处；数据库 `user.id_number` 列留待手动 `ALTER TABLE user DROP COLUMN id_number`（代码已不引用，空列无害）。
+- **专用账号**：本地 3306 建 `e_commerce_db`@`localhost`/`127.0.0.1`/`%`（密码 123456），5 个服务 dev 配置改用该账号，不再用 root。
+- **自动备份**：`D:\backup\mysql\backup_mysql.ps1`（mysqldump 导出 e_commerce_db，`--result-file` 直写文件避免 PowerShell 管道破坏 UTF-8，`--no-tablespaces` 消 PROCESS 权限报错）+ `MySQL-Backup` 计划任务（每晚 22:00，保留 7 天）。
+
+## 微信凭据按需加载 + 下单移除购物车后端化（2026-10-18）
+
+### 1. WeChatProperties 从全局 @Component 改为按需启用
+
+- **报错根因**：user-service 启动报 `wechat.appid / wechat.secret 未配置`——`WeChatProperties` 是 common 里的 `@Component` + `@PostConstruct` 强校验，被所有引 common 的服务扫描；但全项目只有 user-service 真正用微信（`UserServiceImpl` 登录），其余 7 个服务被迫在 `application.yml` 塞 `placeholder-appid/secret` 糊弄校验；而 user-service 自己的 `${WECHAT_APPID:}` 默认空、dev.yml 又漏配，反而启动失败。
+- **处置**：
+  - `WeChatProperties` 去掉 `@Component`（保留 `@ConfigurationProperties` + `validate()`）。
+  - `user-service` 启动类加 `@EnableConfigurationProperties(WeChatProperties.class)` 显式启用。
+  - 删 7 个服务（order/product/auth/aftersale/ai-agent/file/shop）`application.yml` 的 `wechat: placeholder-*` 段 + 4 处过时注释。
+  - `user-service/application-dev.yml` 补 `WECHAT_APPID`/`WECHAT_SECRET`（值见 `docs/env.md`）。
+- **结果**：只有 user-service 校验微信凭据（真需要），其他服务彻底不碰微信。
+- **凭据来源澄清**：本地开发凭据实际写在各服务 gitignore 的 `application-dev.yml`（不是 OS 环境变量）；`docs/env.md` 是清单备忘，生产部署才用系统环境变量覆盖。`JWT_SECRET`/`DB_*` 已在 dev.yml，唯独 `WECHAT_APPID`/`WECHAT_SECRET` 之前漏配。
+
+### 2. 下单成功移除购物车：后端同事务 + 前端兜底
+
+- **语义**：勾选购物车 → 结算 → 下单成功后，本次已下单的商品从购物车移除。
+- **实现**：`OrderServiceImpl.doCreateOrder` 注入 `CartMapper`，写订单的同一事务里 `deleteByProducts(userId, orderedProductIds, shopId)` 删除；立即购买场景购物车无该商品则删不到，无害。
+- **前端**：`confirm.vue` 的 `clearCart` 兜底保留（后端已删，多一次请求删不到空购物车，无害）。
+- **为什么后端做**：前端 `clearCart` 若下单成功但清空请求失败（`.catch(()=>{})` 吞错）会残留；后端同事务保证「写订单 + 删购物车」要么都成功要么都回滚。
 

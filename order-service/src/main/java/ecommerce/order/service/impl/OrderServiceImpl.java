@@ -9,6 +9,7 @@ import ecommerce.order.entity.Product;
 import ecommerce.order.enums.CourierEnum;
 import ecommerce.order.enums.OrderStatusEnum;
 import ecommerce.order.enums.PayTypeEnum;
+import ecommerce.order.mapper.CartMapper;
 import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductMapper;
@@ -60,13 +61,15 @@ public class OrderServiceImpl implements OrderService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final ProductMapper productMapper;
+    private final CartMapper cartMapper;
     private final StringRedisTemplate stringRedisTemplate;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper, ProductMapper productMapper,
-                            StringRedisTemplate stringRedisTemplate) {
+                            CartMapper cartMapper, StringRedisTemplate stringRedisTemplate) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
+        this.cartMapper = cartMapper;
         this.stringRedisTemplate = stringRedisTemplate;
     }
 
@@ -166,8 +169,6 @@ public class OrderServiceImpl implements OrderService {
                 .orderNo(generateOrderNo())
                 .payAmount(totalAmount)
                 .orderStatus(OrderStatusEnum.PENDING_PAY.getCode())
-                // 下单即落默认支付方式（微信），避免 pay_type 为 NULL，与 PayTypeEnum 的 code 对齐
-                .payType(PayTypeEnum.WECHAT.getCode())
                 .remark(dto.getRemark())
                 .consignee(dto.getConsignee())
                 .phone(dto.getPhone())
@@ -185,6 +186,13 @@ public class OrderServiceImpl implements OrderService {
             item.setOrderId(order.getId());
         }
         orderItemMapper.insertBatch(orderItems);
+
+        // 下单成功：从购物车移除本次已下单的商品（与写订单同一事务，保证一致；立即购买场景购物车无该商品则删不到，无害）
+        List<Long> orderedProductIds = orderItems.stream()
+                .map(OrderItem::getProductId).distinct().toList();
+        if (!orderedProductIds.isEmpty()) {
+            cartMapper.deleteByProducts(userId, orderedProductIds, TEMPLATE_SHOP_ID);
+        }
 
         return getOrder(order.getId());
     }

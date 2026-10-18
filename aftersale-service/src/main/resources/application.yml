@@ -30,9 +30,6 @@ server:
 jwt:
   secret: ${JWT_SECRET}
   expire: 604800
-wechat:
-  appid: placeholder-appid
-  secret: placeholder-secret
 
 mybatis:
   configuration:

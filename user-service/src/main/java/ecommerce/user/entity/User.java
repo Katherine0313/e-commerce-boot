@@ -17,7 +17,6 @@ public class User {
     private String name;
     private String phone;
     private String sex;
-    private String idNumber;
     private String avatar;
     /** 软删除：1 已注销 0 正常（注销走置 1，不物理删；orders.user_id 是 RESTRICT 删不掉） */
     private Integer isDeleted;

@@ -54,7 +54,7 @@
 | Gateway | Spring Cloud Gateway | 网关 |
 | 服务调用 | OpenFeign | |
 | AI 框架 | Spring AI 2.0.1（官方） | 不用 Spring AI Alibaba（Boot 4 兼容性）；LLM 走硅基流动 DeepSeek-V4-Flash |
-| 数据库 | MySQL 8.0（Docker 容器 `mysql-dev`，开发期端口 3307） | 数据用命名卷 `mysql-dev-data` 持久化；本机 MySQL80 仍在 3306 可回退 |
+| 数据库 | MySQL 8.0（本机 MySQL80，开发期端口 3306） | 2026-10-18 从 Docker 3307 迁回本机 3306，MySQL 一律本地 3306、不再用 Docker 部署；远程服务器 MySQL（193.112.176.228:3306，库 `baota_ecommerce`）已连、勿动；本地自动备份 `D:\backup\mysql`（每晚 22:00，保留 7 天） |
 | ORM | MyBatis + XML（现状，不引入 MP） | 保持已有约定 |
 | Redis | 5.0.14（Windows 本机，`D:\Software\tools\redis\Redis-x64-5.0.14.1`） | 分类树缓存，StringRedisTemplate + Jackson 纯 JSON（无 @class） |
 
@@ -62,7 +62,7 @@
 
 ### 阶段 0：基础设施 + 版本兼容验证（关键，先行）
 - [✓] Docker：装 Docker Desktop（用户级安装到 `AppData\Local\Programs\DockerDesktop`）
-  - `docker-compose` 起 Nacos + MySQL（端口 3307 避开本机 MySQL80 的 3306，数据命名卷 `mysql-dev-data` 持久化，已从本机迁入）
+  - `docker-compose` 只起 Nacos（MySQL 已于 2026-10-18 迁回本机 MySQL80 的 3306，不再用 Docker 部署）
   - 8 个业务服务开发期用 IDE/mvn 跑，跑通后再逐个容器化
 - [✓] 改造为 Maven 多模块父工程：`e-commerce-boot` 变父工程，抽 `common` 下沉框架层
   - 下沉 `Result`/`BusinessException`/`GlobalExceptionHandler`/`JwtUtil`/`UserContext`/`JwtInterceptor`
@@ -81,9 +81,10 @@
 - [✓] gateway 路由：`/api/login`、`/api/logout`、`/api/admin/info` → `lb://auth-service`
 - [✓] admin 表已执行建表 + 种子 admin/admin123（2026-10-17 手动执行，含 `phone` 字段）
 - [ ] RBAC 权限表（role/permission 拆分）
-- [ ] gateway：CORS、JWT 校验过滤器、`X-Shop-Id` 透传、限流
-- [ ] 前端登录/登出/鉴权这条链路端到端跑通（需先执行建表脚本）
-- **状态：** in_progress（登录接口已就绪并编译通过，admin 表 + 种子账号已建；待端到端验证 + RBAC）
+- [✓] gateway：CORS（WebFlux `CorsWebFilter` + 去重 `GlobalFilter`，2026-10-18）
+- [ ] gateway：JWT 校验过滤器、`X-Shop-Id` 透传、限流（CORS 已单独完成，这些后置）
+- [✓] 前端登录/登出/鉴权这条链路端到端跑通（后台管理端 `e-commerce`：baseURL→网关 8080、`admin/admin123` 登录拿到 token，2026-10-18）
+- **状态：** in_progress（登录接口 + 后台管理端端到端登录已跑通；剩余：RBAC 权限表、gateway JWT 校验过滤器/`X-Shop-Id`/限流）
 
 ### 阶段 2：shop-service（多租户基础设施）
 - [✓] shops 表 + 商品域 4 表（shops/categories/tags/products）建表脚本 `docs/sql/product.sql` + 模板店种子数据（已迁入，见 findings「商品域数据库迁移踩坑点」）
@@ -105,7 +106,7 @@
 - [✓] orders / order_items / cart / address 表 + 数据迁移（`order.sql` 建表 + `order-data.sql` 迁数据：52 订单 / 76 订单项 / 15 地址）
   - address 表原名 consignee_address，收货地址 CRUD 已实现在 order-service
 - [✓] 购物车 CRUD（CartController 5 接口：列表 / 加购 / 改数量 / 移除 / 清空；商品快照同库直接查 products 表，不信任前端价格）
-- [ ] 购物车：下单成功后从购物车移除已下单商品（后端 `OrderServiceImpl` 未引用 cart，现由前端下单成功后 `clearCart` 兜底）
+- [✓] 购物车：下单成功后从购物车移除已下单商品（后端 `OrderServiceImpl` 同事务删除，前端 `clearCart` 兜底保留）
 - [✓] 购物车：加购时校验库存（addItem/updateQuantity 超库存抛 400，实时 join products 取 stock）
 - [ ] 购物车：加购时校验上架状态（`ProductMapper.findById` 无 `listing_status` 过滤）
 - [ ] 购物车端到端验证（5 接口未实测；前端 cart api 模块 + 购物车页已做）
@@ -116,12 +117,12 @@
 - [✓] 小程序前端下单链路接入：下单确认页 + 三条入口（立即购买/去结算/猜你喜欢）+ 幂等键前端用法
 - [✓] 删除订单（软删 `is_deleted=1`，`DELETE /api/orders/{id}`，校验归属不限状态；前端「删除订单」按钮已接）
 - [✓] 订单关键词搜索（`GET /api/orders?keyword=` 按订单号/收货人/商品名模糊匹配；前端列表页搜索框）
-- [✓] 支付方式枚举 PayTypeEnum（payType 存英文 code，OrderVO 返回 payTypeDesc 中文；fromCode 忽略大小写兼容 wechat/WeChat；前端已统一传 WeChat、下单默认 WECHAT，2026-10-17 修 pay_type 存 NULL/小写）
+- [✓] 支付方式枚举 PayTypeEnum（payType 存英文 code，OrderVO 返回 payTypeDesc 中文；fromCode 忽略大小写兼容 wechat/WeChat；前端统一传 WeChat，下单不写 pay_type、支付成功才写，2026-10-18 修正）
 - [✓] 订单状态双文案（OrderStatusEnum desc=顾客视角 / adminDesc=商家视角：待确认→顾客「待发货」、待发货→顾客「待发货」，2026-10-17 把「处理中」统一为「待发货」）
 - [✓] 订单物流轨迹（假数据）：`CourierEnum` + `GET /api/orders/{id}/logistics`（参考旧 Node）+ `OrderVO` 附 logisticsStatus/latestTrace（courier 转中文），前端物流行/物流卡/物流详情页（2026-10-17）
 - [✓] 订单时间时区修复收尾：`updateStatus`/`delete` 的 MySQL `NOW()` 全改 Java `LocalDateTime.now()` 传参，存量 created_at>pay_at 脏数据已修（2026-10-17）
 - [ ] 取消订单自动生成退款售后单（only_refund），关联 aftersale
-- **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 3 项缺口见上，售后关联未做、未启动端到端验证）
+- **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 2 项缺口见上，售后关联未做、未启动端到端验证）
 
 ### 阶段 5：aftersale-service
 - [✓] after_sales + 三类子表建表 + 数据迁移（`after-sale-data.sql`：28 售后单 / 43 明细 / 17 仅退款 / 4 换货）
@@ -198,6 +199,20 @@
 - **状态：** pending（仅规划，未动手；预备调研见 findings「WebSocket 实时提醒接入预研（2026-10-15）」）
   - 2026-10-15 曾搭过一版练习骨架（order-service + 定时群发时间）并演示跑通，**当天已全部回滚**，知识点留在 findings「练习验证与回收（2026-10-15）」
 
+### 阶段 12：微信支付接入（真实支付，解决「扣款成功但订单未到账」一致性）
+
+> 现状：`OrderServiceImpl.payOrder` 是 mock——只把订单状态 `PENDING_PAY → PENDING_CONFIRM`，全程无任何微信支付调用，**尚未真正扣钱**；前端用模拟支付弹窗（6 位密码框）。本阶段接入微信支付 API 后，核心风险是「微信侧扣款成功，但我们订单状态没改成已支付」，这两件事跨微信/本地两个系统，本地 `@Transactional` 兜不住，必须靠「回调 + 主动查单 + 幂等 + 金额校验 + 对账」达成最终一致。
+
+**核心原则：以微信服务端为准，不信任前端「我支付成功了」这一句，也不依赖单次回调能到。**
+
+- [ ] `payOrder` 改造：调微信「JSAPI 下单」拿 `prepay_id` + 签名参数给前端拉起支付，此时**不改**订单状态（还是待付款）
+- [ ] 支付回调接口（`POST /api/pay/notify`，免登录）：微信异步通知 → 验签（微信平台证书公钥）→ 幂等（`out_trade_no` + `transaction_id`）→ **金额校验**（回调 `amount.total` 分 == 订单 `pay_amount` × 100）→ 全通过才 `checkTransition` + `updateStatus → PENDING_CONFIRM` + 落支付流水
+- [ ] 主动查单兜底：前端支付成功跳回时，后端主动调微信「查询订单」确认后再推进状态，不等回调
+- [ ] 定时查单/对账任务：扫「超时仍未确认支付」订单批量调微信查单（与现有 `sweepExpiredPendingPayOrders` 并列），日终对账支付流水 vs 微信账单
+- [ ] 支付流水表 `pay_record` 建表（`docs/sql/` 补脚本）：记录每次下单/扣款/回调/查单状态与 `transaction_id`/金额/时间，作为幂等与对账依据
+- [ ] 凭据走环境变量：微信支付商户号 `mchid`、商户 API 证书序列号、商户 API 私钥、API v3 密钥、平台证书，清单补进 `docs/env.md`（与现有 `wechat.appid/secret` 同风格）
+- **状态：** pending（仅规划，未动手；`payOrder` 目前仍是 mock 状态流转）
+
 ## 定时任务规划（Spring Task）
 
 原后台（Node）里定时任务只有「关单 + 沙箱回收」两个，是**当时没空做**，不代表其余不需要——以下按「有无前置依赖」分两档，全部纳入规划。
@@ -218,6 +233,7 @@
 | 清理过期临时文件 / 失效购物车 | file-service / order-service | file-service 未做；cart 表已有 |
 | 会员到期提醒 + 营销消息推送 | user-service | 会员等级表 + 微信订阅消息模板授权 |
 | 第三方物流状态同步 | order-service | 接物流 API（当前为假数据：`getLogistics` 用订单 id 生成假轨迹，`courier`+单号仍手动录入） |
+| 微信支付主动查单/对账（扫「已扣款未回调」订单批量查单 + 日终对账流水） | order-service | 接微信支付 API + `pay_record` 支付流水表（阶段 12） |
 
 > 注：库存预警/同步**不需要**定时任务——项目库存是实时 join `products` 查（task_plan 已决策），无冗余副本可同步。
 >
@@ -230,7 +246,7 @@
 | 1 | ~~Nacos 对 Boot 4.1 的实际兼容性~~（已解决：阶段 0 实测通过） | 阶段 0 首验，不通过全盘阻塞 | 已验证兼容，无需降级 Boot |
 | 2 | 每服务独立库 vs 共享库（多租户） | 影响事务边界与 Feign 调用复杂度 | 建议先「共享库共享表 + shopId」起步，后续按需拆库 |
 | 3 | 沙箱回收的跨服务一致性 | shop-service 调多个服务清数据，非事务 | 用「软删除 + 最终一致」而非强事务，回收失败重试 |
-| 4 | 前端登录返回结构差异（Node `{token,user,shop}` vs Spring `{token,user}`） | 前端登录后若用 `shop` 字段会拿不到 | 前端有独立 `GET /api/shops/current`，大概率不依赖登录响应的 shop；待前端联调确认 |
+| 4 | ~~前端登录返回结构差异（Node `{token,user,shop}` vs Spring `{token,user}`）~~（2026-10-18 已确认） | 前端登录后若用 `shop` 字段会拿不到 | 已确认：前端登录后走独立 `GET /api/shops/current` 拉店铺，不依赖登录响应的 shop；后台管理端登录端到端已跑通 |
 | 5 | 现有 `user` 模块（小程序）与 `admin`（后台）账号体系并存 | 两套登录入口 | admin 走 auth-service，user 走 user-service，JWT type 区分 |
 | 6 | Spring Cloud 组件在 Boot 4 下的学习/调试成本 | 单人项目进度 | 阶段 0 先搭最小可跑骨架再铺开 |
 | 7 | 阶段 11 实时提醒的**推送端点归属**：网关内做 / 新建独立推送服务 / 挂在 order-service | 决定连接数、部署形态、前端要连几条 WS | 倾向**新建独立推送服务**（网关保持无状态、前端只连一条；端口避开 9009 用 9010）；动手前先与用户确认 |
@@ -239,4 +255,6 @@
 
 | 错误 | 尝试次数 | 解决方案 |
 |------|---------|---------|
-| （暂无） | — | — |
+| 登录报 `Table 'e_commerce_db.admin' doesn't exist`（2026-10-18） | — | 应用连了 3306（本机 MySQL80，旧 schema 无 admin 表），数据实际在 3307（Docker MySQL）；最终方案：Docker 3307 数据迁回本机 3306，MySQL 一律用本地 3306 |
+| 前端跨域报 CORS `No Access-Control-Allow-Origin`（2026-10-18） | — | gateway 是 WebFlux 且不引 common，无 CORS 处理；新增 `gateway/config/CorsConfig.java`（reactive `CorsWebFilter`） |
+| CORS `Access-Control-Allow-Origin` 多值重复（2026-10-18） | — | gateway CorsWebFilter + 下游 common CorsFilter 都加头；CorsConfig 加去重 `GlobalFilter`（`dedupeCorsHeaders`）只保留第一个 |

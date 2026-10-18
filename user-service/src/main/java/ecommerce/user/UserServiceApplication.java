@@ -1,8 +1,10 @@
 package ecommerce.user;
 
+import ecommerce.properties.WeChatProperties;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 
 /**
  * 用户服务启动类。
@@ -12,6 +14,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * Maven 模块隔离了 classpath，扫 "ecommerce" 只会命中本服务依赖到的 common + 本服务自己的类，不会串到别的服务。
  */
 @SpringBootApplication(scanBasePackages = "ecommerce")
+@EnableConfigurationProperties(WeChatProperties.class)
 @MapperScan("ecommerce.user.mapper")
 public class UserServiceApplication {
 

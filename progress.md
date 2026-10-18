@@ -5,14 +5,15 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  阶段 5 aftersale C 端接口已实现（后台审核/删除未做）+ 阶段 4 剩余缺口（购物车 3 缺口）；阶段 11 后台实时提醒已立项待触发。
+  2026-10-18 后台管理端登录已端到端跑通（DB 迁回本机 3306 + 前端 baseURL 8080 + 网关 CORS 修复）；阶段 5 aftersale C 端接口已实现（后台审核/删除未做）+ 阶段 4 剩余缺口（购物车 2 缺口）；阶段 11 后台实时提醒已立项待触发。
 
 - **我要去哪里？**
-  1. aftersale 后台审核/删除 + 取消订单关联售后单
-  2. 补购物车 3 缺口
-  3. 前端「申请退款/申请售后」入口对接售后
-  4. 端到端验证全链路
-  5. 阶段 11 等「后台嫌手动刷新」时启动
+  1. 后台管理端工作台接口逐个对接（shop-service `/api/shops/current`、product `/dashboard`、order `/orders`、aftersale `/after-sales`、stock）
+  2. aftersale 后台审核/删除 + 取消订单关联售后单
+  3. 补购物车 2 缺口
+  4. 前端「申请退款/申请售后」入口对接售后
+  5. 端到端验证全链路
+  6. 阶段 11 等「后台嫌手动刷新」时启动
 
 - **目标是什么？**
   拆成真·微服务部署，跑通 Nacos 注册 + Gateway 路由，再逐个补业务服务。
@@ -32,12 +33,17 @@
   - 订单/商品关键词搜索、支付方式枚举 + 状态双文案、前端订单列表 6 Tab + 待发货详情 + 商品搜索页 + 地址管理页
   - 2026-10-17：订单物流轨迹（假数据）+ 时区修复收尾 + 订单状态文案统一 + payType 大小写统一 + admin 表建好（后台登录）
   - 2026-10-17：删除 6 个 application-dev.yml，凭据统一环境变量（DB/JWT/微信/AI key），swagger/SQL 日志改环境变量开关
+  - 2026-10-18：后台管理端登录端到端跑通（排查「两个 MySQL」→ 最终将 Docker 3307 数据迁回本机 3306，MySQL 一律本地 3306、不用 Docker；前端 `e-commerce/.env` baseURL→8080；gateway 补 WebFlux CORS + 去重 GlobalFilter）
+  - 2026-10-18：删 user 表冗余字段 idNumber（entity/mapper/VO/service 4 处，DB 列留待手动 DROP）；本地建专用账号 `e_commerce_db`；配 MySQL 自动备份（脚本 + 每晚 22:00 定时任务，保留 7 天）
+  - 2026-10-18：微信支付接入立项（task_plan 阶段 12，回调+查单+幂等+金额校验+对账）；WeChatProperties 按需加载（去 @Component、user-service 显式启用、删 7 服务 wechat placeholder、dev.yml 补 WECHAT 凭据）；下单成功移除购物车后端同事务删除（前端 clearCart 兜底保留）
 
 ## 错误日志（最近）
 
 | 时间 | 错误 | 解决 |
 |------|------|------|
 | 2026-10-15 | order-service 启动报 `UndeclaredThrowableException`（Nacos 注册失败） | Docker Desktop 没开 → 起 Docker 重启；纯练 WS 可加 `--spring.cloud.nacos.discovery.enabled=false` 跳过注册 |
+| 2026-10-18 | 登录报 `admin` 表不存在 | 应用连错库（3306 本机 MySQL80 旧 schema），数据在 3307 Docker MySQL；最终将数据迁回本机 3306，MySQL 统一本地 3306 |
+| 2026-10-18 | 前端跨域 CORS 无头 / 头重复 | gateway 是 WebFlux 无 CORS；加 `CorsWebFilter` + 去重 `GlobalFilter` 解决 |
 
 ---
 

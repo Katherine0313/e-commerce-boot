@@ -38,11 +38,6 @@ jwt:
   #token有效期，单位：秒（7天）
   expire: 604800
 
-# auth-service 不接微信小程序，但 common 的 WeChatProperties 启动时校验非空，给占位值即可
-wechat:
-  appid: placeholder-appid
-  secret: placeholder-secret
-
 # 接口文档：安全兜底默认关闭，避免生产环境暴露
 springdoc:
   api-docs:
