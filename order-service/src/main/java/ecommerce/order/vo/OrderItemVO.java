@@ -26,6 +26,8 @@ public class OrderItemVO {
     private BigDecimal salesPrice;
     @Schema(description = "数量")
     private Integer quantity;
+    @Schema(description = "当前库存（后台详情展示，发货弹窗判断发货状态用）")
+    private Integer stock;
     @Schema(description = "小计")
     private BigDecimal subTotal;
 }

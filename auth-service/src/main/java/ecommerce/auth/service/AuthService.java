@@ -5,6 +5,7 @@ import ecommerce.auth.vo.AdminLoginVO;
 import ecommerce.auth.vo.AdminUserVO;
 
 public interface AuthService {
+
     // 管理员登录：校验账号密码，签发 JWT
     AdminLoginVO login(AdminLoginDTO dto);
 

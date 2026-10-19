@@ -19,4 +19,30 @@ public interface ProductMapper {
 
     // 按关键词搜索上架商品：name/sub_title/brand 模糊匹配（不含 body/cost_price）
     List<Product> searchOnSale(@Param("keyword") String keyword, @Param("shopId") Long shopId);
+
+    // ==================== 后台管理（/api/admin/**） ====================
+
+    // 后台商品列表：含下架、含成本价与图文详情（编辑回填需要）；分页 + 可选关键词/分类筛选
+    List<Product> listAdmin(@Param("search") String search, @Param("categoryId") Long categoryId,
+                            @Param("offset") int offset, @Param("pageSize") int pageSize,
+                            @Param("shopId") Long shopId);
+
+    // 后台商品总数（与 listAdmin 同筛选条件，分页 total 用）
+    long countAdmin(@Param("search") String search, @Param("categoryId") Long categoryId,
+                    @Param("shopId") Long shopId);
+
+    // 后台商品详情（含成本价 cost_price）
+    Product findByIdAdmin(@Param("id") Long id, @Param("shopId") Long shopId);
+
+    // 新增商品，自增 id 回填到 product.id
+    int insert(Product product);
+
+    // 更新商品（动态 set，只更新非 null 字段，支持局部更新如上架开关）
+    int update(Product product);
+
+    // 删除商品
+    int delete(@Param("id") Long id, @Param("shopId") Long shopId);
+
+    // 品牌列表（去重、非空）
+    List<String> listBrands(@Param("shopId") Long shopId);
 }

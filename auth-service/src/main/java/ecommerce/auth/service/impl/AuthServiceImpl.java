@@ -12,7 +12,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
-
 @Service
 public class AuthServiceImpl implements AuthService {
 
@@ -43,7 +42,8 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(HttpStatus.FORBIDDEN, "账号已被禁用");
         }
         // 4. 签发管理员令牌：claims 带上 username/role/shopId/id，前端解 payload 做权限判断
-        String token = jwtUtil.generateAdminToken(admin.getId(), admin.getUsername(), admin.getRole(), admin.getShopId());
+        String token = jwtUtil.generateAdminToken(admin.getId(), admin.getUsername(),
+                admin.getRole(), admin.getShopId());
         return AdminLoginVO.builder()
                 .token(token)
                 .user(AdminUserVO.builder()

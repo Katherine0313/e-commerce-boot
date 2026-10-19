@@ -11,4 +11,41 @@
         WHERE c.shop_id = #{shopId}
         ORDER BY c.sort_order ASC, c.id ASC
     </select>
+
+    <!-- 根据 id 查单个分类（含 product_count 子查询） -->
+    <select id="findById" resultType="ecommerce.product.entity.Category">
+        SELECT c.id, c.shop_id, c.name, c.parent_id, c.sort_order, c.status, c.recommend, c.image,
+               (SELECT COUNT(*) FROM products p WHERE p.category_id = c.id AND p.shop_id = c.shop_id) AS product_count
+        FROM categories c
+        WHERE c.id = #{id} AND c.shop_id = #{shopId}
+    </select>
+
+    <!-- 新增分类，自增 id 回填 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO categories (shop_id, name, parent_id, sort_order, status, recommend, image)
+        VALUES (#{shopId}, #{name}, #{parentId}, #{sortOrder}, #{status}, #{recommend}, #{image})
+    </insert>
+
+    <!-- 更新分类：动态 set，只更新非 null 字段（sort_order 由 move 单独调整） -->
+    <update id="update">
+        UPDATE categories
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="parentId != null">parent_id = #{parentId},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="recommend != null">recommend = #{recommend},</if>
+            <if test="image != null">image = #{image},</if>
+        </set>
+        WHERE id = #{id} AND shop_id = #{shopId}
+    </update>
+
+    <!-- 更新单个分类排序值（move 重编号用） -->
+    <update id="updateSortOrder">
+        UPDATE categories SET sort_order = #{sortOrder} WHERE id = #{id} AND shop_id = #{shopId}
+    </update>
+
+    <!-- 删除分类 -->
+    <delete id="delete">
+        DELETE FROM categories WHERE id = #{id} AND shop_id = #{shopId}
+    </delete>
 </mapper>

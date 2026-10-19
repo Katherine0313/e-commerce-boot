@@ -99,8 +99,13 @@
   - 图片转 webp 迁入 + 浏览接口接库（真实查询替换占位数据）
 - [✓] Redis 分类树缓存：`category:parent:{id}` 按一级父分类一棵树一个 key + `category:parent:ids` 索引，纯 JSON 序列化（见 findings「Redis 缓存（分类树）」）
 - [✓] 商品关键词搜索（`GET /api/products?keyword=` 匹配 name/sub_title/brand；前端 search 页 + 首页/分类页顶部搜索框跳转）
-- [ ] parameters / stock / business_onsale 表；商品 CRUD、分类树、标签绑定、参数组/参数项、库存调整、促销（单规格：价格/库存直接挂商品上，不做多规格 SKU）
-- **状态：** in_progress（商品浏览已接库、数据+图片已迁；其余表与 CRUD 未做）
+- [✓] 后台商品 CRUD（`/api/admin/products`：分页列表/详情/新增/编辑/删除/brands，含成本价与图文详情；前端 goods 列表/编辑/新增页对接）
+- [✓] 后台分类管理（`/api/admin/categories`：树/扁平/增删改/同级 move，sort_order 服务端算 + move 整级重编号；前端 Category 页对接）
+- [✓] 后台标签管理（`/api/admin/tags`：CRUD + 商品绑定/解绑，一商品一标签写 products.tag_id，绑定后重算 product_count；前端 Tag 页对接）
+- [✓] stock 库存预警表已建 + 30 条数据迁入（`docs/sql/stock-data.sql`，时间字段 create_time/update_time DATETIME）
+- [ ] 库存预警接口（AdminStockController：列表/创建/状态常量，前端 StockList 页对接）
+- [ ] parameters 表 + 参数组/参数项；促销 business_onsale 表 + 活动 CRUD
+- **状态：** in_progress（商品/分类/标签后台 CRUD 已通，前端 goods/category/tag 页已对接并统一驼峰；库存预警接口、参数、促销未做）
 
 ### 阶段 4：order-service
 - [✓] orders / order_items / cart / address 表 + 数据迁移（`order.sql` 建表 + `order-data.sql` 迁数据：52 订单 / 76 订单项 / 15 地址）
@@ -121,8 +126,9 @@
 - [✓] 订单状态双文案（OrderStatusEnum desc=顾客视角 / adminDesc=商家视角：待确认→顾客「待发货」、待发货→顾客「待发货」，2026-10-17 把「处理中」统一为「待发货」）
 - [✓] 订单物流轨迹（假数据）：`CourierEnum` + `GET /api/orders/{id}/logistics`（参考旧 Node）+ `OrderVO` 附 logisticsStatus/latestTrace（courier 转中文），前端物流行/物流卡/物流详情页（2026-10-17）
 - [✓] 订单时间时区修复收尾：`updateStatus`/`delete` 的 MySQL `NOW()` 全改 Java `LocalDateTime.now()` 传参，存量 created_at>pay_at 脏数据已修（2026-10-17）
+- [✓] 后台订单管理接口（`/api/admin/orders`：分页列表（状态/关键词/时间范围筛选，dateField 白名单）/详情/状态常量/快递/更新/确认收款/发货/完成/取消/删除/批量删除/物流；shopId 走 UserContext，状态文案用 adminDesc，前端 orders 页对接统一驼峰 + 状态数字 code）
 - [ ] 取消订单自动生成退款售后单（only_refund），关联 aftersale
-- **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 2 项缺口见上，售后关联未做、未启动端到端验证）
+- **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路 + 后台订单管理接口已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 2 项缺口见上，售后关联未做、未启动端到端验证）
 
 ### 阶段 5：aftersale-service
 - [✓] after_sales + 三类子表建表 + 数据迁移（`after-sale-data.sql`：28 售后单 / 43 明细 / 17 仅退款 / 4 换货）

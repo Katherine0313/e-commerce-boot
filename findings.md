@@ -269,6 +269,19 @@ ecommerce
 | 免登录清单唯一来源 `EXCLUDE_AUTH_PATHS` | 拦截器豁免与文档补全读同一份，防漂移 |
 | C 端商品浏览免登录（列表/详情/分类/标签），加购、下单需登录 | 小程序进首页看商品不带 token；写操作走购物车/订单接口需 user 令牌；后台商品管理走 `/api/admin/**` 需 admin 令牌 |
 | 头像存相对路径、返回时拼完整 URL | 换域名不失效 |
+| 后台 Admin 端统一驼峰（前后端 + C 端三套对齐），分页 `Result<PageVO<T>>`，shopId 从 admin 令牌取 | 旧 Node 前端蛇形 vs 后端驼峰；统一驼峰消除翻译层（不用 @JsonNaming），见下节「后台 Admin 端对接契约」 |
+
+## 后台 Admin 端对接契约（2026-10-19）
+
+> 后台管理端（`e-commerce` Vue3 前端）对接 Spring 后端的统一契约，从商品 CRUD 确立，后续分类/标签/库存/订单/售后后台对接都照此做。
+
+- **路径**：后台写操作走 `/api/admin/**`，`JwtInterceptor` 按此分流 admin 身份（复用 `/api/products` 会撞免登录白名单 + admin 令牌被判成 user 403）。
+- **字段统一驼峰**：旧 Node 前端全用蛇形（`sales_price`/`listing_status`），统一改成驼峰（`salesPrice`/`listingStatus`），前后端 + C 端三套对齐，后端 VO/DTO 不加 `@JsonNaming`。
+- **分页**：返回 `Result<PageVO<T>>`（`PageVO` 在 common，字段 list/total），前端读 `res.data.data.list` / `res.data.data.total`。订单列表 4 个状态 tab 独立请求后端分页（status+page）；发货页 3 tab 全量（status 筛选 + pageSize 给足，订单量少不分页）。
+- **shopId 多租户**：后台 service 用 `UserContext.getShopId()`（admin 令牌 claim 签了 shopId，C 端 user 令牌无值为 null）。
+- **时间字段**：后台 VO 用 `createdAt`/`updatedAt`（entity 是 createTime/updateTime，toVO 映射），前端读 createdAt/updatedAt。
+- **时间格式**：`LocalDateTime` 加 `@JsonFormat(pattern="yyyy-MM-dd HH:mm:ss")`，避免默认 ISO 格式（T 分隔）前端不好读。
+- **日期筛选**：列表接口收 `dateField`/`startDate`/`endDate`，`dateField` 走白名单（created_at/confirm_at/pay_at/ship_at/finish_at）防动态列 SQL 注入；前端公共组件 date-range-select 统一吐这三个参数。
 
 ## 遗留风险（已决策暂不修，勿反复提起）
 

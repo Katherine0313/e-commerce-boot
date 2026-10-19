@@ -5,13 +5,13 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-18 后台管理端登录已端到端跑通（DB 迁回本机 3306 + 前端 baseURL 8080 + 网关 CORS 修复）；阶段 5 aftersale C 端接口已实现（后台审核/删除未做）+ 阶段 4 剩余缺口（购物车 2 缺口）；阶段 11 后台实时提醒已立项待触发。
+  2026-10-19 后台商品/分类/标签/订单 CRUD 已打通（Admin 接口 + e-commerce 前端 goods/category/tag/orders 页对接，统一驼峰契约）；stock 表已建 + 30 条数据迁入。阶段 5 aftersale C 端接口已实现（后台审核/删除未做）；库存预警接口、参数、促销、后台日期筛选未做。
 
 - **我要去哪里？**
-  1. 后台管理端工作台接口逐个对接（shop-service `/api/shops/current`、product `/dashboard`、order `/orders`、aftersale `/after-sales`、stock）
-  2. aftersale 后台审核/删除 + 取消订单关联售后单
-  3. 补购物车 2 缺口
-  4. 前端「申请退款/申请售后」入口对接售后
+  1. 后台库存预警接口（AdminStockController）+ 促销/参数表
+  2. 后台工作台接口（shops/current、dashboard、/upload）
+  3. aftersale 后台审核/删除 + 取消订单关联售后单
+  4. 补购物车 2 缺口
   5. 端到端验证全链路
   6. 阶段 11 等「后台嫌手动刷新」时启动
 
@@ -36,6 +36,8 @@
   - 2026-10-18：后台管理端登录端到端跑通（排查「两个 MySQL」→ 最终将 Docker 3307 数据迁回本机 3306，MySQL 一律本地 3306、不用 Docker；前端 `e-commerce/.env` baseURL→8080；gateway 补 WebFlux CORS + 去重 GlobalFilter）
   - 2026-10-18：删 user 表冗余字段 idNumber（entity/mapper/VO/service 4 处，DB 列留待手动 DROP）；本地建专用账号 `e_commerce_db`；配 MySQL 自动备份（脚本 + 每晚 22:00 定时任务，保留 7 天）
   - 2026-10-18：微信支付接入立项（task_plan 阶段 12，回调+查单+幂等+金额校验+对账）；WeChatProperties 按需加载（去 @Component、user-service 显式启用、删 7 服务 wechat placeholder、dev.yml 补 WECHAT 凭据）；下单成功移除购物车后端同事务删除（前端 clearCart 兜底保留）
+  - 2026-10-19：后台商品/分类/标签 CRUD 打通（Admin*Controller + mapper + e-commerce 前端 goods/category/tag 页对接，统一驼峰契约）；stock 表建 + 30 条数据迁；确立后台 Admin 端对接契约（见 findings「后台 Admin 端对接契约」）
+  - 2026-10-19：后台订单管理打通（AdminOrderController 12 接口 + e-commerce 前端 orders 页对接，状态字符串→数字 code、统一驼峰）；OrderStatusEnum 加 color、OrderVO 加 userId、OrderItemVO 加 stock；订单列表后端分页（4 tab 独立请求）+ 发货页全量 + 日期筛选（dateField 白名单）+ LocalDateTime 加 @JsonFormat
 
 ## 错误日志（最近）
 

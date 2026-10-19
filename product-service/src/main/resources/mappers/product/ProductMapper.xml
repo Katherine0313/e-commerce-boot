@@ -59,4 +59,100 @@
                OR brand LIKE CONCAT('%', #{keyword}, '%'))
         ORDER BY id ASC
     </select>
+
+    <!-- ==================== 后台管理 ==================== -->
+
+    <!-- 后台商品列表：含下架、含 cost_price 与 body（编辑回填需要）；分页 + 可选关键词/分类筛选 -->
+    <select id="listAdmin" resultType="ecommerce.product.entity.Product">
+        SELECT id, shop_id, category_id, tag_id, name, sub_title, brand, description, image, body,
+               sales_mode, listing_status, sales_price, market_price, cost_price, product_code, stock, weight, volume,
+               create_time, update_time
+        FROM products
+        WHERE shop_id = #{shopId}
+        <if test="search != null and search != ''">
+            AND (name LIKE CONCAT('%', #{search}, '%')
+                 OR sub_title LIKE CONCAT('%', #{search}, '%')
+                 OR brand LIKE CONCAT('%', #{search}, '%'))
+        </if>
+        <if test="categoryId != null">
+            AND category_id = #{categoryId}
+        </if>
+        ORDER BY id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- 后台商品总数（与 listAdmin 同筛选条件，分页 total 用） -->
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM products
+        WHERE shop_id = #{shopId}
+        <if test="search != null and search != ''">
+            AND (name LIKE CONCAT('%', #{search}, '%')
+                 OR sub_title LIKE CONCAT('%', #{search}, '%')
+                 OR brand LIKE CONCAT('%', #{search}, '%'))
+        </if>
+        <if test="categoryId != null">
+            AND category_id = #{categoryId}
+        </if>
+    </select>
+
+    <!-- 后台商品详情：含 cost_price -->
+    <select id="findByIdAdmin" resultType="ecommerce.product.entity.Product">
+        SELECT id, shop_id, category_id, tag_id, name, sub_title, brand, description, image, body,
+               sales_mode, listing_status, sales_price, market_price, cost_price, product_code, stock, weight, volume,
+               create_time, update_time
+        FROM products
+        WHERE id = #{id} AND shop_id = #{shopId}
+    </select>
+
+    <!-- 新增商品，自增 id 回填到 product.id -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO products
+            (shop_id, category_id, tag_id, name, sub_title, brand, description, image, body,
+             sales_mode, listing_status, sales_price, market_price, cost_price, product_code, stock, weight, volume,
+             create_time, update_time)
+        VALUES
+            (#{shopId}, #{categoryId}, #{tagId}, #{name}, #{subTitle}, #{brand}, #{description}, #{image}, #{body},
+             #{salesMode}, #{listingStatus}, #{salesPrice}, #{marketPrice}, #{costPrice}, #{productCode}, #{stock},
+             #{weight}, #{volume}, #{createTime}, #{updateTime})
+    </insert>
+
+    <!-- 更新商品：动态 set，只更新非 null 字段（上架开关只传 listing_status 即可）；update_time 用 Java 传参 -->
+    <update id="update">
+        UPDATE products
+        <set>
+            <if test="categoryId != null">category_id = #{categoryId},</if>
+            <if test="tagId != null">tag_id = #{tagId},</if>
+            <if test="name != null">name = #{name},</if>
+            <if test="subTitle != null">sub_title = #{subTitle},</if>
+            <if test="brand != null">brand = #{brand},</if>
+            <if test="description != null">description = #{description},</if>
+            <if test="image != null">image = #{image},</if>
+            <if test="body != null">body = #{body},</if>
+            <if test="salesMode != null">sales_mode = #{salesMode},</if>
+            <if test="listingStatus != null">listing_status = #{listingStatus},</if>
+            <if test="salesPrice != null">sales_price = #{salesPrice},</if>
+            <if test="marketPrice != null">market_price = #{marketPrice},</if>
+            <if test="costPrice != null">cost_price = #{costPrice},</if>
+            <if test="productCode != null">product_code = #{productCode},</if>
+            <if test="stock != null">stock = #{stock},</if>
+            <if test="weight != null">weight = #{weight},</if>
+            <if test="volume != null">volume = #{volume},</if>
+            update_time = #{updateTime},
+        </set>
+        WHERE id = #{id} AND shop_id = #{shopId}
+    </update>
+
+    <!-- 删除商品 -->
+    <delete id="delete">
+        DELETE FROM products WHERE id = #{id} AND shop_id = #{shopId}
+    </delete>
+
+    <!-- 品牌列表：去重、非空 -->
+    <select id="listBrands" resultType="string">
+        SELECT DISTINCT brand
+        FROM products
+        WHERE shop_id = #{shopId} AND brand IS NOT NULL AND brand != ''
+        ORDER BY brand ASC
+    </select>
 </mapper>

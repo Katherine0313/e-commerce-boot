@@ -1,5 +1,6 @@
 package ecommerce.order.vo;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -22,6 +23,8 @@ import java.util.List;
 public class OrderVO {
     @Schema(description = "订单 ID")
     private Long id;
+    @Schema(description = "下单用户 ID（后台列表展示「用户账号」用）")
+    private Long userId;
     @Schema(description = "订单号")
     private String orderNo;
     @Schema(description = "实付金额")
@@ -57,14 +60,19 @@ public class OrderVO {
     @Schema(description = "物流最新轨迹描述（假数据）")
     private String latestTrace;
     @Schema(description = "下单时间")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;
     @Schema(description = "支付时间")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime payAt;
     @Schema(description = "发货时间")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime shipAt;
     @Schema(description = "确认收款时间")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime confirmAt;
     @Schema(description = "完成时间")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime finishAt;
     @Schema(description = "订单明细")
     private List<OrderItemVO> items;

@@ -73,4 +73,68 @@
         WHERE order_status = #{status} AND is_deleted = 0 AND created_at &lt;= #{threshold}
     </select>
 
+    <!-- 后台订单列表：所有订单（不限用户），分页 + 可选状态/关键词筛选 -->
+    <select id="listAdmin" resultType="ecommerce.order.entity.Order">
+        SELECT o.id, o.shop_id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.pay_type, o.order_status,
+               o.remark, o.consignee, o.phone, o.region, o.detail_address, o.shipping_type, o.courier, o.tracking_number,
+               o.sign_status, o.created_at, o.pay_at, o.ship_at, o.confirm_at, o.finish_at, o.updated_at
+        FROM orders o
+        WHERE o.shop_id = #{shopId} AND o.is_deleted = 0
+        <if test="status != null">
+            AND o.order_status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (o.order_no LIKE CONCAT('%', #{keyword}, '%')
+                 OR o.consignee LIKE CONCAT('%', #{keyword}, '%')
+                 OR o.phone LIKE CONCAT('%', #{keyword}, '%')
+                 OR EXISTS (SELECT 1 FROM order_items oi
+                            WHERE oi.order_id = o.id AND oi.product_name LIKE CONCAT('%', #{keyword}, '%')))
+        </if>
+        <if test="startDate != null">
+            AND o.${dateField} &gt;= #{startDate}
+        </if>
+        <if test="endDate != null">
+            AND o.${dateField} &lt;= #{endDate}
+        </if>
+        ORDER BY o.created_at DESC, o.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- 后台订单总数（与 listAdmin 同筛选条件） -->
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM orders o
+        WHERE o.shop_id = #{shopId} AND o.is_deleted = 0
+        <if test="status != null">
+            AND o.order_status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (o.order_no LIKE CONCAT('%', #{keyword}, '%')
+                 OR o.consignee LIKE CONCAT('%', #{keyword}, '%')
+                 OR o.phone LIKE CONCAT('%', #{keyword}, '%')
+                 OR EXISTS (SELECT 1 FROM order_items oi
+                            WHERE oi.order_id = o.id AND oi.product_name LIKE CONCAT('%', #{keyword}, '%')))
+        </if>
+        <if test="startDate != null">
+            AND o.${dateField} &gt;= #{startDate}
+        </if>
+        <if test="endDate != null">
+            AND o.${dateField} &lt;= #{endDate}
+        </if>
+    </select>
+
+    <!-- 更新订单信息（收货人/电话/地址/备注，动态 set） -->
+    <update id="update">
+        UPDATE orders
+        <set>
+            <if test="consignee != null">consignee = #{consignee},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="region != null">region = #{region},</if>
+            <if test="detailAddress != null">detail_address = #{detailAddress},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            updated_at = #{updatedAt},
+        </set>
+        WHERE id = #{id} AND shop_id = #{shopId}
+    </update>
+
 </mapper>

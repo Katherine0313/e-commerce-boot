@@ -12,6 +12,9 @@ public class UserContext {
     /** 当前登录用户 ID，未登录时为 null */
     private static final ThreadLocal<Long> CURRENT_ID = new ThreadLocal<>();
 
+    /** 当前登录用户的店铺 ID（后台 admin 令牌携带，多租户隔离键）；C 端 user 令牌无此值，为 null */
+    private static final ThreadLocal<Long> CURRENT_SHOP_ID = new ThreadLocal<>();
+
     /** 工具类，禁止实例化 */
     private UserContext() {
     }
@@ -27,8 +30,19 @@ public class UserContext {
         return CURRENT_ID.get();
     }
 
+    /** 保存当前登录用户的店铺 ID，由 JwtInterceptor 从 admin 令牌解析写入 */
+    public static void setShopId(Long shopId) {
+        CURRENT_SHOP_ID.set(shopId);
+    }
+
+    /** 获取当前登录用户的店铺 ID，未登录或 C 端用户返回 null */
+    public static Long getShopId() {
+        return CURRENT_SHOP_ID.get();
+    }
+
     /** 清除本次请求的登录信息，必须由 JwtInterceptor 在请求结束时调用 */
     public static void remove() {
         CURRENT_ID.remove();
+        CURRENT_SHOP_ID.remove();
     }
 }

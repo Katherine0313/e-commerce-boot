@@ -11,4 +11,87 @@
         WHERE shop_id = #{shopId}
         ORDER BY sort_order ASC, id ASC
     </select>
+
+    <select id="findById" resultType="ecommerce.product.entity.Tag">
+        SELECT id, shop_id, name, code, type, color, sort_order, status, product_count,
+               create_time, created_by, update_time, updated_by
+        FROM tags
+        WHERE id = #{id} AND shop_id = #{shopId}
+    </select>
+
+    <select id="findByCode" resultType="ecommerce.product.entity.Tag">
+        SELECT id, shop_id, name, code, type, color, sort_order, status, product_count,
+               create_time, created_by, update_time, updated_by
+        FROM tags
+        WHERE code = #{code} AND shop_id = #{shopId}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO tags (shop_id, name, code, type, color, sort_order, status,
+                          create_time, created_by, update_time, updated_by)
+        VALUES (#{shopId}, #{name}, #{code}, #{type}, #{color}, #{sortOrder}, #{status},
+                #{createTime}, #{createdBy}, #{updateTime}, #{updatedBy})
+    </insert>
+
+    <update id="update">
+        UPDATE tags
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="code != null">code = #{code},</if>
+            <if test="type != null">type = #{type},</if>
+            <if test="color != null">color = #{color},</if>
+            <if test="sortOrder != null">sort_order = #{sortOrder},</if>
+            <if test="status != null">status = #{status},</if>
+            update_time = #{updateTime},
+            updated_by = #{updatedBy},
+        </set>
+        WHERE id = #{id} AND shop_id = #{shopId}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM tags WHERE id = #{id} AND shop_id = #{shopId}
+    </delete>
+
+    <!-- 标签关联的商品（不含 body/cost_price） -->
+    <select id="listProductsByTag" resultType="ecommerce.product.entity.Product">
+        SELECT id, shop_id, category_id, tag_id, name, sub_title, brand, description, image,
+               sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
+               create_time, update_time
+        FROM products
+        WHERE tag_id = #{tagId} AND shop_id = #{shopId}
+        ORDER BY id ASC
+    </select>
+
+    <!-- 给一批商品打上标签（一商品最多一标签，直接写 products.tag_id） -->
+    <update id="bindProductsToTag">
+        UPDATE products SET tag_id = #{tagId}, update_time = #{now}
+        WHERE id IN
+        <foreach collection="productIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+        AND shop_id = #{shopId}
+    </update>
+
+    <!-- 解绑单个商品的标签（仅当当前标签匹配，避免误删其它标签绑定） -->
+    <update id="unbindProductTag">
+        UPDATE products SET tag_id = NULL, update_time = #{now}
+        WHERE id = #{productId} AND tag_id = #{tagId} AND shop_id = #{shopId}
+    </update>
+
+    <!-- 批量解绑标签下的商品 -->
+    <update id="unbindTagProducts">
+        UPDATE products SET tag_id = NULL, update_time = #{now}
+        WHERE tag_id = #{tagId} AND id IN
+        <foreach collection="productIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+        AND shop_id = #{shopId}
+    </update>
+
+    <!-- 重算每个标签的 product_count -->
+    <update id="refreshProductCounts">
+        UPDATE tags t
+        SET product_count = (SELECT COUNT(*) FROM products p WHERE p.tag_id = t.id AND p.shop_id = t.shop_id)
+        WHERE t.shop_id = #{shopId}
+    </update>
 </mapper>

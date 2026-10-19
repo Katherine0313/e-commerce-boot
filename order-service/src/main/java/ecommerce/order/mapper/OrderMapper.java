@@ -34,4 +34,20 @@ public interface OrderMapper {
 
     // 查超时的待付款订单（定时关闭用）：status 且 created_at <= threshold 且未删除
     List<Order> findExpiredPendingPay(@Param("status") Integer status, @Param("threshold") LocalDateTime threshold);
+
+    // ==================== 后台管理（/api/admin/orders） ====================
+
+    // 后台订单列表：所有订单（不限用户），分页 + 可选状态/关键词/时间范围筛选
+    List<Order> listAdmin(@Param("offset") int offset, @Param("pageSize") int pageSize,
+                          @Param("status") Integer status, @Param("keyword") String keyword,
+                          @Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate,
+                          @Param("dateField") String dateField, @Param("shopId") Long shopId);
+
+    // 后台订单总数（与 listAdmin 同筛选条件）
+    long countAdmin(@Param("status") Integer status, @Param("keyword") String keyword,
+                    @Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate,
+                    @Param("dateField") String dateField, @Param("shopId") Long shopId);
+
+    // 更新订单信息（收货人/电话/地址/备注，动态 set）
+    int update(Order order);
 }

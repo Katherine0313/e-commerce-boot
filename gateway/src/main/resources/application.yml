@@ -72,12 +72,12 @@ spring:
             - id: product-service
               uri: lb://product-service
               predicates:
-                - Path=/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**,/image/**
+                - Path=/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**,/api/admin/products,/api/admin/products/**,/api/admin/categories,/api/admin/categories/**,/api/admin/tags,/api/admin/tags/**,/image/**
             # 购物车 + 订单 → order-service；放在 /api/** 通配之前（操作需登录，鉴权由下游 JwtInterceptor 承担）
             - id: order-service
               uri: lb://order-service
               predicates:
-                - Path=/api/cart,/api/cart/**,/api/orders,/api/orders/**,/api/address,/api/address/**
+                - Path=/api/cart,/api/cart/**,/api/orders,/api/orders/**,/api/address,/api/address/**,/api/admin/orders,/api/admin/orders/**
             # 售后 → aftersale-service；放在 /api/** 通配之前（操作需登录，鉴权由下游 JwtInterceptor 承担）
             - id: aftersale-service
               uri: lb://aftersale-service
