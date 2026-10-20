@@ -1,0 +1,113 @@
+package ecommerce.shop.service.impl;
+
+import ecommerce.exception.BusinessException;
+import ecommerce.shop.entity.Admin;
+import ecommerce.shop.entity.Shop;
+import ecommerce.shop.mapper.ShopMapper;
+import ecommerce.shop.service.ShopService;
+import ecommerce.shop.vo.AdminBriefVO;
+import ecommerce.shop.vo.SandboxVO;
+import ecommerce.shop.vo.ShopVO;
+import ecommerce.utils.JwtUtil;
+import ecommerce.utils.UserContext;
+import org.springframework.http.HttpStatus;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.LocalDateTime;
+
+/**
+ * 店铺 Service 实现。
+ * <p>
+ * 开沙箱照旧 Node：shops 插一行 → 15 张业务表按「id + offset」克隆模板店数据 →
+ * 签发克隆出来的沙箱 admin 令牌。全程一个事务，失败回滚。
+ */
+@Service
+public class ShopServiceImpl implements ShopService {
+
+    /** id 偏移量基数：shopId × 100 万，保证沙箱克隆出的 id 与模板店/其它沙箱永不撞主键 */
+    private static final long ID_BLOCK = 1_000_000L;
+    /** 沙箱有效期：24 小时 */
+    private static final long SANDBOX_TTL_HOURS = 24;
+    private static final String SANDBOX_SHOP_NAME = "杰米小店";
+
+    private final ShopMapper shopMapper;
+    private final JwtUtil jwtUtil;
+
+    public ShopServiceImpl(ShopMapper shopMapper, JwtUtil jwtUtil) {
+        this.shopMapper = shopMapper;
+        this.jwtUtil = jwtUtil;
+    }
+
+    @Override
+    @Transactional
+    public SandboxVO createSandbox() {
+        LocalDateTime now = LocalDateTime.now();
+        Shop shop = Shop.builder()
+                .name(SANDBOX_SHOP_NAME)
+                .isTemplate(0)
+                .createTime(now)
+                .expiresAt(now.plusHours(SANDBOX_TTL_HOURS))
+                .build();
+        shopMapper.insertShop(shop);
+        Long shopId = shop.getId();
+        long offset = shopId * ID_BLOCK;
+
+        // 克隆模板店数据（顺序：被依赖的表先克隆）
+        shopMapper.cloneCategories(shopId, offset);
+        shopMapper.cloneTags(shopId, offset);
+        shopMapper.cloneProducts(shopId, offset);
+        shopMapper.cloneStock(shopId, offset);
+        shopMapper.cloneAdmin(shopId, offset);
+        shopMapper.cloneUser(shopId, offset);
+        shopMapper.cloneAddress(shopId, offset);
+        shopMapper.cloneOrders(shopId, offset);
+        shopMapper.cloneOrderItems(shopId, offset);
+        shopMapper.cloneCart(shopId, offset);
+        shopMapper.cloneAfterSales(shopId, offset);
+        shopMapper.cloneAfterSaleItems(shopId, offset);
+        shopMapper.cloneAfterSaleReturns(shopId, offset);
+        shopMapper.cloneAfterSaleExchangeReturns(shopId, offset);
+        shopMapper.cloneAfterSaleOnlyRefunds(shopId, offset);
+
+        Admin admin = shopMapper.findSandboxAdmin(shopId);
+        if (admin == null) {
+            throw new BusinessException("沙箱管理员克隆失败");
+        }
+        String token = jwtUtil.generateAdminToken(admin.getId(), admin.getUsername(), admin.getRole(), shopId);
+
+        return SandboxVO.builder()
+                .token(token)
+                .user(AdminBriefVO.builder()
+                        .id(admin.getId())
+                        .username(admin.getUsername())
+                        .name(admin.getName())
+                        .role(admin.getRole())
+                        .build())
+                .shop(toVO(shop))
+                .build();
+    }
+
+    @Override
+    public ShopVO getCurrentShop() {
+        Long shopId = UserContext.getShopId();
+        if (shopId == null) {
+            throw new BusinessException(HttpStatus.FORBIDDEN, "无权访问：缺少店铺上下文");
+        }
+        Shop shop = shopMapper.findById(shopId);
+        if (shop == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "店铺不存在");
+        }
+        return toVO(shop);
+    }
+
+    private ShopVO toVO(Shop shop) {
+        return ShopVO.builder()
+                .id(shop.getId())
+                .name(shop.getName())
+                .isTemplate(shop.getIsTemplate())
+                .createdAt(shop.getCreateTime())
+                .expiresAt(shop.getExpiresAt())
+                .build();
+    }
+}

@@ -1,0 +1,144 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.shop.mapper.ShopMapper">
+
+    <!-- 插入沙箱店（自增 id 回填） -->
+    <insert id="insertShop" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO shops (name, is_template, create_time, expires_at)
+        VALUES (#{name}, #{isTemplate}, #{createTime}, #{expiresAt})
+    </insert>
+
+    <select id="findById" resultType="ecommerce.shop.entity.Shop">
+        SELECT id, name, is_template, create_time, expires_at
+        FROM shops
+        WHERE id = #{id}
+    </select>
+
+    <!-- 沙箱管理员：克隆出来的 admin，按最小 id 取（模板店 admin 通常 id 最小） -->
+    <select id="findSandboxAdmin" resultType="ecommerce.shop.entity.Admin">
+        SELECT id, username, name, role, shop_id
+        FROM admin
+        WHERE shop_id = #{shopId} AND role = 'admin'
+        ORDER BY id ASC
+        LIMIT 1
+    </select>
+
+    <!-- ==================== 克隆：id 和外键列 + offset，shop_id 换新，NULL 保持 NULL（NULL + n = NULL） ==================== -->
+
+    <insert id="cloneCategories">
+        INSERT INTO categories (id, shop_id, name, parent_id, sort_order, status, recommend, image)
+        SELECT id + #{offset}, #{shopId}, name,
+               CASE WHEN parent_id IS NULL THEN NULL
+                    WHEN parent_id IN (SELECT id FROM categories WHERE shop_id = 1) THEN parent_id + #{offset}
+                    ELSE NULL END,
+               sort_order, status, recommend, image
+        FROM categories WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneTags">
+        INSERT INTO tags (id, shop_id, name, code, type, color, sort_order, status, product_count, create_time, created_by, update_time, updated_by)
+        SELECT id + #{offset}, #{shopId}, name,
+               CASE WHEN code IS NULL THEN NULL ELSE CONCAT(code, '_s', #{shopId}) END,
+               type, color, sort_order, status, product_count, create_time, created_by, update_time, updated_by
+        FROM tags WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneProducts">
+        INSERT INTO products (id, shop_id, category_id, tag_id, name, sub_title, brand, stock, description, image, body,
+                              sales_mode, listing_status, sales_price, market_price, cost_price, product_code, weight, volume,
+                              create_time, update_time)
+        SELECT id + #{offset}, #{shopId}, category_id + #{offset}, tag_id + #{offset}, name, sub_title, brand, stock, description, image, body,
+               sales_mode, listing_status, sales_price, market_price, cost_price, product_code, weight, volume,
+               create_time, update_time
+        FROM products WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneStock">
+        INSERT INTO stock (id, shop_id, product_id, min_stock, max_stock, alert_enabled, create_time, update_time)
+        SELECT id + #{offset}, #{shopId}, product_id + #{offset}, min_stock, max_stock, alert_enabled, create_time, update_time
+        FROM stock WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneAdmin">
+        INSERT INTO admin (id, username, password, name, phone, role, shop_id, status, create_time, update_time)
+        SELECT id + #{offset}, CONCAT(username, '_s', #{shopId}), MD5(RAND()), name, phone, role, #{shopId}, status, create_time, update_time
+        FROM admin WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneUser">
+        INSERT INTO `user` (id, shop_id, openid, name, phone, sex, avatar, is_deleted, create_time, update_time)
+        SELECT id + #{offset}, #{shopId}, openid, name, phone, sex, avatar, is_deleted, create_time, update_time
+        FROM `user` WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneAddress">
+        INSERT INTO address (id, shop_id, user_id, consignee, phone, region, detail_address, is_default, created_at, updated_at)
+        SELECT id + #{offset}, #{shopId}, user_id + #{offset}, consignee, phone, region, detail_address, is_default, created_at, updated_at
+        FROM address WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneOrders">
+        INSERT INTO orders (id, shop_id, user_id, order_no, pay_amount, pay_type, consignee, phone, region, detail_address,
+                            order_status, is_deleted, remark, shipping_type, courier, tracking_number, sign_status,
+                            created_at, pay_at, ship_at, confirm_at, finish_at, updated_at)
+        SELECT id + #{offset}, #{shopId}, user_id + #{offset}, CONCAT(order_no, '_s', #{shopId}), pay_amount, pay_type, consignee, phone, region, detail_address,
+               order_status, is_deleted, remark, shipping_type, courier, tracking_number, sign_status,
+               created_at, pay_at, ship_at, confirm_at, finish_at, updated_at
+        FROM orders WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneOrderItems">
+        INSERT INTO order_items (id, shop_id, order_id, product_id, product_name, image, sales_price, quantity, sub_total,
+                                 insurance_detail, insurance_fee, is_deleted, created_at)
+        SELECT id + #{offset}, #{shopId}, order_id + #{offset}, product_id + #{offset}, product_name, image, sales_price, quantity, sub_total,
+               insurance_detail, insurance_fee, is_deleted, created_at
+        FROM order_items WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneCart">
+        INSERT INTO cart (id, shop_id, user_id, product_id, quantity, name, image, price, description, insurance_detail, insurance_fee, created_at, updated_at)
+        SELECT id + #{offset}, #{shopId}, user_id + #{offset}, product_id + #{offset}, quantity, name, image, price, description, insurance_detail, insurance_fee, created_at, updated_at
+        FROM cart WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneAfterSales">
+        INSERT INTO after_sales (id, order_id, after_sale_no, order_no, after_sale_type, status, created_at, updated_at, is_deleted,
+                                 reason, remark, images, merchant_remark, shop_id)
+        SELECT id + #{offset}, order_id + #{offset}, CONCAT(after_sale_no, '_s', #{shopId}), CONCAT(order_no, '_s', #{shopId}), after_sale_type, status, created_at, updated_at, is_deleted,
+               reason, remark, images, merchant_remark, #{shopId}
+        FROM after_sales WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneAfterSaleItems">
+        INSERT INTO after_sale_items (id, after_sale_id, order_item_id, product_id, product_name, image, sales_price, quantity,
+                                      refund_amount, insurance_detail, insurance_fee, created_at, updated_at, is_deleted, shop_id)
+        SELECT id + #{offset}, after_sale_id + #{offset}, order_item_id + #{offset}, product_id + #{offset}, product_name, image, sales_price, quantity,
+               refund_amount, insurance_detail, insurance_fee, created_at, updated_at, is_deleted, #{shopId}
+        FROM after_sale_items WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneAfterSaleReturns">
+        INSERT INTO after_sale_returns (id, after_sale_id, return_way, return_time_slot, return_at, review_at, rejected_at,
+                                        refund_at, refunded_at, created_at, updated_at, is_deleted, shop_id)
+        SELECT id + #{offset}, after_sale_id + #{offset}, return_way, return_time_slot, return_at, review_at, rejected_at,
+               refund_at, refunded_at, created_at, updated_at, is_deleted, #{shopId}
+        FROM after_sale_returns WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneAfterSaleExchangeReturns">
+        INSERT INTO after_sale_exchange_returns (id, after_sale_id, return_way, return_time_slot, created_at, updated_at,
+                                                 review_at, return_at, exchange_at, exchanged_at, rejected_at, is_deleted, shop_id)
+        SELECT id + #{offset}, after_sale_id + #{offset}, return_way, return_time_slot, created_at, updated_at,
+               review_at, return_at, exchange_at, exchanged_at, rejected_at, is_deleted, #{shopId}
+        FROM after_sale_exchange_returns WHERE shop_id = 1
+    </insert>
+
+    <insert id="cloneAfterSaleOnlyRefunds">
+        INSERT INTO after_sale_only_refunds (id, after_sale_id, review_at, rejected_at, refund_at, refunded_at, created_at, updated_at, is_deleted, shop_id)
+        SELECT id + #{offset}, after_sale_id + #{offset}, review_at, rejected_at, refund_at, refunded_at, created_at, updated_at, is_deleted, #{shopId}
+        FROM after_sale_only_refunds WHERE shop_id = 1
+    </insert>
+
+</mapper>
