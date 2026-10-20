@@ -277,11 +277,12 @@ ecommerce
 
 - **路径**：后台写操作走 `/api/admin/**`，`JwtInterceptor` 按此分流 admin 身份（复用 `/api/products` 会撞免登录白名单 + admin 令牌被判成 user 403）。
 - **字段统一驼峰**：旧 Node 前端全用蛇形（`sales_price`/`listing_status`），统一改成驼峰（`salesPrice`/`listingStatus`），前后端 + C 端三套对齐，后端 VO/DTO 不加 `@JsonNaming`。
-- **分页**：返回 `Result<PageVO<T>>`（`PageVO` 在 common，字段 list/total），前端读 `res.data.data.list` / `res.data.data.total`。订单列表 4 个状态 tab 独立请求后端分页（status+page）；发货页 3 tab 全量（status 筛选 + pageSize 给足，订单量少不分页）。
+- **分页**：返回 `Result<PageVO<T>>`（`PageVO` 在 common，字段 list/total/page/pageSize），前端读 `res.data.data.list` / `res.data.data.total`，`pageSize` 从 `res.data.data.pageSize` 读（后端返回实际值，前端不写死 pageSize）。订单列表 4 个状态 tab 独立请求后端分页（status+page，pageSize 后端默认 13）；发货页 3 tab 全量（status 筛选 + pageSize 给足，订单量少不分页）。
 - **shopId 多租户**：后台 service 用 `UserContext.getShopId()`（admin 令牌 claim 签了 shopId，C 端 user 令牌无值为 null）。
 - **时间字段**：后台 VO 用 `createdAt`/`updatedAt`（entity 是 createTime/updateTime，toVO 映射），前端读 createdAt/updatedAt。
 - **时间格式**：`LocalDateTime` 加 `@JsonFormat(pattern="yyyy-MM-dd HH:mm:ss")`，避免默认 ISO 格式（T 分隔）前端不好读。
 - **日期筛选**：列表接口收 `dateField`/`startDate`/`endDate`，`dateField` 走白名单（created_at/confirm_at/pay_at/ship_at/finish_at）防动态列 SQL 注入；前端公共组件 date-range-select 统一吐这三个参数。
+- **售后审核**：`PUT /api/admin/after-sales/{id}` 只改主表 `status/merchant_remark/updated_at`，业务时间戳按状态写对应子表列（STATUS_COLUMN_MAP 白名单：refunding/returning→review_at、rejected→rejected_at、refund_confirming→refund_at、refunded→refunded_at、exchanging→exchange_at、exchanged→exchanged_at）；删除=主表/明细/子表 `is_deleted=1` 软删。售后前端字段蛇形→驼形对齐（afterSaleNo/createdAt/afterSaleType/payTypeDesc 等）。
 
 ## 遗留风险（已决策暂不修，勿反复提起）
 

@@ -5,15 +5,16 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-19 后台商品/分类/标签/订单 CRUD 已打通（Admin 接口 + e-commerce 前端 goods/category/tag/orders 页对接，统一驼峰契约）；stock 表已建 + 30 条数据迁入。阶段 5 aftersale C 端接口已实现（后台审核/删除未做）；库存预警接口、参数、促销、后台日期筛选未做。
+  2026-10-20 后台商品/分类/标签/订单/库存预警/售后 CRUD 已打通（Admin 接口 + e-commerce 前端 goods/category/tag/orders/stock/after-sales 页对接，统一驼峰契约）；售后后台审核/删除已实现（主表状态+商家备注+子表时间戳）；PageVO 分页加 page/pageSize 由后端返回、前端从响应读。剩余：参数/促销、取消订单关联售后单、购物车 2 缺口、file-service、端到端验证。
 
 - **我要去哪里？**
-  1. 后台库存预警接口（AdminStockController）+ 促销/参数表
+  1. 促销/参数表（business_onsale + parameters）
   2. 后台工作台接口（shops/current、dashboard、/upload）
-  3. aftersale 后台审核/删除 + 取消订单关联售后单
+  3. 取消订单自动生成退款售后单（关联 order-service）
   4. 补购物车 2 缺口
-  5. 端到端验证全链路
-  6. 阶段 11 等「后台嫌手动刷新」时启动
+  5. file-service 图片上传
+  6. 端到端验证全链路
+  7. 阶段 11 等「后台嫌手动刷新」时启动
 
 - **目标是什么？**
   拆成真·微服务部署，跑通 Nacos 注册 + Gateway 路由，再逐个补业务服务。
@@ -38,6 +39,7 @@
   - 2026-10-18：微信支付接入立项（task_plan 阶段 12，回调+查单+幂等+金额校验+对账）；WeChatProperties 按需加载（去 @Component、user-service 显式启用、删 7 服务 wechat placeholder、dev.yml 补 WECHAT 凭据）；下单成功移除购物车后端同事务删除（前端 clearCart 兜底保留）
   - 2026-10-19：后台商品/分类/标签 CRUD 打通（Admin*Controller + mapper + e-commerce 前端 goods/category/tag 页对接，统一驼峰契约）；stock 表建 + 30 条数据迁；确立后台 Admin 端对接契约（见 findings「后台 Admin 端对接契约」）
   - 2026-10-19：后台订单管理打通（AdminOrderController 12 接口 + e-commerce 前端 orders 页对接，状态字符串→数字 code、统一驼峰）；OrderStatusEnum 加 color、OrderVO 加 userId、OrderItemVO 加 stock；订单列表后端分页（4 tab 独立请求）+ 发货页全量 + 日期筛选（dateField 白名单）+ LocalDateTime 加 @JsonFormat
+  - 2026-10-20：库存预警接口（AdminStockController + StockList 页，路径 /api/admin/stock）；售后后台审核/删除（AdminAfterSaleController，审核=主表状态+商家备注+子表时间戳白名单 STATUS_COLUMN_MAP，删除=主表/明细/子表软删）；订单/售后支付方式 payTypeDesc 中文修复（前端订单 6 表格 payType→payTypeDesc）；售后前端字段蛇形→驼形对齐 + 列表搜索/日期筛选；PageVO 加 page/pageSize 由后端返回、前端从响应读（不写死 pageSize）
 
 ## 错误日志（最近）
 
