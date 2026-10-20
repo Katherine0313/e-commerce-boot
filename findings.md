@@ -276,7 +276,7 @@ ecommerce
 > 后台管理端（`e-commerce` Vue3 前端）对接 Spring 后端的统一契约，从商品 CRUD 确立，后续分类/标签/库存/订单/售后后台对接都照此做。
 
 - **路径**：后台写操作走 `/api/admin/**`，`JwtInterceptor` 按此分流 admin 身份（复用 `/api/products` 会撞免登录白名单 + admin 令牌被判成 user 403）。
-- **字段统一驼峰**：旧 Node 前端全用蛇形（`sales_price`/`listing_status`），统一改成驼峰（`salesPrice`/`listingStatus`），前后端 + C 端三套对齐，后端 VO/DTO 不加 `@JsonNaming`。
+- **字段以驼峰为主，商品模块例外**：订单/库存/用户统计等 VO（OrderVO/StockVO/DashboardVO）是驼峰（Jackson 默认，无注解）；但商品模块 AdminProductVO/AdminProductDTO 用了 `@JsonNaming(SnakeCase)` 返回蛇形。对接时按具体模块确认字段名，别一刀切（工作台订单统计曾因前端按 snake_case 读驼峰的 OrderVO 导致数据全空，2026-10-20）。
 - **分页**：返回 `Result<PageVO<T>>`（`PageVO` 在 common，字段 list/total/page/pageSize），前端读 `res.data.data.list` / `res.data.data.total`，`pageSize` 从 `res.data.data.pageSize` 读（后端返回实际值，前端不写死 pageSize）。订单列表 4 个状态 tab 独立请求后端分页（status+page，pageSize 后端默认 13）；发货页 3 tab 全量（status 筛选 + pageSize 给足，订单量少不分页）。
 - **shopId 多租户**：service 用 `UserContext.getShopId()`（admin 和 C 端 user 令牌都签了 shopId，`JwtInterceptor` 统一解析写入 `UserContext`）。
 - **时间字段**：后台 VO 用 `createdAt`/`updatedAt`（entity 是 createTime/updateTime，toVO 映射），前端读 createdAt/updatedAt。
@@ -287,6 +287,7 @@ ecommerce
 ## 多租户沙箱（2026-10-20）
 
 - **开沙箱**：`POST /api/shops/sandbox`（公开，免登录白名单），shops 插行 → 15 张业务表按「id + offset」克隆模板店数据（offset = shopId × 100 万，MySQL 全局自增显式指定 id 后 AUTO_INCREMENT 跳大，无害）→ 签发沙箱店 admin 令牌。admin 账号也克隆：username 加 `_s{shopId}` 后缀、password 随机（一键体验直接签 token，不走密码登录）。
+- **克隆唯一键冲突（2026-10-20 修复）**：`orders` 表有 `uk_orders_order_no` 唯一键，`cloneOrders`/`cloneAfterSales` 的 order_no/after_sale_no 原样复制会撞唯一键 → 开沙箱 500。改成 `CONCAT(order_no, '_s', shopId)` 后缀（与 cloneTags.code、cloneAdmin.username 同一套做法）。模板店一开始没订单时不暴露，有订单后才炸。
 - **C 端多租户**：`user` 表加 `shop_id`，唯一键 `uk_openid` → `uk_shop_openid (shop_id, openid)`；C 端 user 令牌签 shopId（`JwtUtil.generateUserToken(userId, shopId)`），`JwtInterceptor` 已通用解析 shopId 写入 `UserContext`（不用改）；order-service C 端下单/支付/购物车/地址从写死模板店改成 `UserContext.getShopId()`。
 - **小程序端**：`SHOP_ID` 常量（默认 1）登录传 shopId；扫码进店/分享链接暂不做。
 

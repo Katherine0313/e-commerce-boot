@@ -89,6 +89,7 @@
 ### 阶段 2：shop-service（多租户基础设施）
 - [✓] shops 表 + 商品域 4 表（shops/categories/tags/products）建表脚本 `docs/sql/product.sql` + 模板店种子数据（已迁入，见 findings「商品域数据库迁移踩坑点」）
 - [✓] 开沙箱：`POST /api/shops/sandbox`（shops 插行 + 15 张业务表 id+offset 克隆 + 签发沙箱店 admin 令牌）+ C 端多租户（user 表加 shop_id、下单/支付/购物车/地址按 user 令牌 shopId、来单提醒按 order.shopId 隔离推送）
+  - 修复：cloneOrders/cloneAfterSales 的 order_no/after_sale_no 原样复制会撞 `uk_orders_order_no` 唯一键，改加 `_s{shopId}` 后缀（2026-10-20）
 - [ ] 过期回收：定时扫 shops 表，调各业务服务清数据
 - [ ] `templateGuard` 等价逻辑（禁写模板店）
 - **状态：** in_progress（开沙箱 + C 端多租户已打通；过期回收、templateGuard、扫码进店未做）
@@ -104,6 +105,7 @@
 - [✓] 后台标签管理（`/api/admin/tags`：CRUD + 商品绑定/解绑，一商品一标签写 products.tag_id，绑定后重算 product_count；前端 Tag 页对接）
 - [✓] stock 库存预警表已建 + 30 条数据迁入（`docs/sql/stock-data.sql`，时间字段 create_time/update_time DATETIME）
 - [✓] 库存预警接口（AdminStockController：列表/创建/状态常量，前端 StockList 页对接；路径统一 `/api/admin/stock`，字段统一驼峰）
+- [✓] 商品图上传（`POST /api/admin/upload`，type 分流 `upload/image/{upload|body|category|after-sale}`，白名单 png/jpg/gif/webp + multipart 10MB，前端 AddGoods/EditModal/Editor/售后凭证上传已接；**放 product-service 而非 file-service**，网关 `/image/**` 已指 product-service）
 - [ ] parameters 表 + 参数组/参数项；促销 business_onsale 表 + 活动 CRUD
 - **状态：** in_progress（商品/分类/标签/库存预警后台 CRUD 已通，前端 goods/category/tag/stock 页已对接并统一驼峰；参数、促销未做）
 
@@ -127,6 +129,7 @@
 - [✓] 订单物流轨迹（假数据）：`CourierEnum` + `GET /api/orders/{id}/logistics`（参考旧 Node）+ `OrderVO` 附 logisticsStatus/latestTrace（courier 转中文），前端物流行/物流卡/物流详情页（2026-10-17）
 - [✓] 订单时间时区修复收尾：`updateStatus`/`delete` 的 MySQL `NOW()` 全改 Java `LocalDateTime.now()` 传参，存量 created_at>pay_at 脏数据已修（2026-10-17）
 - [✓] 后台订单管理接口（`/api/admin/orders`：分页列表（状态/关键词/时间范围筛选，dateField 白名单）/详情/状态常量/快递/更新/确认收款/发货/完成/取消/删除/批量删除/物流；shopId 走 UserContext，状态文案用 adminDesc，前端 orders 页对接统一驼峰 + 状态数字 code）
+- [✓] 订单超时自动确认收货（发货满 7 天自动 `SHIPPED → FINISHED`，`sign_status` 记 `auto` 与用户主动签收 `signed` 区分；`@Scheduled` 每分钟扫 + `findExpiredShipped` + `autoConfirm`，2026-10-20）
 - [ ] 取消订单自动生成退款售后单（only_refund），关联 aftersale
 - **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路 + 后台订单管理接口已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 2 项缺口见上，售后关联未做、未启动端到端验证）
 
@@ -141,7 +144,8 @@
 
 ### 阶段 6：user-service + file-service
 - [✓] user-service：整合现有 user 模块（小程序登录/资料/头像/昵称/注销链路已在 user-service 跑通）；收货地址已实现在 order-service（address 表），不归 user-service
-- [ ] file-service：图片上传（白名单校验复用现有逻辑）、静态托管、uploads 表
+- [✓] 用户增长统计接口（`GET /api/admin/users/statistics`：近 12 月每月新增用户，AdminUserController + UserMapper.countMonthlyNewUsers @Select；后台工作台「用户增长」双折线用，2026-10-20）
+- [ ] file-service：图片上传已放 product-service（`/api/admin/upload`），file-service 留作后续 CDN/通用文件；uploads 表
 - **状态：** pending
 
 ### 阶段 7：前端对接联调
@@ -228,7 +232,7 @@
 |------|---------|---------|------|
 | 超时未支付订单自动取消（超 30min 恢复库存 + 改取消） | order-service | `fixedDelay = 60000` | ✅ 已实现 |
 | 沙箱过期回收（扫 `shops.expires_at < NOW()`，调各业务服务清数据） | shop-service | `cron = "0 0 * * * *"` 每小时 | ⏳ 待做（阶段 2） |
-| 订单超时自动确认收货（发货满 N 天自动完成 + 结算） | order-service | `cron` 每天 | ⏳ 待做（状态机已支持 `SHIPPED → FINISHED`） |
+| 订单超时自动确认收货（发货满 7 天自动完成，sign_status=auto） | order-service | `fixedDelay = 60000` | ✅ 已实现（2026-10-20） |
 | 定时下架过期活动商品 | product-service | `cron` 每天 | ⏳ 待做（`business_onsale` 有 `start_time`/`end_time`，随阶段 3 迁过来补） |
 
 ### 档 2：需先建表 / 接第三方（后置，先落地实体）
