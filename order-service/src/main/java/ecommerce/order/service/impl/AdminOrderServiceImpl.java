@@ -73,7 +73,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 .map(this::toVO)
                 .toList();
         long total = orderMapper.countAdmin(status, keyword, start, end, field, shopId);
-        return new PageVO<>(list, total);
+        return new PageVO<>(list, total, page, pageSize);
     }
 
     /** 时间筛选字段白名单，防止动态列名 SQL 注入 */

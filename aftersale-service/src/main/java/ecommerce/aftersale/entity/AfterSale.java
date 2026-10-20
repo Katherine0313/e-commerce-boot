@@ -5,6 +5,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -38,4 +39,11 @@ public class AfterSale {
     private String phone;
     private String region;
     private String detailAddress;
+    // LEFT JOIN orders 带出的支付方式 code（WeChat/Alipay/BankCard）
+    private String payType;
+    // LEFT JOIN orders 带出的支付时间 / 实付金额
+    private LocalDateTime payAt;
+    private BigDecimal payAmount;
+    // LEFT JOIN orders 带出的订单状态 code（数字，前端用订单状态字典转中文）
+    private Integer orderStatus;
 }

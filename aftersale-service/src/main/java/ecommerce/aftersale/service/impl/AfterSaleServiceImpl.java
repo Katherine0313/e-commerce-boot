@@ -12,6 +12,7 @@ import ecommerce.aftersale.entity.OrderItem;
 import ecommerce.aftersale.enums.AfterSaleReasonEnum;
 import ecommerce.aftersale.enums.AfterSaleStatusEnum;
 import ecommerce.aftersale.enums.AfterSaleTypeEnum;
+import ecommerce.aftersale.enums.PayTypeEnum;
 import ecommerce.aftersale.mapper.AfterSaleExchangeReturnMapper;
 import ecommerce.aftersale.mapper.AfterSaleItemMapper;
 import ecommerce.aftersale.mapper.AfterSaleMapper;
@@ -36,6 +37,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 售后 Service 实现。
@@ -163,10 +165,36 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     }
 
     @Override
-    public List<AfterSaleVO> list(String status) {
-        return afterSaleMapper.listByUser(currentUserId(), TEMPLATE_SHOP_ID, status).stream()
+    public List<AfterSaleVO> list(String status, String search, String startDate, String endDate, String dateField) {
+        String field = resolveDateField(dateField);
+        LocalDateTime start = parseDateTime(startDate);
+        LocalDateTime end = parseDateTime(endDate);
+        return afterSaleMapper.listByUser(currentUserId(), TEMPLATE_SHOP_ID, status, search, start, end, field).stream()
                 .map(a -> toVO(a, null, null))
                 .toList();
+    }
+
+    /** 时间筛选字段白名单，防止动态列名 SQL 注入（after_sales 表只有这两个时间列） */
+    private String resolveDateField(String field) {
+        if (field == null || field.isBlank()) {
+            return "created_at";
+        }
+        if (!Set.of("created_at", "updated_at").contains(field)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "非法的日期字段");
+        }
+        return field;
+    }
+
+    /** 解析 yyyy-MM-dd HH:mm 为 LocalDateTime，空或格式错返回 null（不筛） */
+    private LocalDateTime parseDateTime(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        try {
+            return LocalDateTime.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"));
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     @Override
@@ -357,6 +385,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         AfterSaleStatusEnum status = AfterSaleStatusEnum.fromCode(a.getStatus());
         AfterSaleTypeEnum type = AfterSaleTypeEnum.fromCode(a.getAfterSaleType());
         AfterSaleReasonEnum reason = AfterSaleReasonEnum.fromCode(a.getReason());
+        PayTypeEnum payType = PayTypeEnum.fromCode(a.getPayType());
         return AfterSaleVO.builder()
                 .id(a.getId())
                 .orderId(a.getOrderId())
@@ -377,6 +406,11 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .phone(a.getPhone())
                 .region(a.getRegion())
                 .detailAddress(a.getDetailAddress())
+                .payType(a.getPayType())
+                .payTypeDesc(payType == null ? null : payType.getDesc())
+                .payAt(a.getPayAt())
+                .payAmount(a.getPayAmount())
+                .orderStatus(a.getOrderStatus())
                 .returnWay(sub == null ? null : sub.returnWay)
                 .returnTimeSlot(sub == null ? null : sub.returnTimeSlot)
                 .returnAt(sub == null ? null : sub.returnAt)

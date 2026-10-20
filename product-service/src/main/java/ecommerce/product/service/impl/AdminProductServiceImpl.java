@@ -48,7 +48,7 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .map(this::toVO)
                 .toList();
         long total = productMapper.countAdmin(search, categoryId, shopId);
-        return new PageVO<>(list, total);
+        return new PageVO<>(list, total, page, pageSize);
     }
 
     @Override

@@ -20,4 +20,11 @@ public interface AfterSaleExchangeReturnMapper {
     int updateReturnInfo(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId,
                          @Param("returnWay") String returnWay, @Param("returnTimeSlot") String returnTimeSlot,
                          @Param("returnAt") LocalDateTime returnAt, @Param("updatedAt") LocalDateTime updatedAt);
+
+    // 后台审核：更新指定时间戳列（列名由 STATUS_COLUMN_MAP 白名单保证）
+    int updateTimestamp(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId,
+                        @Param("column") String column, @Param("now") LocalDateTime now);
+
+    // 软删除子表
+    int softDelete(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId, @Param("now") LocalDateTime now);
 }

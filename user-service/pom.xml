@@ -20,11 +20,6 @@
 			<groupId>ecommerce</groupId>
 			<artifactId>common</artifactId>
 		</dependency>
-		<!-- ORM：UserMapper + XML -->
-		<dependency>
-			<groupId>org.mybatis.spring.boot</groupId>
-			<artifactId>mybatis-spring-boot-starter</artifactId>
-		</dependency>
 		<!-- MySQL 驱动 -->
 		<dependency>
 			<groupId>com.mysql</groupId>
@@ -43,11 +38,15 @@
 			<optional>true</optional>
 		</dependency>
 		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
+		<dependency>
 			<groupId>com.baomidou</groupId>
-			<artifactId>mybatis-plus-spring-boot3-starter</artifactId>
+			<artifactId>mybatis-plus-spring-boot4-starter</artifactId>
 			<version>3.5.17</version>
 		</dependency>
-
 	</dependencies>
 
 	<build>

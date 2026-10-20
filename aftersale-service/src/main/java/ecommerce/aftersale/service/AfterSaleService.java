@@ -18,8 +18,8 @@ public interface AfterSaleService {
     /** 申请售后（整单），初始状态 reviewing */
     AfterSaleVO create(CreateAfterSaleDTO dto);
 
-    /** 当前用户售后列表（可选按状态筛选，不含明细/子表字段） */
-    List<AfterSaleVO> list(String status);
+    /** 当前用户售后列表（可选状态/关键词/时间范围筛选，不含明细/子表字段） */
+    List<AfterSaleVO> list(String status, String search, String startDate, String endDate, String dateField);
 
     /** 售后详情（含明细 + 子表平铺字段） */
     AfterSaleVO getById(Long id);

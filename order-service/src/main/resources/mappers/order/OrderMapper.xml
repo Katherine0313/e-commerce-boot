@@ -28,7 +28,6 @@
         WHERE o.user_id = #{userId} AND o.shop_id = #{shopId} AND o.is_deleted = 0
         <if test="keyword != null and keyword != ''">
             AND (o.order_no LIKE CONCAT('%', #{keyword}, '%')
-            OR o.consignee LIKE CONCAT('%', #{keyword}, '%')
             OR EXISTS (SELECT 1 FROM order_items oi
             WHERE oi.order_id = o.id AND oi.product_name LIKE CONCAT('%', #{keyword}, '%')))
         </if>

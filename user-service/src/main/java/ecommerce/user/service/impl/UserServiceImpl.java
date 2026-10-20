@@ -1,5 +1,7 @@
 package ecommerce.user.service.impl;
 
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import ecommerce.user.vo.UserProfileVO;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
@@ -69,10 +71,11 @@ public class UserServiceImpl implements UserService {
         }
         String openid = openidNode.stringValue();
         // 3. 根据 openid 查用户，查不到（首次登录）就自动注册
-        User user = userMapper.findByOpenid(openid);
+        // 按 openid 查用户：不加 is_deleted 过滤（注销用户 openid 仍占 uk_openid，查不到会撞键）
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getOpenid, openid));
         if (user == null) {
             user = User.builder().openid(openid).build();
-            userMapper.insertUser(user); // insertUser 会自动把自增 id 回填到 user.id
+            userMapper.insert(user); // BaseMapper.insert 自动回填自增 id
         } else if (isDeleted(user)) {
             // 已注销用户禁止再登录（新注册用户 is_deleted 走库默认 0，不会走到这）
             throw new BusinessException(HttpStatus.FORBIDDEN, "账号已注销");
@@ -109,7 +112,8 @@ public class UserServiceImpl implements UserService {
         if (phone == null || phone.isBlank()) {
             throw new BusinessException("微信未返回手机号");
         }
-        userMapper.updatePhone(userId, phone);
+        // updateById 只更新非 null 字段，update_time 由 MyMetaObjectHandler 自动填充
+        userMapper.updateById(User.builder().id(userId).phone(phone).build());
         return phone;
     }
 
@@ -168,7 +172,7 @@ public class UserServiceImpl implements UserService {
         // 4. 用户必须存在且未注销（登录态有效但账号可能已注销），否则更新影响 0 行
         findActiveUser(userId);
         // 5. 写库，返回最终入库的昵称
-        userMapper.updateName(userId, trimmed);
+        userMapper.updateById(User.builder().id(userId).name(trimmed).build());
         return trimmed;
     }
 
@@ -179,7 +183,10 @@ public class UserServiceImpl implements UserService {
         // 1. 用户必须存在且未注销，否则抛 401（重复注销在这里就被挡住）
         findActiveUser(userId);
         // 2. 置 is_deleted = 1（不物理删：orders.user_id 是 RESTRICT，订单要保留）
-        userMapper.softDelete(userId);
+        // 软删：is_deleted=0 条件保证重复注销不重复计数；传 new User() 触发 updateFill 填 update_time
+        userMapper.update(new User(), new LambdaUpdateWrapper<User>()
+                .eq(User::getId, userId).eq(User::getIsDeleted, 0)
+                .set(User::getIsDeleted, 1));
         // 3. 清空该用户购物车（cart 同库直连删；订单/收货地址不动，地址快照已冗余进订单）
         cartMapper.deleteByUser(userId);
     }
@@ -229,14 +236,14 @@ public class UserServiceImpl implements UserService {
         }
         // 库里存相对路径，完整 URL 由 Controller 按当前请求域名拼
         String relativeUrl = "/upload/avatar/" + filename;
-        userMapper.updateAvatar(userId, relativeUrl);
+        userMapper.updateById(User.builder().id(userId).avatar(relativeUrl).build());
         // 写库成功后删旧文件（只删本地 /upload/avatar/ 下的，外部 URL 不碰）
         deleteOldAvatarFile(oldAvatar);
         return relativeUrl;
     }
     // 取「可用」用户：不存在或已注销都抛 401，供资料/昵称/头像等按 id 操作的入口复用
     private User findActiveUser(Long userId) {
-        User user = userMapper.findById(userId);
+        User user = userMapper.selectById(userId);
         if (user == null || isDeleted(user)) {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "用户不存在");
         }

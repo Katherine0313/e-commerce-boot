@@ -16,4 +16,18 @@
         WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId} AND is_deleted = 0
     </select>
 
+    <!-- 后台审核：更新指定时间戳列（列名白名单由 service 层控制） -->
+    <update id="updateTimestamp">
+        UPDATE after_sale_only_refunds
+        SET ${column} = #{now}, updated_at = #{now}
+        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId} AND is_deleted = 0
+    </update>
+
+    <!-- 软删除子表 -->
+    <update id="softDelete">
+        UPDATE after_sale_only_refunds
+        SET is_deleted = 1, updated_at = #{now}
+        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId}
+    </update>
+
 </mapper>

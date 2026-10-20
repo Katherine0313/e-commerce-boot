@@ -48,11 +48,9 @@ logging:
     org.apache.tomcat: WARN
     org.apache.catalina: WARN
 
-mybatis:
+mybatis-plus:
   configuration:
     map-underscore-to-camel-case: true
-  # mappers/ 下按业务模块分子目录存放，** 递归匹配
-  mapper-locations: classpath*:mappers/**/*.xml
 
 # 微信小程序配置：登录时用 code 换取 openid
 # 真实值不写在这里（避免提交到 git），由激活的 profile 文件或环境变量提供

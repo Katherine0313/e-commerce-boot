@@ -40,10 +40,14 @@ public class AfterSaleController {
         return Result.success(afterSaleService.create(dto));
     }
 
-    @Operation(summary = "我的售后列表")
+    @Operation(summary = "我的售后列表（状态/关键词/时间范围筛选）")
     @GetMapping
-    public Result<List<AfterSaleVO>> list(@RequestParam(required = false) String status) {
-        return Result.success(afterSaleService.list(status));
+    public Result<List<AfterSaleVO>> list(@RequestParam(required = false) String status,
+                                          @RequestParam(required = false) String search,
+                                          @RequestParam(required = false) String startDate,
+                                          @RequestParam(required = false) String endDate,
+                                          @RequestParam(required = false) String dateField) {
+        return Result.success(afterSaleService.list(status, search, startDate, endDate, dateField));
     }
 
     @Operation(summary = "售后状态常量")

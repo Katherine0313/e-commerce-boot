@@ -103,9 +103,9 @@
 - [✓] 后台分类管理（`/api/admin/categories`：树/扁平/增删改/同级 move，sort_order 服务端算 + move 整级重编号；前端 Category 页对接）
 - [✓] 后台标签管理（`/api/admin/tags`：CRUD + 商品绑定/解绑，一商品一标签写 products.tag_id，绑定后重算 product_count；前端 Tag 页对接）
 - [✓] stock 库存预警表已建 + 30 条数据迁入（`docs/sql/stock-data.sql`，时间字段 create_time/update_time DATETIME）
-- [ ] 库存预警接口（AdminStockController：列表/创建/状态常量，前端 StockList 页对接）
+- [✓] 库存预警接口（AdminStockController：列表/创建/状态常量，前端 StockList 页对接；路径统一 `/api/admin/stock`，字段统一驼峰）
 - [ ] parameters 表 + 参数组/参数项；促销 business_onsale 表 + 活动 CRUD
-- **状态：** in_progress（商品/分类/标签后台 CRUD 已通，前端 goods/category/tag 页已对接并统一驼峰；库存预警接口、参数、促销未做）
+- **状态：** in_progress（商品/分类/标签/库存预警后台 CRUD 已通，前端 goods/category/tag/stock 页已对接并统一驼峰；参数、促销未做）
 
 ### 阶段 4：order-service
 - [✓] orders / order_items / cart / address 表 + 数据迁移（`order.sql` 建表 + `order-data.sql` 迁数据：52 订单 / 76 订单项 / 15 地址）
@@ -135,9 +135,9 @@
   - 丢弃 11 条孤儿 only_refund，`after_sale_items` 字段名 ALTER 统一为 `after_sale_id`
 - [✓] C 端售后接口（`AfterSaleController` 5 接口：申请/列表/详情/状态常量/提交退货）
   - 归属隔离通过 `order_id LEFT JOIN orders` 的 `user_id`，修正原 Node 越权；gateway 补 `/api/after-sales/**` 路由
-- [ ] 后台审核/删除（`review`/`delete`，走 `/api/admin/after-sales/**`）
+- [✓] 后台审核/删除（`review`/`delete`，走 `/api/admin/after-sales/**`；审核=主表状态+商家备注+子表时间戳，删除=主表/明细/子表软删）
 - [ ] 取消订单自动生成退款售后单（关联 order-service，见阶段 4）
-- **状态：** in_progress（C 端售后接口已实现并编译通过；后台审核/删除未做、端到端未验证）
+- **状态：** in_progress（C 端售后接口 + 后台审核/删除已实现并编译通过；取消订单自动生成退款售后单未做、端到端未验证）
 
 ### 阶段 6：user-service + file-service
 - [✓] user-service：整合现有 user 模块（小程序登录/资料/头像/昵称/注销链路已在 user-service 跑通）；收货地址已实现在 order-service（address 表），不归 user-service

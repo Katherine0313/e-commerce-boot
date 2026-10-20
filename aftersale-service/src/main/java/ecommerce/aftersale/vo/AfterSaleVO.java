@@ -1,11 +1,13 @@
 package ecommerce.aftersale.vo;
 
+import com.fasterxml.jackson.annotation.JsonFormat;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -58,6 +60,17 @@ public class AfterSaleVO {
     private String region;
     @Schema(description = "详细地址")
     private String detailAddress;
+    @Schema(description = "支付方式 code")
+    private String payType;
+    @Schema(description = "支付方式中文描述")
+    private String payTypeDesc;
+    @Schema(description = "支付时间")
+    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
+    private LocalDateTime payAt;
+    @Schema(description = "实付金额")
+    private BigDecimal payAmount;
+    @Schema(description = "订单状态 code")
+    private Integer orderStatus;
     @Schema(description = "退货方式：pickup / self")
     private String returnWay;
     @Schema(description = "取件时段：morning / afternoon")

@@ -26,4 +26,11 @@
         ORDER BY id ASC
     </select>
 
+    <!-- 软删除某售后单的明细 -->
+    <update id="softDelete">
+        UPDATE after_sale_items
+        SET is_deleted = 1, updated_at = #{now}
+        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId}
+    </update>
+
 </mapper>

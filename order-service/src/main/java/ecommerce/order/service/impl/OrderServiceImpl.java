@@ -193,7 +193,6 @@ public class OrderServiceImpl implements OrderService {
         if (!orderedProductIds.isEmpty()) {
             cartMapper.deleteByProducts(userId, orderedProductIds, TEMPLATE_SHOP_ID);
         }
-
         return getOrder(order.getId());
     }
 

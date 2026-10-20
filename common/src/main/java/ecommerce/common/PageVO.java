@@ -23,4 +23,8 @@ public class PageVO<T> {
     private List<T> list;
     @Schema(description = "总条数")
     private long total;
+    @Schema(description = "当前页（从 1 开始）")
+    private long page;
+    @Schema(description = "每页条数")
+    private long pageSize;
 }

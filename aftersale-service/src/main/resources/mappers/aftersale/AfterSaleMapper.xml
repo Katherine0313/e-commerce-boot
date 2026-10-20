@@ -9,7 +9,7 @@
     <sql id="joinOrderColumns">
         SELECT a.id, a.shop_id, a.order_id, a.after_sale_no, a.order_no, a.after_sale_type, a.status,
                a.reason, a.remark, a.images, a.merchant_remark, a.is_deleted, a.created_at, a.updated_at,
-               o.user_id, o.consignee, o.phone, o.region, o.detail_address
+               o.user_id, o.consignee, o.phone, o.region, o.detail_address, o.pay_type, o.pay_at, o.pay_amount, o.order_status
         FROM after_sales a
         LEFT JOIN orders o ON o.id = a.order_id AND o.shop_id = a.shop_id
     </sql>
@@ -33,6 +33,19 @@
         <if test="status != null and status != ''">
             AND a.status = #{status}
         </if>
+        <if test="search != null and search != ''">
+            AND (a.order_no LIKE CONCAT('%', #{search}, '%')
+                 OR o.consignee LIKE CONCAT('%', #{search}, '%')
+                 OR o.phone LIKE CONCAT('%', #{search}, '%')
+                 OR EXISTS (SELECT 1 FROM order_items oi
+                            WHERE oi.order_id = a.order_id AND oi.product_name LIKE CONCAT('%', #{search}, '%')))
+        </if>
+        <if test="startDate != null">
+            AND a.${dateField} &gt;= #{startDate}
+        </if>
+        <if test="endDate != null">
+            AND a.${dateField} &lt;= #{endDate}
+        </if>
         ORDER BY a.created_at DESC, a.id DESC
     </select>
 
@@ -48,6 +61,20 @@
         UPDATE after_sales
         SET status = #{status}, updated_at = #{updatedAt}
         WHERE id = #{id} AND shop_id = #{shopId} AND is_deleted = 0
+    </update>
+
+    <!-- 后台审核：状态 + 商家备注 + 更新时间（业务时间戳仍写子表） -->
+    <update id="updateStatusAndRemark">
+        UPDATE after_sales
+        SET status = #{status}, merchant_remark = #{merchantRemark}, updated_at = #{updatedAt}
+        WHERE id = #{id} AND shop_id = #{shopId} AND is_deleted = 0
+    </update>
+
+    <!-- 软删除主表 -->
+    <update id="softDelete">
+        UPDATE after_sales
+        SET is_deleted = 1, updated_at = #{now}
+        WHERE id = #{id} AND shop_id = #{shopId}
     </update>
 
 </mapper>
