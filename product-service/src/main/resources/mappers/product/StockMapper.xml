@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.product.mapper.StockMapper">
+    <!-- 预警列表：LEFT JOIN products，所有商品都展示，没配预警的 stock 字段为 NULL。
+         右侧（stock）的 shop_id 条件放 ON 里，左侧（products）放 WHERE，避免滤掉未配置的商品。 -->
+    <select id="listWithProducts" resultType="ecommerce.product.vo.StockVO">
+        SELECT
+            s.id          AS stock_id,
+            p.id          AS product_id,
+            p.name,
+            p.image,
+            p.description,
+            p.stock,
+            s.min_stock,
+            s.max_stock,
+            s.alert_enabled,
+            s.create_time AS created_at,
+            s.update_time AS updated_at
+        FROM products p
+        LEFT JOIN stock s ON s.product_id = p.id AND s.shop_id = p.shop_id
+        <where>
+            p.shop_id = #{shopId}
+            <if test="search != null and search != ''">
+                AND p.name LIKE CONCAT('%', #{search}, '%')
+            </if>
+        </where>
+        ORDER BY p.stock ASC, p.id ASC
+    </select>
+
+    <select id="findByProductId" resultType="ecommerce.product.entity.Stock">
+        SELECT id, shop_id, product_id, alert_enabled, min_stock, max_stock, create_time, update_time
+        FROM stock
+        WHERE product_id = #{productId} AND shop_id = #{shopId}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO stock (shop_id, product_id, alert_enabled, min_stock, max_stock, create_time, update_time)
+        VALUES (#{shopId}, #{productId}, #{alertEnabled}, #{minStock}, #{maxStock}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update">
+        UPDATE stock
+        <set>
+            <if test="alertEnabled != null">alert_enabled = #{alertEnabled},</if>
+            <if test="minStock != null">min_stock = #{minStock},</if>
+            <if test="maxStock != null">max_stock = #{maxStock},</if>
+            update_time = #{updateTime},
+        </set>
+        WHERE id = #{id} AND shop_id = #{shopId}
+    </update>
+</mapper>
