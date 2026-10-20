@@ -155,4 +155,13 @@
         WHERE shop_id = #{shopId} AND brand IS NOT NULL AND brand != ''
         ORDER BY brand ASC
     </select>
+
+    <!-- 工作台统计：商品总数 / 总库存 / 库存总价值（售价 × 库存） -->
+    <select id="dashboardStats" resultType="ecommerce.product.vo.DashboardVO">
+        SELECT COUNT(*) AS total_products,
+               CAST(COALESCE(SUM(stock), 0) AS SIGNED) AS total_stock,
+               COALESCE(SUM(sales_price * stock), 0) AS total_value
+        FROM products
+        WHERE shop_id = #{shopId}
+    </select>
 </mapper>

@@ -3,6 +3,7 @@ package ecommerce.user.service.impl;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import ecommerce.user.vo.UserProfileVO;
+import ecommerce.user.vo.UserStatisticsVO;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import ecommerce.exception.BusinessException;
@@ -14,6 +15,7 @@ import ecommerce.user.vo.WxLoginVO;
 import ecommerce.properties.WeChatProperties;
 import ecommerce.utils.HttpClientUtil;
 import ecommerce.utils.JwtUtil;
+import ecommerce.utils.UserContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -21,7 +23,10 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
@@ -52,11 +57,13 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public WxLoginVO login(String code) {
+    public WxLoginVO login(String code, Long shopId) {
         // 0. 校验 code：wx.login() 拿到的临时凭证不能为空
         if (code == null || code.isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "登录凭证 code 不能为空");
         }
+        // shopId 默认模板店（兼容旧调用不传）
+        Long sid = shopId == null ? 1L : shopId;
         // 1. code 换 openid
         Map<String, String> map = new HashMap<>();
         map.put("appid", weChatProperties.getAppid());
@@ -70,19 +77,20 @@ public class UserServiceImpl implements UserService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "登录凭证 code 无效或已过期");
         }
         String openid = openidNode.stringValue();
-        // 3. 根据 openid 查用户，查不到（首次登录）就自动注册
-        // 按 openid 查用户：不加 is_deleted 过滤（注销用户 openid 仍占 uk_openid，查不到会撞键）
-        User user = userMapper.selectOne(new LambdaQueryWrapper<User>().eq(User::getOpenid, openid));
+        // 3. 按 openid + shopId 查用户，查不到（首次登录）就自动注册
+        // 不加 is_deleted 过滤（注销用户 openid 仍占 uk_shop_openid，查不到会撞键）
+        User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
+                .eq(User::getOpenid, openid).eq(User::getShopId, sid));
         if (user == null) {
-            user = User.builder().openid(openid).build();
+            user = User.builder().openid(openid).shopId(sid).build();
             userMapper.insert(user); // BaseMapper.insert 自动回填自增 id
         } else if (isDeleted(user)) {
             // 已注销用户禁止再登录（新注册用户 is_deleted 走库默认 0，不会走到这）
             throw new BusinessException(HttpStatus.FORBIDDEN, "账号已注销");
         }
-        // 4. 生成 token 返回给调用方
+        // 4. 生成 token 返回给调用方（签 shopId，下游按店铺隔离）
         return WxLoginVO.builder()
-                .token(jwtUtil.generateUserToken(user.getId()))
+                .token(jwtUtil.generateUserToken(user.getId(), sid))
                 .id(user.getId())
                 .avatar(user.getAvatar())
                 .build();
@@ -278,5 +286,31 @@ public class UserServiceImpl implements UserService {
         if (oldFile.exists()) {
             oldFile.delete();
         }
+    }
+
+    @Override
+    public UserStatisticsVO getUserStatistics() {
+        Long shopId = UserContext.getShopId();
+        if (shopId == null) {
+            shopId = 1L; // 模板店默认
+        }
+        // 近 12 个月（含本月）起始日期：往前推 11 个月的 1 号
+        String startDate = LocalDate.now().minusMonths(11).withDayOfMonth(1).toString();
+        List<Map<String, Object>> rows = userMapper.countMonthlyNewUsers(shopId, startDate);
+
+        // 行转 map（month -> cnt），缺失月份补 0
+        Map<String, Long> cntMap = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            cntMap.put(String.valueOf(row.get("month")), ((Number) row.get("cnt")).longValue());
+        }
+        LocalDate firstMonth = LocalDate.now().minusMonths(11).withDayOfMonth(1);
+        List<String> months = new ArrayList<>();
+        List<Long> newUsers = new ArrayList<>();
+        for (int i = 0; i < 12; i++) {
+            String month = firstMonth.plusMonths(i).toString().substring(0, 7);
+            months.add(month);
+            newUsers.add(cntMap.getOrDefault(month, 0L));
+        }
+        return UserStatisticsVO.builder().months(months).newUsers(newUsers).build();
     }
 }

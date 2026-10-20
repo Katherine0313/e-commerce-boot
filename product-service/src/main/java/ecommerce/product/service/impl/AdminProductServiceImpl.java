@@ -7,6 +7,7 @@ import ecommerce.product.entity.Product;
 import ecommerce.product.mapper.ProductMapper;
 import ecommerce.product.service.AdminProductService;
 import ecommerce.product.vo.AdminProductVO;
+import ecommerce.product.vo.DashboardVO;
 import ecommerce.utils.UserContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -100,6 +101,11 @@ public class AdminProductServiceImpl implements AdminProductService {
     @Override
     public List<String> brands() {
         return productMapper.listBrands(requireShopId());
+    }
+
+    @Override
+    public DashboardVO dashboard() {
+        return productMapper.dashboardStats(requireShopId());
     }
 
     /** 把 DTO 的非 null 字段写入 Product（局部更新语义） */

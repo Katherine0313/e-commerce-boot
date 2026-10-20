@@ -32,7 +32,11 @@ public class WebMvcConfig implements WebMvcConfigurer {
             "/api/categories", "/api/categories/**",
             "/api/tags", "/api/tags/**",
             // AI 导购助手（对话/推荐免登录；下单阶段三需登录取 userId，届时再单独收紧鉴权）
-            "/api/agent", "/api/agent/**"
+            "/api/agent", "/api/agent/**",
+            // 一键体验开沙箱（公开接口，游客无需登录即可开体验店）
+            "/api/shops/sandbox",
+            // 售后状态/原因/类型字典（公共只读，后台与 C 端共用，免登录）
+            "/api/after-sales/status-constants"
     );
 
     private final JwtInterceptor jwtInterceptor;

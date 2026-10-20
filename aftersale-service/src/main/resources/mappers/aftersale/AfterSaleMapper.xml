@@ -49,6 +49,28 @@
         ORDER BY a.created_at DESC, a.id DESC
     </select>
 
+    <select id="listByShop" resultType="ecommerce.aftersale.entity.AfterSale">
+        <include refid="joinOrderColumns"/>
+        WHERE a.is_deleted = 0 AND a.shop_id = #{shopId}
+        <if test="status != null and status != ''">
+            AND a.status = #{status}
+        </if>
+        <if test="search != null and search != ''">
+            AND (a.order_no LIKE CONCAT('%', #{search}, '%')
+                 OR o.consignee LIKE CONCAT('%', #{search}, '%')
+                 OR o.phone LIKE CONCAT('%', #{search}, '%')
+                 OR EXISTS (SELECT 1 FROM order_items oi
+                            WHERE oi.order_id = a.order_id AND oi.product_name LIKE CONCAT('%', #{search}, '%')))
+        </if>
+        <if test="startDate != null">
+            AND a.${dateField} &gt;= #{startDate}
+        </if>
+        <if test="endDate != null">
+            AND a.${dateField} &lt;= #{endDate}
+        </if>
+        ORDER BY a.created_at DESC, a.id DESC
+    </select>
+
     <select id="findByOrderId" resultType="ecommerce.aftersale.entity.AfterSale">
         <include refid="joinOrderColumns"/>
         WHERE a.order_id = #{orderId} AND a.is_deleted = 0 AND a.shop_id = #{shopId}

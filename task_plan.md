@@ -88,10 +88,10 @@
 
 ### 阶段 2：shop-service（多租户基础设施）
 - [✓] shops 表 + 商品域 4 表（shops/categories/tags/products）建表脚本 `docs/sql/product.sql` + 模板店种子数据（已迁入，见 findings「商品域数据库迁移踩坑点」）
-- [ ] 开沙箱：克隆模板店数据（按 shopId=1 查 → 批量 insert 新 shopId）
+- [✓] 开沙箱：`POST /api/shops/sandbox`（shops 插行 + 15 张业务表 id+offset 克隆 + 签发沙箱店 admin 令牌）+ C 端多租户（user 表加 shop_id、下单/支付/购物车/地址按 user 令牌 shopId、来单提醒按 order.shopId 隔离推送）
 - [ ] 过期回收：定时扫 shops 表，调各业务服务清数据
 - [ ] `templateGuard` 等价逻辑（禁写模板店）
-- **状态：** in_progress（shops 表已建、模板店数据已迁；沙箱克隆/回收/守卫未做）
+- **状态：** in_progress（开沙箱 + C 端多租户已打通；过期回收、templateGuard、扫码进店未做）
 
 ### 阶段 3：product-service（最大域）
 - [✓] 商品浏览只读接口骨架：`GET /api/products`、`/api/products/{id}`、`/api/categories`、`/api/tags`（controller/service/impl/vo 分层 + 占位数据，不接库）；接入免登录白名单 `EXCLUDE_AUTH_PATHS`，gateway 补 product-service 路由

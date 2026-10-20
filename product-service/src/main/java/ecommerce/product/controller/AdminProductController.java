@@ -5,6 +5,7 @@ import ecommerce.common.Result;
 import ecommerce.product.dto.AdminProductDTO;
 import ecommerce.product.service.AdminProductService;
 import ecommerce.product.vo.AdminProductVO;
+import ecommerce.product.vo.DashboardVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -72,5 +73,11 @@ public class AdminProductController {
     @GetMapping("/brands")
     public Result<List<String>> brands() {
         return Result.success(adminProductService.brands());
+    }
+
+    @Operation(summary = "工作台统计（商品总数/总库存/库存总价值）")
+    @GetMapping("/dashboard")
+    public Result<DashboardVO> dashboard() {
+        return Result.success(adminProductService.dashboard());
     }
 }

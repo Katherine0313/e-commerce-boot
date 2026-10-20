@@ -66,13 +66,18 @@ spring:
               uri: lb://auth-service
               predicates:
                 - Path=/api/login,/api/logout,/api/admin/info
+            # 店铺 → shop-service（开沙箱/当前店铺；/api/shops/sandbox 免登录）
+            - id: shop-service
+              uri: lb://shop-service
+              predicates:
+                - Path=/api/shops,/api/shops/**,/api/admin/shops,/api/admin/shops/**
             # 商品浏览 → product-service；必须放在 user-service 的 /api/** 通配之前，更具体的规则优先匹配。
             # 裸路径（/api/products）是列表接口，/** 是详情等子路径，两者都要覆盖。
             # /image/** 是商品图片静态资源，同样由 product-service 托管（见 common WebMvcConfig 的 addResourceHandlers）。
             - id: product-service
               uri: lb://product-service
               predicates:
-                - Path=/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**,/api/admin/products,/api/admin/products/**,/api/admin/categories,/api/admin/categories/**,/api/admin/tags,/api/admin/tags/**,/api/admin/stock,/api/admin/stock/**,/image/**
+                - Path=/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**,/api/admin/products,/api/admin/products/**,/api/admin/categories,/api/admin/categories/**,/api/admin/tags,/api/admin/tags/**,/api/admin/stock,/api/admin/stock/**,/api/admin/upload,/api/admin/upload/**,/image/**
             # 购物车 + 订单 → order-service；放在 /api/** 通配之前（操作需登录，鉴权由下游 JwtInterceptor 承担）
             - id: order-service
               uri: lb://order-service
@@ -88,6 +93,11 @@ spring:
               uri: lb://ai-agent-service
               predicates:
                 - Path=/api/agent,/api/agent/**
+            # 后台来单提醒 WebSocket → order-service（前端 ws://网关/ws/order?token=xxx，握手鉴权在 order-service）
+            - id: order-service-ws
+              uri: lb://order-service
+              predicates:
+                - Path=/ws/**
             # 用户头像等上传文件 → user-service：库里存相对路径 /upload/avatar/xxx，
             # 静态映射见 common WebMvcConfig（/upload/** → file:upload/）。
             # 与 /image/**（商品图）对称：都是静态资源，不在 /api/** 内，免登录。

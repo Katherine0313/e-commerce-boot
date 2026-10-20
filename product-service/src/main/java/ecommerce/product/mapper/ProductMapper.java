@@ -1,6 +1,7 @@
 package ecommerce.product.mapper;
 
 import ecommerce.product.entity.Product;
+import ecommerce.product.vo.DashboardVO;
 import org.apache.ibatis.annotations.Param;
 import java.util.List;
 
@@ -45,4 +46,7 @@ public interface ProductMapper {
 
     // 品牌列表（去重、非空）
     List<String> listBrands(@Param("shopId") Long shopId);
+
+    // 工作台统计：商品总数 / 总库存 / 库存总价值（售价 × 库存）
+    DashboardVO dashboardStats(@Param("shopId") Long shopId);
 }

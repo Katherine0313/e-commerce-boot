@@ -72,6 +72,22 @@
         WHERE order_status = #{status} AND is_deleted = 0 AND created_at &lt;= #{threshold}
     </select>
 
+    <!-- 查超时未确认收货的已发货订单：ship_at <= 阈值（定时自动完成用） -->
+    <select id="findExpiredShipped" resultType="ecommerce.order.entity.Order">
+        SELECT id, shop_id, user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
+               remark, consignee, phone, region, detail_address, shipping_type, courier, tracking_number,
+               sign_status, created_at, pay_at, ship_at, confirm_at, finish_at, updated_at
+        FROM orders
+        WHERE order_status = #{status} AND is_deleted = 0 AND ship_at &lt;= #{threshold}
+    </select>
+
+    <!-- 系统自动完成（超时确认收货）：已发货 → 已完成，sign_status=auto 与用户主动签收(signed)区分 -->
+    <update id="autoConfirm">
+        UPDATE orders
+        SET order_status = 5, finish_at = #{now}, sign_status = 'auto', updated_at = #{now}
+        WHERE id = #{id} AND shop_id = #{shopId}
+    </update>
+
     <!-- 后台订单列表：所有订单（不限用户），分页 + 可选状态/关键词筛选 -->
     <select id="listAdmin" resultType="ecommerce.order.entity.Order">
         SELECT o.id, o.shop_id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.pay_type, o.order_status,

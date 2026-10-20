@@ -45,7 +45,7 @@ CREATE TABLE IF NOT EXISTS `orders` (
     `shipping_type`  VARCHAR(64)   NOT NULL DEFAULT '商家配送' COMMENT '配送方式（原 sqlite 默认值乱码，已还原为「商家配送」）',
     `courier`        VARCHAR(64)   DEFAULT NULL            COMMENT '快递公司',
     `tracking_number` VARCHAR(64)  DEFAULT NULL            COMMENT '快递单号',
-    `sign_status`    VARCHAR(32)   NOT NULL DEFAULT 'unsigned' COMMENT '签收状态：signed 已签收 / unsigned 未签收',
+    `sign_status`    VARCHAR(32)   NOT NULL DEFAULT 'unsigned' COMMENT '签收状态：signed 用户签收 / auto 系统自动 / unsigned 未签收',
     `created_at`     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下单时间',
     `pay_at`         DATETIME      DEFAULT NULL            COMMENT '支付时间',
     `ship_at`        DATETIME      DEFAULT NULL            COMMENT '发货时间',

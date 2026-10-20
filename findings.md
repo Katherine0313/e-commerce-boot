@@ -278,11 +278,26 @@ ecommerce
 - **路径**：后台写操作走 `/api/admin/**`，`JwtInterceptor` 按此分流 admin 身份（复用 `/api/products` 会撞免登录白名单 + admin 令牌被判成 user 403）。
 - **字段统一驼峰**：旧 Node 前端全用蛇形（`sales_price`/`listing_status`），统一改成驼峰（`salesPrice`/`listingStatus`），前后端 + C 端三套对齐，后端 VO/DTO 不加 `@JsonNaming`。
 - **分页**：返回 `Result<PageVO<T>>`（`PageVO` 在 common，字段 list/total/page/pageSize），前端读 `res.data.data.list` / `res.data.data.total`，`pageSize` 从 `res.data.data.pageSize` 读（后端返回实际值，前端不写死 pageSize）。订单列表 4 个状态 tab 独立请求后端分页（status+page，pageSize 后端默认 13）；发货页 3 tab 全量（status 筛选 + pageSize 给足，订单量少不分页）。
-- **shopId 多租户**：后台 service 用 `UserContext.getShopId()`（admin 令牌 claim 签了 shopId，C 端 user 令牌无值为 null）。
+- **shopId 多租户**：service 用 `UserContext.getShopId()`（admin 和 C 端 user 令牌都签了 shopId，`JwtInterceptor` 统一解析写入 `UserContext`）。
 - **时间字段**：后台 VO 用 `createdAt`/`updatedAt`（entity 是 createTime/updateTime，toVO 映射），前端读 createdAt/updatedAt。
 - **时间格式**：`LocalDateTime` 加 `@JsonFormat(pattern="yyyy-MM-dd HH:mm:ss")`，避免默认 ISO 格式（T 分隔）前端不好读。
 - **日期筛选**：列表接口收 `dateField`/`startDate`/`endDate`，`dateField` 走白名单（created_at/confirm_at/pay_at/ship_at/finish_at）防动态列 SQL 注入；前端公共组件 date-range-select 统一吐这三个参数。
 - **售后审核**：`PUT /api/admin/after-sales/{id}` 只改主表 `status/merchant_remark/updated_at`，业务时间戳按状态写对应子表列（STATUS_COLUMN_MAP 白名单：refunding/returning→review_at、rejected→rejected_at、refund_confirming→refund_at、refunded→refunded_at、exchanging→exchange_at、exchanged→exchanged_at）；删除=主表/明细/子表 `is_deleted=1` 软删。售后前端字段蛇形→驼形对齐（afterSaleNo/createdAt/afterSaleType/payTypeDesc 等）。
+
+## 多租户沙箱（2026-10-20）
+
+- **开沙箱**：`POST /api/shops/sandbox`（公开，免登录白名单），shops 插行 → 15 张业务表按「id + offset」克隆模板店数据（offset = shopId × 100 万，MySQL 全局自增显式指定 id 后 AUTO_INCREMENT 跳大，无害）→ 签发沙箱店 admin 令牌。admin 账号也克隆：username 加 `_s{shopId}` 后缀、password 随机（一键体验直接签 token，不走密码登录）。
+- **C 端多租户**：`user` 表加 `shop_id`，唯一键 `uk_openid` → `uk_shop_openid (shop_id, openid)`；C 端 user 令牌签 shopId（`JwtUtil.generateUserToken(userId, shopId)`），`JwtInterceptor` 已通用解析 shopId 写入 `UserContext`（不用改）；order-service C 端下单/支付/购物车/地址从写死模板店改成 `UserContext.getShopId()`。
+- **小程序端**：`SHOP_ID` 常量（默认 1）登录传 shopId；扫码进店/分享链接暂不做。
+
+## 后台来单提醒 WebSocket（2026-10-20）
+
+- **端点挂 order-service**（非独立推送服务）：`/ws/order`，用 Spring 原生 `WebSocketHandler` + `HandshakeInterceptor`（不用 JSR-356 `@ServerEndpoint`），网关加 `/ws/**` 路由转发。
+- **握手鉴权**：浏览器 `new WebSocket` 不能带 header，token 走 `?token=` query，`AuthHandshakeInterceptor` 用 `JwtUtil.parseToken` 验 admin + 取 shopId 存 attributes。
+- **会话按 shopId 分组**：`WebSocketSessionRegistry`（`ConcurrentHashMap<Long, Set<WebSocketSession>>`），多商户不串店。
+- **触发点**：支付成功 `payOrder` → `pushNewOrderNotice` 推 `{shopId, type:1, orderId, content}` 给对应店铺的在线连接。
+- **前端**：`utils/orderNotify.js` 登录后自动连 + 断线重连（3s，最多 10 次防死循环）+ notification 弹窗 + SpeechSynthesis 语音。
+- **单实例内存版**：真多实例要补 Redis pub/sub 跨实例广播（task_plan 阶段 11）。
 
 ## 遗留风险（已决策暂不修，勿反复提起）
 

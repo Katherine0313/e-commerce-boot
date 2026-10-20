@@ -39,9 +39,11 @@ public class JwtUtil {
     /**
      ** 对外暴露生成的方法，给调用方（WxLoginController）调用
      */
-    public String generateUserToken(Long userId){
-
-        return buildToken(userId, TYPE_USER, Map.of());
+    public String generateUserToken(Long userId, Long shopId){
+        Map<String, Object> extraClaims = new HashMap<>();
+        // C 端用户也签 shopId（多租户隔离键），下游 JwtInterceptor 统一解析写入 UserContext
+        extraClaims.put("shopId", shopId);
+        return buildToken(userId, TYPE_USER, extraClaims);
     }
 
     /**

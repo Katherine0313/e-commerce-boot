@@ -18,8 +18,10 @@ import ecommerce.order.vo.LogisticsTraceVO;
 import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderItemVO;
 import ecommerce.order.vo.OrderVO;
+import ecommerce.order.ws.WebSocketSessionRegistry;
 import ecommerce.utils.UserContext;
 import lombok.extern.slf4j.Slf4j;
+import tools.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -32,6 +34,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -47,6 +50,8 @@ public class OrderServiceImpl implements OrderService {
     private static final Long TEMPLATE_SHOP_ID = 1L;
     /** 待付款订单超时关闭时长（秒）：30 分钟 */
     private static final long PENDING_PAY_TIMEOUT_SECONDS = 1800;
+    /** 已发货订单超时自动确认收货时长（天）：发货后 7 天自动变已完成，无论用户是否主动签收 */
+    private static final long AUTO_CONFIRM_DAYS = 7;
     /** 订单号格式：ORD + 年月日时分秒毫秒（再加 4 位随机数防同毫秒撞唯一索引） */
     private static final DateTimeFormatter ORDER_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
     /** 物流轨迹时间展示格式 */
@@ -63,14 +68,19 @@ public class OrderServiceImpl implements OrderService {
     private final ProductMapper productMapper;
     private final CartMapper cartMapper;
     private final StringRedisTemplate stringRedisTemplate;
+    private final ObjectMapper objectMapper;
+    private final WebSocketSessionRegistry webSocketSessionRegistry;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper, ProductMapper productMapper,
-                            CartMapper cartMapper, StringRedisTemplate stringRedisTemplate) {
+                            CartMapper cartMapper, StringRedisTemplate stringRedisTemplate,
+                            ObjectMapper objectMapper, WebSocketSessionRegistry webSocketSessionRegistry) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
         this.cartMapper = cartMapper;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.objectMapper = objectMapper;
+        this.webSocketSessionRegistry = webSocketSessionRegistry;
     }
 
     @Override
@@ -120,7 +130,7 @@ public class OrderServiceImpl implements OrderService {
 
     /** 原有下单逻辑：查商品 → 校验库存 → 扣库存 → 写订单。幂等占位/结果写回由外层 createOrder 负责。 */
     private OrderVO doCreateOrder(CreateOrderDTO dto, Long userId) {
-        Long shopId = TEMPLATE_SHOP_ID;
+        Long shopId = currentShopId();
 
         // 逐个查商品，校验库存，组装明细，算总额
         List<OrderItem> orderItems = new ArrayList<>();
@@ -191,7 +201,7 @@ public class OrderServiceImpl implements OrderService {
         List<Long> orderedProductIds = orderItems.stream()
                 .map(OrderItem::getProductId).distinct().toList();
         if (!orderedProductIds.isEmpty()) {
-            cartMapper.deleteByProducts(userId, orderedProductIds, TEMPLATE_SHOP_ID);
+            cartMapper.deleteByProducts(userId, orderedProductIds, shopId);
         }
         return getOrder(order.getId());
     }
@@ -203,7 +213,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public List<OrderVO> listOrders(String keyword) {
-        return orderMapper.listByUser(currentUserId(), TEMPLATE_SHOP_ID, keyword).stream()
+        return orderMapper.listByUser(currentUserId(), currentShopId(), keyword).stream()
                 .map(this::toVO)
                 .toList();
     }
@@ -213,8 +223,26 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO payOrder(Long id, String payType) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.PENDING_CONFIRM);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.PENDING_CONFIRM.getCode(), payType, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.PENDING_CONFIRM.getCode(), payType, null, null, LocalDateTime.now());
+        // 支付成功后推「新订单提醒」给后台管理端（推送失败不影响主流程）
+        pushNewOrderNotice(order);
         return getOrder(id);
+    }
+
+    // 组装并推送新订单提醒消息：shopId + type + orderId + content，序列化成 JSON 发给在线后台连接
+    private void pushNewOrderNotice(Order order) {
+        Map<String, Object> msg = Map.of(
+                "shopId", order.getShopId(),
+                "type", 1,
+                "orderId", order.getOrderNo(),
+                "content", "您有新订单，请及时处理"
+        );
+        try {
+            String json = objectMapper.writeValueAsString(msg);
+            webSocketSessionRegistry.sendToShop(order.getShopId(), json);
+        } catch (Exception e) {
+            log.warn("推送新订单提醒失败: {}", e.getMessage());
+        }
     }
 
     @Override
@@ -222,7 +250,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO confirmOrder(Long id) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.PENDING_SHIP);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -231,7 +259,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO shipOrder(Long id, String courier, String trackingNumber) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.SHIPPED);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.SHIPPED.getCode(), null, courier, trackingNumber, LocalDateTime.now());
+        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.SHIPPED.getCode(), null, courier, trackingNumber, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -240,7 +268,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO finishOrder(Long id) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.FINISHED);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.FINISHED.getCode(), null, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.FINISHED.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -249,8 +277,8 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO cancelOrder(Long id) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.CANCEL);
-        restoreStock(order.getId(), TEMPLATE_SHOP_ID);
-        orderMapper.updateStatus(id, TEMPLATE_SHOP_ID, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
+        restoreStock(order.getId(), order.getShopId());
+        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -258,8 +286,8 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public void deleteOrder(Long id) {
         // 软删：只校验存在 + 归属（不校验状态，任何状态的订单都能删）；is_deleted=1 后列表不再返回
-        getOwnedOrder(id);
-        orderMapper.delete(id, TEMPLATE_SHOP_ID, LocalDateTime.now());
+        Order order = getOwnedOrder(id);
+        orderMapper.delete(id, order.getShopId(), LocalDateTime.now());
     }
 
     @Override
@@ -289,10 +317,30 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /** 自动确认收货：每分钟扫一次，ship_at 超过 7 天的已发货订单自动变已完成，无论用户是否主动签收 */
+    @Scheduled(fixedDelay = 60000)
+    @Transactional
+    public void sweepAutoConfirmOrders() {
+        LocalDateTime threshold = LocalDateTime.now().minusDays(AUTO_CONFIRM_DAYS);
+        List<Order> shipped = orderMapper.findExpiredShipped(OrderStatusEnum.SHIPPED.getCode(), threshold);
+        for (Order order : shipped) {
+            // 二次确认仍是已发货，避免与手动确认收货/其它流转并发时误改
+            Order latest = orderMapper.findById(order.getId(), order.getShopId());
+            if (latest == null || !latest.getOrderStatus().equals(OrderStatusEnum.SHIPPED.getCode())) {
+                continue;
+            }
+            // 自动完成：已发货 → 已完成，sign_status=auto 与用户主动签收(signed)区分
+            orderMapper.autoConfirm(order.getId(), order.getShopId(), LocalDateTime.now());
+        }
+        if (!shipped.isEmpty()) {
+            log.info("自动确认收货订单 {} 条", shipped.size());
+        }
+    }
+
     // ==================== 内部工具 ====================
 
     private Order getOwnedOrder(Long id) {
-        Order order = orderMapper.findById(id, TEMPLATE_SHOP_ID);
+        Order order = orderMapper.findById(id, currentShopId());
         if (order == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "订单不存在");
         }
@@ -300,6 +348,12 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(HttpStatus.FORBIDDEN, "无权操作该订单");
         }
         return order;
+    }
+
+    // 当前店铺：C 端 user 令牌带 shopId（多租户隔离键），无 shopId 时回退模板店
+    private Long currentShopId() {
+        Long shopId = UserContext.getShopId();
+        return shopId == null ? TEMPLATE_SHOP_ID : shopId;
     }
 
     private void checkTransition(Order order, OrderStatusEnum target) {

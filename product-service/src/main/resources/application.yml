@@ -27,6 +27,12 @@ spring:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
+  servlet:
+    multipart:
+      # 商品图上传限制：单文件 10MB（前端富文本也按 10MB 拦截），整个请求 11MB 留余量。
+      # 超限由 GlobalExceptionHandler 转成 413 + 可读提示。
+      max-file-size: 10MB
+      max-request-size: 11MB
 server:
   port: 9003
 

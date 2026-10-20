@@ -35,6 +35,12 @@ public interface OrderMapper {
     // 查超时的待付款订单（定时关闭用）：status 且 created_at <= threshold 且未删除
     List<Order> findExpiredPendingPay(@Param("status") Integer status, @Param("threshold") LocalDateTime threshold);
 
+    // 查超时未确认收货的已发货订单（定时自动完成用）：status=SHIPPED 且 ship_at <= threshold 且未删除
+    List<Order> findExpiredShipped(@Param("status") Integer status, @Param("threshold") LocalDateTime threshold);
+
+    // 系统自动完成（超时确认收货）：已发货 → 已完成，sign_status 记 auto 与用户主动签收(signed)区分
+    int autoConfirm(@Param("id") Long id, @Param("shopId") Long shopId, @Param("now") LocalDateTime now);
+
     // ==================== 后台管理（/api/admin/orders） ====================
 
     // 后台订单列表：所有订单（不限用户），分页 + 可选状态/关键词/时间范围筛选

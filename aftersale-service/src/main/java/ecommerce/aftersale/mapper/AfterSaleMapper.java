@@ -25,6 +25,12 @@ public interface AfterSaleMapper {
                                @Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate,
                                @Param("dateField") String dateField);
 
+    // 后台列表：查某店铺所有售后（不限用户，按 shopId 隔离，可选状态/关键词/时间范围筛选）
+    List<AfterSale> listByShop(@Param("shopId") Long shopId,
+                               @Param("status") String status, @Param("search") String search,
+                               @Param("startDate") LocalDateTime startDate, @Param("endDate") LocalDateTime endDate,
+                               @Param("dateField") String dateField);
+
     // 按订单查最新一条售后（重复申请校验用，不含软删除）
     AfterSale findByOrderId(@Param("orderId") Long orderId, @Param("shopId") Long shopId);
 

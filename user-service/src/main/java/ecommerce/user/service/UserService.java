@@ -1,11 +1,12 @@
 package ecommerce.user.service;
 
 import ecommerce.user.vo.UserProfileVO;
+import ecommerce.user.vo.UserStatisticsVO;
 import ecommerce.user.vo.WxLoginVO;
 import org.springframework.web.multipart.MultipartFile;
 
 public interface UserService {
-    WxLoginVO login(String code);
+    WxLoginVO login(String code, Long shopId);
 
     /**
      * 获取用户资料：头像、昵称、基础信息一次返回
@@ -31,5 +32,10 @@ public interface UserService {
      * 注销账号：软删除用户（is_deleted=1）并清空其购物车，两者同一事务
      */
     void deactivate(Long userId);
+
+    /**
+     * 用户增长统计：近 12 个月每月新增用户数（后台工作台用）
+     */
+    UserStatisticsVO getUserStatistics();
 
 }

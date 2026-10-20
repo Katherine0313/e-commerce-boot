@@ -36,7 +36,7 @@ public class AddressServiceImpl implements AddressService {
 
     @Override
     public List<AddressVO> list() {
-        return addressMapper.listByUser(currentUserId(), TEMPLATE_SHOP_ID).stream()
+        return addressMapper.listByUser(currentUserId(), currentShopId()).stream()
                 .map(this::toVO)
                 .toList();
     }
@@ -51,7 +51,7 @@ public class AddressServiceImpl implements AddressService {
         String region = dto.getRegion().trim();
         String detailAddress = dto.getDetailAddress().trim();
 
-        List<Address> addresses = addressMapper.listByUser(userId, TEMPLATE_SHOP_ID);
+        List<Address> addresses = addressMapper.listByUser(userId, currentShopId());
 
         // 幂等：同用户完全相同的地址复用已有那条，不再新增、不改默认标记
         Address duplicate = findDuplicate(addresses, null, consignee, phone, region, detailAddress);
@@ -65,11 +65,11 @@ public class AddressServiceImpl implements AddressService {
         boolean shouldDefault = (dto.getIsDefault() != null && dto.getIsDefault() == 1) || !hasAddress;
         if (shouldDefault) {
             log.info("清空用户原有默认地址，userId:{}", userId);
-            addressMapper.clearDefault(userId, TEMPLATE_SHOP_ID);
+            addressMapper.clearDefault(userId, currentShopId());
         }
 
         Address address = Address.builder()
-                .shopId(TEMPLATE_SHOP_ID)
+                .shopId(currentShopId())
                 .userId(userId)
                 .consignee(consignee)
                 .phone(phone)
@@ -87,7 +87,7 @@ public class AddressServiceImpl implements AddressService {
     public void update(Long id, UpdateAddressDTO dto) {
         validate(dto.getConsignee(), dto.getPhone(), dto.getRegion(), dto.getDetailAddress());
         Long userId = currentUserId();
-        Address existing = addressMapper.findById(id, TEMPLATE_SHOP_ID);
+        Address existing = addressMapper.findById(id, currentShopId());
         if (existing == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "地址不存在");
         }
@@ -98,14 +98,14 @@ public class AddressServiceImpl implements AddressService {
         String detailAddress = dto.getDetailAddress().trim();
 
         // 排除自身后查重，防止改成与另一条完全相同的地址
-        if (findDuplicate(addressMapper.listByUser(userId, TEMPLATE_SHOP_ID), id, consignee, phone, region, detailAddress) != null) {
+        if (findDuplicate(addressMapper.listByUser(userId, currentShopId()), id, consignee, phone, region, detailAddress) != null) {
             throw new BusinessException(HttpStatus.CONFLICT, "该地址已存在");
         }
 
         // 改成默认：先清掉其他默认；否则保持原默认标志不变（不允许取消默认）
         boolean shouldDefault = dto.getIsDefault() != null && dto.getIsDefault() == 1;
         if (shouldDefault) {
-            addressMapper.clearDefault(userId, TEMPLATE_SHOP_ID);
+            addressMapper.clearDefault(userId, currentShopId());
         }
 
         existing.setConsignee(consignee);
@@ -120,19 +120,25 @@ public class AddressServiceImpl implements AddressService {
     @Transactional
     public void remove(Long id) {
         Long userId = currentUserId();
-        Address existing = addressMapper.findById(id, TEMPLATE_SHOP_ID);
+        Address existing = addressMapper.findById(id, currentShopId());
         if (existing == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "地址不存在");
         }
-        addressMapper.deleteById(id, TEMPLATE_SHOP_ID);
+        addressMapper.deleteById(id, currentShopId());
         // 删的是默认地址：自动把最新一条设为默认（无剩余地址时该语句 no-op）
         if (existing.getIsDefault() != null && existing.getIsDefault() == 1) {
-            addressMapper.setDefaultToLatest(userId, TEMPLATE_SHOP_ID);
+            addressMapper.setDefaultToLatest(userId, currentShopId());
         }
     }
 
     private Long currentUserId() {
         return UserContext.getUserId();
+    }
+
+    // 当前店铺：C 端 user 令牌带 shopId（多租户隔离键），无 shopId 时回退模板店
+    private Long currentShopId() {
+        Long shopId = UserContext.getShopId();
+        return shopId == null ? TEMPLATE_SHOP_ID : shopId;
     }
 
     /** 四个必填字段非空校验 + 手机号 11 位数字格式 */

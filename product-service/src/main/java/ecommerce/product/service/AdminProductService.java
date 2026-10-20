@@ -3,6 +3,7 @@ package ecommerce.product.service;
 import ecommerce.common.PageVO;
 import ecommerce.product.dto.AdminProductDTO;
 import ecommerce.product.vo.AdminProductVO;
+import ecommerce.product.vo.DashboardVO;
 
 import java.util.List;
 
@@ -28,4 +29,7 @@ public interface AdminProductService {
 
     /** 品牌列表（去重、非空） */
     List<String> brands();
+
+    /** 工作台统计：商品总数 / 总库存 / 库存总价值 */
+    DashboardVO dashboard();
 }

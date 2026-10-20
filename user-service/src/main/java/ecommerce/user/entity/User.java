@@ -20,6 +20,8 @@ import java.time.LocalDateTime;
 public class User {
     @TableId(type = IdType.AUTO)
     private Long id;
+    /** 所属店铺（模板店=1，多租户沙箱隔离键） */
+    private Long shopId;
     private String openid;
     private String name;
     private String phone;
