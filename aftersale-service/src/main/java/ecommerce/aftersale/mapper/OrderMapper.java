@@ -18,4 +18,7 @@ public interface OrderMapper {
 
     // 查某订单的明细（快照到售后明细用，不含软删除）
     List<OrderItem> listItems(@Param("orderId") Long orderId, @Param("shopId") Long shopId);
+
+    // 查订单的单个明细（校验 orderItemId 归属 orderId + 单品快照用，不含软删除）
+    OrderItem findItemById(@Param("orderItemId") Long orderItemId, @Param("orderId") Long orderId, @Param("shopId") Long shopId);
 }

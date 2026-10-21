@@ -7,9 +7,10 @@
     <!-- 售后主表共用的 LEFT JOIN orders 一段：带出 user_id（归属校验）与收货信息（展示）。
          店铺条件写在 ON 里而非 WHERE 里，避免把订单缺失的售后单整行滤掉。 -->
     <sql id="joinOrderColumns">
-        SELECT a.id, a.shop_id, a.order_id, a.after_sale_no, a.order_no, a.after_sale_type, a.status,
+        SELECT a.id, a.shop_id, a.order_id, a.after_sale_no, a.order_no, a.after_sale_type, a.status, a.goods_status,
                a.reason, a.remark, a.images, a.merchant_remark, a.is_deleted, a.created_at, a.updated_at,
-               o.user_id, o.consignee, o.phone, o.region, o.detail_address, o.pay_type, o.pay_at, o.pay_amount, o.order_status
+               o.user_id, o.consignee, o.phone, o.region, o.detail_address, o.pay_type, o.pay_at, o.pay_amount, o.order_status,
+               o.courier, o.tracking_number
         FROM after_sales a
         LEFT JOIN orders o ON o.id = a.order_id AND o.shop_id = a.shop_id
     </sql>
@@ -17,9 +18,9 @@
     <!-- 创建售后单：初始状态由 service 传入，is_deleted 默认 0 -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO after_sales (shop_id, order_id, order_no, after_sale_no, after_sale_type, status,
-                                 reason, remark, images, merchant_remark, is_deleted, created_at, updated_at)
+                                 goods_status, reason, remark, images, merchant_remark, is_deleted, created_at, updated_at)
         VALUES (#{shopId}, #{orderId}, #{orderNo}, #{afterSaleNo}, #{afterSaleType}, #{status},
-                #{reason}, #{remark}, #{images}, #{merchantRemark}, 0, #{createdAt}, #{updatedAt})
+                #{goodsStatus}, #{reason}, #{remark}, #{images}, #{merchantRemark}, 0, #{createdAt}, #{updatedAt})
     </insert>
 
     <select id="findById" resultType="ecommerce.aftersale.entity.AfterSale">

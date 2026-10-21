@@ -27,6 +27,7 @@ public class AfterSale {
     private String afterSaleType;
     private String status;
     private String reason;
+    private String goodsStatus;
     private String remark;
     private String images;
     private String merchantRemark;
@@ -46,4 +47,7 @@ public class AfterSale {
     private BigDecimal payAmount;
     // LEFT JOIN orders 带出的订单状态 code（数字，前端用订单状态字典转中文）
     private Integer orderStatus;
+    // LEFT JOIN orders 带出的快递公司 / 快递单号
+    private String courier;
+    private String trackingNumber;
 }

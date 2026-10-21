@@ -41,4 +41,6 @@ public class Order {
     private LocalDateTime confirmAt;
     private LocalDateTime finishAt;
     private LocalDateTime updatedAt;
+    // 是否已申请售后（查询时 EXISTS after_sales 带出，非本表列）
+    private Boolean afterSale;
 }

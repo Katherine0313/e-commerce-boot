@@ -14,11 +14,11 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * 后台图片上传实现。
+ * 图片/视频上传实现（后台商品图与 C 端评价晒图共用）。
  * <p>
  * 落盘规则与现有数据对齐：商品主图 → upload/image/upload/，富文本正文图 → upload/image/body/，
- * 分类图 → upload/image/category/，售后凭证图 → upload/image/after-sale/。磁盘根目录与
- * WebMvcConfig 的 /image/** → file:upload/image/ 静态映射一致，存完返回 /image/{sub}/{文件名}
+ * 分类图 → upload/image/category/，售后凭证图 → upload/image/after-sale/，评价晒图/视频 → upload/image/review/。
+ * 磁盘根目录与 WebMvcConfig 的 /image/** → file:upload/image/ 静态映射一致，存完返回 /image/{sub}/{文件名}
  * 相对路径，前端直接存库，展示走网关 /image/** 托管。
  */
 @Service
@@ -31,33 +31,36 @@ public class UploadServiceImpl implements UploadService {
     private static final Map<String, String> TYPE_SUBDIR = Map.of(
             "body", "body",
             "category", "category",
-            "after-sale", "after-sale"
+            "after-sale", "after-sale",
+            "review", "review"
     );
 
     /**
-     * 允许上传的图片类型 → 落盘后缀。
+     * 允许上传的媒体类型 → 落盘后缀（图片 + 视频）。
      * <p>
      * 用白名单而非 contentType.startsWith("image/")：后者会放行 image/svg+xml，
      * SVG 能内嵌脚本，配上静态直接访问就是 XSS；同时白名单直接给出规范后缀，
      * 避免从 Content-Type 里切出 "svg+xml" 这类非法扩展名。与头像上传同款约束。
+     * 视频只放行 mp4（小程序 chooseVideo 产物，兼容性与体积最稳）。
      */
-    private static final Map<String, String> ALLOWED_IMAGE_TYPES = Map.of(
+    private static final Map<String, String> ALLOWED_MEDIA_TYPES = Map.of(
             "image/png", "png",
             "image/jpeg", "jpg",
             "image/gif", "gif",
-            "image/webp", "webp"
+            "image/webp", "webp",
+            "video/mp4", "mp4"
     );
 
     @Override
     public UploadVO upload(MultipartFile file, String type) {
         if (file == null || file.isEmpty()) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "请选择要上传的图片");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "请选择要上传的文件");
         }
         // 白名单校验；Content-Type 由客户端提供，大小写和参数都可能不规范，先归一化
         String contentType = normalizeContentType(file.getContentType());
-        String suffix = contentType == null ? null : ALLOWED_IMAGE_TYPES.get(contentType);
+        String suffix = contentType == null ? null : ALLOWED_MEDIA_TYPES.get(contentType);
         if (suffix == null) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "只支持 png / jpg / gif / webp 格式的图片");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "只支持 png / jpg / gif / webp 图片或 mp4 视频");
         }
 
         String sub = TYPE_SUBDIR.getOrDefault(type, "upload");
@@ -71,7 +74,7 @@ public class UploadServiceImpl implements UploadService {
         try {
             file.transferTo(new File(dir, filename).toPath());
         } catch (IOException e) {
-            throw new BusinessException("图片保存失败");
+            throw new BusinessException("文件保存失败");
         }
         return UploadVO.builder().url("/image/" + sub + "/" + filename).build();
     }

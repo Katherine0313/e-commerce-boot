@@ -20,8 +20,14 @@ public class AfterSaleStatusConstantsVO {
     private Map<String, String> map;
     @Schema(description = "状态 code → 颜色")
     private Map<String, String> color;
-    @Schema(description = "原因 code → 中文")
+    @Schema(description = "原因 code → 中文（全量）")
     private Map<String, String> reasonMap;
+    @Schema(description = "未发货原因 code → 中文")
+    private Map<String, String> unshippedReasonMap;
+    @Schema(description = "已发货原因 code → 中文")
+    private Map<String, String> shippedReasonMap;
     @Schema(description = "类型 code → 中文")
     private Map<String, String> typeMap;
+    @Schema(description = "货物状态 code → 中文")
+    private Map<String, String> goodsStatusMap;
 }

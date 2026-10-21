@@ -9,9 +9,11 @@ import ecommerce.aftersale.entity.AfterSaleOnlyRefund;
 import ecommerce.aftersale.entity.AfterSaleReturn;
 import ecommerce.aftersale.entity.Order;
 import ecommerce.aftersale.entity.OrderItem;
+import ecommerce.aftersale.enums.AfterSaleGoodsStatusEnum;
 import ecommerce.aftersale.enums.AfterSaleReasonEnum;
 import ecommerce.aftersale.enums.AfterSaleStatusEnum;
 import ecommerce.aftersale.enums.AfterSaleTypeEnum;
+import ecommerce.aftersale.enums.CourierEnum;
 import ecommerce.aftersale.enums.PayTypeEnum;
 import ecommerce.aftersale.mapper.AfterSaleExchangeReturnMapper;
 import ecommerce.aftersale.mapper.AfterSaleItemMapper;
@@ -53,7 +55,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     private static final Long TEMPLATE_SHOP_ID = 1L;
     /** 售后单号格式：AS + 年月日时分秒（照原 Node） */
     private static final DateTimeFormatter AFTER_SALE_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
-    /** 订单状态数字 code（对齐 order-service 的 OrderStatusEnum）：4=已发货 5=已完成 */
+    /** 订单状态数字 code（对齐 order-service 的 OrderStatusEnum）：2/3=未发货 4=已发货 5=已完成 */
+    private static final int ORDER_STATUS_PENDING_CONFIRM = 2;
+    private static final int ORDER_STATUS_PENDING_SHIP = 3;
     private static final int ORDER_STATUS_SHIPPED = 4;
     private static final int ORDER_STATUS_FINISHED = 5;
 
@@ -87,6 +91,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         if (dto.getReason() == null || dto.getReason().isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "售后原因不能为空");
         }
+        if (dto.getGoodsStatus() != null && AfterSaleGoodsStatusEnum.fromCode(dto.getGoodsStatus()) == null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "货物状态不合法");
+        }
         String type = dto.getAfterSaleType() == null || dto.getAfterSaleType().isBlank()
                 ? AfterSaleTypeEnum.RETURN_REFUND.getCode() : dto.getAfterSaleType();
         if (AfterSaleTypeEnum.fromCode(type) == null) {
@@ -103,18 +110,32 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         if (!order.getUserId().equals(userId)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "无权操作该订单");
         }
-        // 只有已发货/已完成订单才能申请售后
-        if (order.getOrderStatus() == null
-                || (order.getOrderStatus() != ORDER_STATUS_SHIPPED && order.getOrderStatus() != ORDER_STATUS_FINISHED)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "只有已发货或已完成的订单才能申请售后");
+        // 状态校验：仅退款允许未发货(2/3)/已发货(4)；退货退款/换货要求已发货(4)/已完成(5)
+        int orderStatus = order.getOrderStatus() == null ? -1 : order.getOrderStatus();
+        boolean onlyRefund = AfterSaleTypeEnum.ONLY_REFUND.getCode().equals(type);
+        boolean statusOk = onlyRefund
+                ? (orderStatus == ORDER_STATUS_PENDING_CONFIRM || orderStatus == ORDER_STATUS_PENDING_SHIP
+                    || orderStatus == ORDER_STATUS_SHIPPED)
+                : (orderStatus == ORDER_STATUS_SHIPPED || orderStatus == ORDER_STATUS_FINISHED);
+        if (!statusOk) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "当前订单状态不支持该售后类型");
         }
         // 同一订单不允许重复申请
         if (afterSaleMapper.findByOrderId(dto.getOrderId(), TEMPLATE_SHOP_ID) != null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "该订单已存在售后申请，请勿重复提交");
         }
 
-        // 快照订单明细
-        List<OrderItem> orderItems = orderMapper.listItems(dto.getOrderId(), TEMPLATE_SHOP_ID);
+        // 快照订单明细：传了 orderItemId 则只退单个商品，否则整单
+        List<OrderItem> orderItems;
+        if (dto.getOrderItemId() != null) {
+            OrderItem item = orderMapper.findItemById(dto.getOrderItemId(), dto.getOrderId(), TEMPLATE_SHOP_ID);
+            if (item == null) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "订单项不存在");
+            }
+            orderItems = List.of(item);
+        } else {
+            orderItems = orderMapper.listItems(dto.getOrderId(), TEMPLATE_SHOP_ID);
+        }
         if (orderItems.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "订单无明细，无法申请售后");
         }
@@ -130,6 +151,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .afterSaleType(type)
                 .status(AfterSaleStatusEnum.REVIEWING.getCode())
                 .reason(dto.getReason())
+                .goodsStatus(dto.getGoodsStatus())
                 .remark(dto.getRemark() == null ? "" : dto.getRemark())
                 .images(toImagesJson(dto.getImages()))
                 .merchantRemark("")
@@ -203,6 +225,18 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     }
 
     @Override
+    public AfterSaleVO getByOrderId(Long orderId) {
+        if (orderId == null) {
+            return null;
+        }
+        AfterSale afterSale = afterSaleMapper.findByOrderId(orderId, TEMPLATE_SHOP_ID);
+        if (afterSale == null || !currentUserId().equals(afterSale.getUserId())) {
+            return null;
+        }
+        return toVO(afterSale, null, null);
+    }
+
+    @Override
     @Transactional
     public AfterSaleVO submitReturn(Long id, SubmitReturnDTO dto) {
         String returnWay = dto.getReturnWay();
@@ -271,19 +305,33 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         colorMap.put("rejected", "error");
 
         Map<String, String> reasonMap = new LinkedHashMap<>();
+        Map<String, String> unshippedReasonMap = new LinkedHashMap<>();
+        Map<String, String> shippedReasonMap = new LinkedHashMap<>();
         for (AfterSaleReasonEnum r : AfterSaleReasonEnum.values()) {
             reasonMap.put(r.getCode(), r.getDesc());
+            if (r.isShipped()) {
+                shippedReasonMap.put(r.getCode(), r.getDesc());
+            } else {
+                unshippedReasonMap.put(r.getCode(), r.getDesc());
+            }
         }
         Map<String, String> typeMap = new LinkedHashMap<>();
         for (AfterSaleTypeEnum t : AfterSaleTypeEnum.values()) {
             typeMap.put(t.getCode(), t.getDesc());
+        }
+        Map<String, String> goodsStatusMap = new LinkedHashMap<>();
+        for (AfterSaleGoodsStatusEnum g : AfterSaleGoodsStatusEnum.values()) {
+            goodsStatusMap.put(g.getCode(), g.getDesc());
         }
 
         return AfterSaleStatusConstantsVO.builder()
                 .map(statusMap)
                 .color(colorMap)
                 .reasonMap(reasonMap)
+                .unshippedReasonMap(unshippedReasonMap)
+                .shippedReasonMap(shippedReasonMap)
                 .typeMap(typeMap)
+                .goodsStatusMap(goodsStatusMap)
                 .build();
     }
 
@@ -385,7 +433,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         AfterSaleStatusEnum status = AfterSaleStatusEnum.fromCode(a.getStatus());
         AfterSaleTypeEnum type = AfterSaleTypeEnum.fromCode(a.getAfterSaleType());
         AfterSaleReasonEnum reason = AfterSaleReasonEnum.fromCode(a.getReason());
+        AfterSaleGoodsStatusEnum goodsStatus = AfterSaleGoodsStatusEnum.fromCode(a.getGoodsStatus());
         PayTypeEnum payType = PayTypeEnum.fromCode(a.getPayType());
+        CourierEnum courier = CourierEnum.fromCode(a.getCourier());
         return AfterSaleVO.builder()
                 .id(a.getId())
                 .orderId(a.getOrderId())
@@ -397,6 +447,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .statusDesc(status == null ? null : status.getDesc())
                 .reason(a.getReason())
                 .reasonDesc(reason == null ? null : reason.getDesc())
+                .goodsStatus(a.getGoodsStatus())
+                .goodsStatusDesc(goodsStatus == null ? null : goodsStatus.getDesc())
                 .remark(a.getRemark())
                 .images(parseImages(a.getImages()))
                 .merchantRemark(a.getMerchantRemark())
@@ -410,6 +462,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .payTypeDesc(payType == null ? null : payType.getDesc())
                 .payAt(a.getPayAt())
                 .payAmount(a.getPayAmount())
+                .courier(a.getCourier())
+                .courierDesc(courier == null ? null : courier.getDesc())
+                .trackingNumber(a.getTrackingNumber())
                 .orderStatus(a.getOrderStatus())
                 .returnWay(sub == null ? null : sub.returnWay)
                 .returnTimeSlot(sub == null ? null : sub.returnTimeSlot)

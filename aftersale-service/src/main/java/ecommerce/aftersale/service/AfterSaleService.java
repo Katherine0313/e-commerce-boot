@@ -24,6 +24,9 @@ public interface AfterSaleService {
     /** 售后详情（含明细 + 子表平铺字段） */
     AfterSaleVO getById(Long id);
 
+    /** 按订单查售后单（判断订单是否已申请售后用），无则返回 null */
+    AfterSaleVO getByOrderId(Long orderId);
+
     /** 用户提交退货方式（status=returning 时可调用） */
     AfterSaleVO submitReturn(Long id, SubmitReturnDTO dto);
 

@@ -74,6 +74,10 @@ public class OrderVO {
     @Schema(description = "完成时间")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime finishAt;
+    @Schema(description = "是否已评价（已完成订单可评价，已评价则前端显示「已评价」）")
+    private Boolean reviewed;
+    @Schema(description = "是否已申请售后（已申请则前端显示「售后详情」）")
+    private Boolean afterSale;
     @Schema(description = "订单明细")
     private List<OrderItemVO> items;
 }

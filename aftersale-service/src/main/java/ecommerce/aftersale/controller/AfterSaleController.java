@@ -56,6 +56,12 @@ public class AfterSaleController {
         return Result.success(afterSaleService.statusConstants());
     }
 
+    @Operation(summary = "按订单查售后单（判断订单是否已申请售后）")
+    @GetMapping("/by-order")
+    public Result<AfterSaleVO> getByOrderId(@RequestParam Long orderId) {
+        return Result.success(afterSaleService.getByOrderId(orderId));
+    }
+
     @Operation(summary = "售后详情")
     @GetMapping("/{id}")
     public Result<AfterSaleVO> getById(@PathVariable Long id) {

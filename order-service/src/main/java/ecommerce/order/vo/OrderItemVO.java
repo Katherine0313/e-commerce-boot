@@ -16,6 +16,8 @@ import java.math.BigDecimal;
 @NoArgsConstructor
 @AllArgsConstructor
 public class OrderItemVO {
+    @Schema(description = "订单项 ID（申请售后定位单品用）")
+    private Long orderItemId;
     @Schema(description = "商品 ID")
     private Long productId;
     @Schema(description = "商品名快照")

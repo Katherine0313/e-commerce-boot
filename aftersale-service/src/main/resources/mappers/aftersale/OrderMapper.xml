@@ -18,4 +18,11 @@
         ORDER BY id ASC
     </select>
 
+    <select id="findItemById" resultType="ecommerce.aftersale.entity.OrderItem">
+        SELECT id, order_id, product_id, product_name, image, sales_price,
+               quantity, sub_total, insurance_detail, insurance_fee
+        FROM order_items
+        WHERE id = #{orderItemId} AND order_id = #{orderId} AND shop_id = #{shopId} AND is_deleted = 0
+    </select>
+
 </mapper>

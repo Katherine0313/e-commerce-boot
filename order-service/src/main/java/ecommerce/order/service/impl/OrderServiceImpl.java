@@ -13,6 +13,7 @@ import ecommerce.order.mapper.CartMapper;
 import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductMapper;
+import ecommerce.order.mapper.ProductReviewMapper;
 import ecommerce.order.service.OrderService;
 import ecommerce.order.vo.LogisticsTraceVO;
 import ecommerce.order.vo.LogisticsVO;
@@ -67,17 +68,20 @@ public class OrderServiceImpl implements OrderService {
     private final OrderItemMapper orderItemMapper;
     private final ProductMapper productMapper;
     private final CartMapper cartMapper;
+    private final ProductReviewMapper productReviewMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final WebSocketSessionRegistry webSocketSessionRegistry;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper, ProductMapper productMapper,
-                            CartMapper cartMapper, StringRedisTemplate stringRedisTemplate,
+                            CartMapper cartMapper, ProductReviewMapper productReviewMapper,
+                            StringRedisTemplate stringRedisTemplate,
                             ObjectMapper objectMapper, WebSocketSessionRegistry webSocketSessionRegistry) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
         this.cartMapper = cartMapper;
+        this.productReviewMapper = productReviewMapper;
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
         this.webSocketSessionRegistry = webSocketSessionRegistry;
@@ -483,6 +487,9 @@ public class OrderServiceImpl implements OrderService {
         OrderStatusEnum status = OrderStatusEnum.fromCode(order.getOrderStatus());
         PayTypeEnum payType = PayTypeEnum.fromCode(order.getPayType());
         List<OrderItem> items = orderItemMapper.listByOrderId(order.getId(), order.getShopId());
+        // 是否已评价：仅已完成订单可能有评价记录，其余状态直接 false（省去无谓查询）
+        boolean reviewed = OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())
+                && productReviewMapper.findByOrderId(order.getId(), order.getShopId()) != null;
         // courier 存英文 key，转中文返回（照旧 Node 后端）
         CourierEnum courierEnum = CourierEnum.fromCode(order.getCourier());
         String courierDesc = courierEnum != null ? courierEnum.getDesc() : order.getCourier();
@@ -522,12 +529,15 @@ public class OrderServiceImpl implements OrderService {
                 .shipAt(order.getShipAt())
                 .confirmAt(order.getConfirmAt())
                 .finishAt(order.getFinishAt())
+                .reviewed(reviewed)
+                .afterSale(order.getAfterSale())
                 .items(items.stream().map(this::toItemVO).toList())
                 .build();
     }
 
     private OrderItemVO toItemVO(OrderItem item) {
         return OrderItemVO.builder()
+                .orderItemId(item.getId())
                 .productId(item.getProductId())
                 .productName(item.getProductName())
                 .image(item.getImage())

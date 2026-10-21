@@ -42,6 +42,10 @@ public class AfterSaleVO {
     private String reason;
     @Schema(description = "售后原因中文")
     private String reasonDesc;
+    @Schema(description = "货物状态 code")
+    private String goodsStatus;
+    @Schema(description = "货物状态中文")
+    private String goodsStatusDesc;
     @Schema(description = "买家备注")
     private String remark;
     @Schema(description = "图片凭证 URL 数组")
@@ -69,6 +73,12 @@ public class AfterSaleVO {
     private LocalDateTime payAt;
     @Schema(description = "实付金额")
     private BigDecimal payAmount;
+    @Schema(description = "快递公司 code")
+    private String courier;
+    @Schema(description = "快递公司中文")
+    private String courierDesc;
+    @Schema(description = "快递单号")
+    private String trackingNumber;
     @Schema(description = "订单状态 code")
     private Integer orderStatus;
     @Schema(description = "退货方式：pickup / self")
