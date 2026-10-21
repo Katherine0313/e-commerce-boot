@@ -22,6 +22,8 @@ public class AfterSaleReturn {
     private Long afterSaleId;
     private String returnWay;
     private String returnTimeSlot;
+    private String returnCourier;
+    private String returnTrackingNumber;
     private LocalDateTime returnAt;
     private LocalDateTime reviewAt;
     private LocalDateTime rejectedAt;

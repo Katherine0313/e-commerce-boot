@@ -22,6 +22,9 @@ public class AfterSaleExchangeReturn {
     private Long afterSaleId;
     private String returnWay;
     private String returnTimeSlot;
+    private String returnCourier;
+    private String returnTrackingNumber;
+    private String shipAddress;
     private LocalDateTime reviewAt;
     private LocalDateTime returnAt;
     private LocalDateTime exchangeAt;

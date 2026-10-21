@@ -5,7 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-20 后台商品/分类/标签/订单/库存预警/售后 CRUD 已打通（统一驼峰契约）；售后后台审核/删除已实现；PageVO 分页加 page/pageSize 由后端返回；多租户沙箱打通（shop-service 开沙箱 15 表克隆 + C 端 user 表加 shop_id + 下单/支付/购物车/地址按店铺 + 来单提醒按 shopId 隔离推送）；后台来单提醒 WebSocket（order-service /ws/order + 前端自动连 + 语音播报）；商品图上传（`/api/admin/upload`，type 分流目录）；订单超时自动确认收货（发货 7 天自动完成 sign_status=auto）；用户增长统计（`/api/admin/users/statistics`）；后台工作台对接（订单统计/用户增长/近12月销售柱状图）。剩余：参数/促销、取消订单关联售后单、购物车 2 缺口、file-service(CDN)、沙箱过期回收/templateGuard、端到端验证。
+  2026-10-21 商品评价模块（product_reviews 表 + order-service Review 接口 + OrderVO.reviewed + 小程序评价提交/晒图视频上传 + 订单卡「已评价」）；售后增强（单品售后 orderItemId、货物状态 goodsStatus、两套退款原因未发货/已发货、仅退款状态规则、售后详情物流 courier/tracking_number、按订单查售后 by-order + OrderVO.afterSale、小程序售后申请页/详情页时间轴按状态动态、后台售后详情退款金额按单品之和 + 货物状态展示）；C 端图片/视频上传（`/api/upload`，type=review/after-sale）。此前 2026-10-20 已完成后台商品/分类/标签/订单/库存预警/售后 CRUD、多租户沙箱、后台来单提醒 WebSocket、商品图上传、订单超时自动确认收货、用户增长统计、后台工作台对接。剩余：参数/促销、取消订单关联售后单、购物车 2 缺口、退货退款/换货详情页、file-service(CDN)、沙箱过期回收/templateGuard、端到端验证。
 
 - **我要去哪里？**
   1. 促销/参数表（business_onsale + parameters）
@@ -42,6 +42,10 @@
   - 2026-10-20：库存预警接口（AdminStockController + StockList 页，路径 /api/admin/stock）；售后后台审核/删除（AdminAfterSaleController，审核=主表状态+商家备注+子表时间戳白名单 STATUS_COLUMN_MAP，删除=主表/明细/子表软删）；订单/售后支付方式 payTypeDesc 中文修复（前端订单 6 表格 payType→payTypeDesc）；售后前端字段蛇形→驼形对齐 + 列表搜索/日期筛选；PageVO 加 page/pageSize 由后端返回、前端从响应读（不写死 pageSize）
   - 2026-10-20：后台来单提醒 WebSocket（order-service /ws/order + AuthHandshakeInterceptor 握手鉴权 + WebSocketSessionRegistry 按 shopId 分组 + 前端 orderNotify.js 自动连/断线重连/语音播报）；多租户沙箱打通（shop-service 开沙箱 POST /api/shops/sandbox：15 张业务表 id+offset 克隆 + 签发沙箱店 admin 令牌；C 端多租户：user 表加 shop_id、下单/支付/购物车/地址按 user 令牌 shopId、来单提醒按 order.shopId 隔离；小程序端 SHOP_ID 常量登录传 shopId）
   - 2026-10-20：商品图上传（product-service `POST /api/admin/upload`，type 分流 upload/image/{upload|body|category|after-sale}，白名单+10MB，前端商品编辑/富文本/售后凭证上传对接）；订单超时自动确认收货（发货 7 天自动 SHIPPED→FINISHED，sign_status 加 auto 与用户签收 signed 区分）；用户增长统计（user-service `GET /api/admin/users/statistics` 近 12 月新增用户）；后台工作台对接（订单字段蛇形→驼峰 + 状态字符串→数字 code，库存预警换用户增长、销售概览换订单统计、近7天换近12月）；沙箱 cloneOrders/cloneAfterSales 的 order_no 加 _s 后缀修复唯一键冲突
+  - 2026-10-21：商品评价模块（product_reviews 建表 + order-service ReviewController/Service/Mapper + OrderVO.reviewed + 小程序 review.vue 真实提交 + 评价晒图/视频上传 + 订单卡「已评价」）
+  - 2026-10-21：C 端图片/视频上传（product-service `POST /api/upload` 需登录，type=review/after-sale，白名单加 video/mp4，multipart 50MB，网关 `/api/upload` 路由）
+  - 2026-10-21：售后增强——单品售后（CreateAfterSaleDTO.orderItemId + OrderItemVO.orderItemId）、货物状态（AfterSaleGoodsStatusEnum + goods_status 列 + goodsStatusMap）、两套退款原因（未发货5/已发货9，AfterSaleReasonEnum 带 shipped 标志）、仅退款状态规则（2/3/4 可仅退款，5 不可）、售后详情物流（courier/courierDesc/trackingNumber + CourierEnum）、按订单查售后（by-order + OrderVO.afterSale）
+  - 2026-10-21：小程序售后前端（apply 按状态过滤服务类型、only-refund 申请页、only-refund-detail 详情页时间轴按状态动态）；后台售后详情退款金额改单品之和 + 货物状态展示
 
 ## 错误日志（最近）
 

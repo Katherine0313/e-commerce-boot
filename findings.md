@@ -574,3 +574,34 @@ gateway `CorsWebFilter` 加一次 CORS 头 + 下游 auth-service 的 common `Cor
 - **前端**：`confirm.vue` 的 `clearCart` 兜底保留（后端已删，多一次请求删不到空购物车，无害）。
 - **为什么后端做**：前端 `clearCart` 若下单成功但清空请求失败（`.catch(()=>{})` 吞错）会残留；后端同事务保证「写订单 + 删购物车」要么都成功要么都回滚。
 
+## 售后增强 + 商品评价（2026-10-21）
+
+### 1. 单品售后（orderItemId 定位）
+
+- 售后从「整单」改「单品」：`CreateAfterSaleDTO` 加 `orderItemId`，`OrderItemVO` 加 `orderItemId`（order-service 返回订单项 id）。
+- 快照明细：传了 `orderItemId` 只快照那一个订单项，退款金额 = 单品小计（`subTotal`）；不传则整单（向后兼容）。
+- 入口：order-card 商品级「申请售后」传 `item.orderItemId`。
+
+### 2. 两套退款原因 + 货物状态
+
+- 退款原因拆两套：未发货 5 个（多拍/错拍/不想要、不想买了、商家未按时发货、选错规格、其他）/ 已发货 9 个（七天无理由、质量问题、发错货、与描述不符、包裹破损、漏发、物流未更新、不想要了、其他）。
+- `AfterSaleReasonEnum` 带 `shipped` 标志；`status-constants` 下发 `reasonMap`（全量，后台用）+ `unshippedReasonMap` + `shippedReasonMap`（小程序按订单状态选）。
+- 货物状态 `goodsStatus`（未收到货/已收到货/已拒收）只在已发货(4)订单申请时填写，`after_sales` 加 `goods_status` 列。
+
+### 3. 仅退款状态规则
+
+- 仅退款（only_refund）允许未发货(2/3) + 已发货(4)，**不含已完成(5)**——已完成订单货已收到，只能退货退款/换货。
+- 退货退款/换货仍要求已发货(4)/已完成(5)。
+
+### 4. C 端图片/视频上传
+
+- 新增 `POST /api/upload`（需登录），复用 product-service 的 `UploadService`，type 分流 `review`（评价晒图）/ `after-sale`（售后凭证）。
+- 白名单加 `video/mp4`，multipart 上限 10MB → 50MB（视频体积大）；网关补 `/api/upload` 路由。
+- 与 `/api/admin/upload`（后台商品图）共用 UploadService，靠 type 分流目录。
+
+### 5. 售后详情（物流 + 时间轴动态 + 入口标记）
+
+- 物流：`AfterSaleVO` 加 `courier`/`courierDesc`/`trackingNumber`，从 `orders` 表 JOIN 带出（`o.courier` 存英文 code，`CourierEnum` 转中文）。
+- 时间轴：按售后状态动态生成节点（提交申请 → 商家审核 → 退款处理 → 退款到账；rejected 显示「审核未通过」），节点完成态 = 对应时间戳非空，不再写死「退款成功」三节点。
+- 入口：`OrderVO.afterSale` 标记（EXISTS after_sales），已申请售后的订单商品上显示「售后详情」而非「申请售后」；「申请退款/申请售后」统一叫「申请售后」。
+

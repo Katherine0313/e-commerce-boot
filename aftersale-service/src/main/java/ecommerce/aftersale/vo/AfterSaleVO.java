@@ -64,6 +64,8 @@ public class AfterSaleVO {
     private String region;
     @Schema(description = "详细地址")
     private String detailAddress;
+    @Schema(description = "换货发货地址")
+    private String shipAddress;
     @Schema(description = "支付方式 code")
     private String payType;
     @Schema(description = "支付方式中文描述")
@@ -85,6 +87,12 @@ public class AfterSaleVO {
     private String returnWay;
     @Schema(description = "取件时段：morning / afternoon")
     private String returnTimeSlot;
+    @Schema(description = "退货快递公司 code")
+    private String returnCourier;
+    @Schema(description = "退货快递公司中文")
+    private String returnCourierDesc;
+    @Schema(description = "退货快递单号")
+    private String returnTrackingNumber;
     @Schema(description = "发起退货时间")
     private LocalDateTime returnAt;
     @Schema(description = "审核时间")

@@ -99,6 +99,16 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         if (AfterSaleTypeEnum.fromCode(type) == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "售后类型不合法");
         }
+        // 退货退款必填退货方式；上门取件还需选时段
+        if (AfterSaleTypeEnum.RETURN_REFUND.getCode().equals(type)) {
+            if (!"pickup".equals(dto.getReturnWay()) && !"self".equals(dto.getReturnWay())) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "请选择退货方式");
+            }
+            if ("pickup".equals(dto.getReturnWay())
+                    && !"morning".equals(dto.getReturnTimeSlot()) && !"afternoon".equals(dto.getReturnTimeSlot())) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "上门取件请选择取件时段");
+            }
+        }
 
         Long userId = currentUserId();
 
@@ -160,8 +170,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .build();
         afterSaleMapper.insert(afterSale);
 
-        // 写子表占位行（按类型路由）
-        insertSubPlaceholder(afterSale.getId(), type, now);
+        // 写子表占位行（按类型路由；退货退款一并写退货方式）
+        insertSubPlaceholder(afterSale.getId(), type, dto.getReturnWay(), dto.getReturnTimeSlot(), dto.getShipAddress(), now);
 
         // 写售后明细（快照）
         List<AfterSaleItem> items = orderItems.stream()
@@ -192,7 +202,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         LocalDateTime start = parseDateTime(startDate);
         LocalDateTime end = parseDateTime(endDate);
         return afterSaleMapper.listByUser(currentUserId(), TEMPLATE_SHOP_ID, status, search, start, end, field).stream()
-                .map(a -> toVO(a, null, null))
+                .map(a -> toVO(a, afterSaleItemMapper.listByAfterSaleId(a.getId(), TEMPLATE_SHOP_ID), null))
                 .toList();
     }
 
@@ -239,40 +249,61 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     @Override
     @Transactional
     public AfterSaleVO submitReturn(Long id, SubmitReturnDTO dto) {
-        String returnWay = dto.getReturnWay();
-        String returnTimeSlot = dto.getReturnTimeSlot();
-        if (!"pickup".equals(returnWay) && !"self".equals(returnWay)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "return_way 必须是 pickup 或 self");
-        }
-        if ("pickup".equals(returnWay) && !"morning".equals(returnTimeSlot) && !"afternoon".equals(returnTimeSlot)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "上门取件必须指定时间段（morning/afternoon）");
-        }
-
         AfterSale afterSale = getOwnedAfterSale(id);
         // 仅退款不退货，不调本接口
         if (AfterSaleTypeEnum.ONLY_REFUND.getCode().equals(afterSale.getAfterSaleType())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "仅退款售后无需提交退货方式");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "仅退款售后无需回填物流");
         }
         // 状态必须是 returning
         if (!AfterSaleStatusEnum.RETURNING.getCode().equals(afterSale.getStatus())) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "当前状态不允许提交退货方式");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "当前状态不允许提交");
         }
-        // 是否已提交过（return_at 非空即已提交）
+        // 是否已提交过（return_at 非空即已提交/回填）
         if (isReturnSubmitted(afterSale.getAfterSaleType(), id)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "已提交过退货方式，不能重复提交");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "已提交过，不能重复提交");
         }
 
         LocalDateTime now = LocalDateTime.now();
-        // 更新子表退货字段
-        if (AfterSaleTypeEnum.EXCHANGE.getCode().equals(afterSale.getAfterSaleType())) {
-            afterSaleExchangeReturnMapper.updateReturnInfo(id, TEMPLATE_SHOP_ID, returnWay, returnTimeSlot, now, now);
-        } else {
-            afterSaleReturnMapper.updateReturnInfo(id, TEMPLATE_SHOP_ID, returnWay, returnTimeSlot, now, now);
-        }
-        // 主表状态推进：return_refund → refunding；exchange 保持 returning
         if (AfterSaleTypeEnum.RETURN_REFUND.getCode().equals(afterSale.getAfterSaleType())) {
+            // 退货退款：退货方式在申请时已选（create 存子表），这里回填物流；自行寄回必填单号
+            AfterSaleReturn sub = afterSaleReturnMapper.findByAfterSaleId(id, TEMPLATE_SHOP_ID);
+            if (sub == null || sub.getReturnWay() == null) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "请先选择退货方式");
+            }
+            String courier = null;
+            String trackingNumber = null;
+            if ("self".equals(sub.getReturnWay())) {
+                if (dto.getCourier() == null || dto.getCourier().isBlank()
+                        || dto.getTrackingNumber() == null || dto.getTrackingNumber().isBlank()) {
+                    throw new BusinessException(HttpStatus.BAD_REQUEST, "请填写退货物流单号");
+                }
+                courier = dto.getCourier();
+                trackingNumber = dto.getTrackingNumber();
+            }
+            afterSaleReturnMapper.updateTracking(id, TEMPLATE_SHOP_ID, courier, trackingNumber, now, now);
             afterSaleMapper.updateStatus(id, TEMPLATE_SHOP_ID, AfterSaleStatusEnum.REFUNDING.getCode(), now);
         } else {
+            // 换货：提交退货方式 + 回填物流（自行寄回填单号）
+            String returnWay = dto.getReturnWay();
+            String returnTimeSlot = dto.getReturnTimeSlot();
+            if (!"pickup".equals(returnWay) && !"self".equals(returnWay)) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "return_way 必须是 pickup 或 self");
+            }
+            if ("pickup".equals(returnWay) && !"morning".equals(returnTimeSlot) && !"afternoon".equals(returnTimeSlot)) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "上门取件必须指定时间段（morning/afternoon）");
+            }
+            String courier = null;
+            String trackingNumber = null;
+            if ("self".equals(returnWay)) {
+                if (dto.getCourier() == null || dto.getCourier().isBlank()
+                        || dto.getTrackingNumber() == null || dto.getTrackingNumber().isBlank()) {
+                    throw new BusinessException(HttpStatus.BAD_REQUEST, "请填写退货物流单号");
+                }
+                courier = dto.getCourier();
+                trackingNumber = dto.getTrackingNumber();
+            }
+            afterSaleExchangeReturnMapper.updateReturnInfo(id, TEMPLATE_SHOP_ID, returnWay, returnTimeSlot, now, now);
+            afterSaleExchangeReturnMapper.updateTracking(id, TEMPLATE_SHOP_ID, courier, trackingNumber, now, now);
             afterSaleMapper.updateStatus(id, TEMPLATE_SHOP_ID, afterSale.getStatus(), now);
         }
 
@@ -370,6 +401,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 if (r != null) {
                     sub.returnWay = r.getReturnWay();
                     sub.returnTimeSlot = r.getReturnTimeSlot();
+                    sub.returnCourier = r.getReturnCourier();
+                    sub.returnTrackingNumber = r.getReturnTrackingNumber();
                     sub.returnAt = r.getReturnAt();
                     sub.reviewAt = r.getReviewAt();
                     sub.rejectedAt = r.getRejectedAt();
@@ -391,6 +424,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 if (r != null) {
                     sub.returnWay = r.getReturnWay();
                     sub.returnTimeSlot = r.getReturnTimeSlot();
+                    sub.returnCourier = r.getReturnCourier();
+                    sub.returnTrackingNumber = r.getReturnTrackingNumber();
+                    sub.shipAddress = r.getShipAddress();
                     sub.returnAt = r.getReturnAt();
                     sub.reviewAt = r.getReviewAt();
                     sub.rejectedAt = r.getRejectedAt();
@@ -402,19 +438,21 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         return sub;
     }
 
-    /** 按类型写子表占位行 */
-    private void insertSubPlaceholder(Long afterSaleId, String type, LocalDateTime now) {
+    /** 按类型写子表占位行；退货退款一并写退货方式 */
+    private void insertSubPlaceholder(Long afterSaleId, String type, String returnWay, String returnTimeSlot, String shipAddress, LocalDateTime now) {
         AfterSaleTypeEnum typeEnum = AfterSaleTypeEnum.fromCode(type);
         if (typeEnum == null) {
             return;
         }
         switch (typeEnum) {
             case RETURN_REFUND -> afterSaleReturnMapper.insertPlaceholder(
-                    AfterSaleReturn.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId).createdAt(now).updatedAt(now).build());
+                    AfterSaleReturn.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId)
+                            .returnWay(returnWay).returnTimeSlot(returnTimeSlot).createdAt(now).updatedAt(now).build());
             case ONLY_REFUND -> afterSaleOnlyRefundMapper.insertPlaceholder(
                     AfterSaleOnlyRefund.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId).createdAt(now).updatedAt(now).build());
             case EXCHANGE -> afterSaleExchangeReturnMapper.insertPlaceholder(
-                    AfterSaleExchangeReturn.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId).createdAt(now).updatedAt(now).build());
+                    AfterSaleExchangeReturn.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId)
+                            .shipAddress(shipAddress).createdAt(now).updatedAt(now).build());
         }
     }
 
@@ -436,6 +474,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         AfterSaleGoodsStatusEnum goodsStatus = AfterSaleGoodsStatusEnum.fromCode(a.getGoodsStatus());
         PayTypeEnum payType = PayTypeEnum.fromCode(a.getPayType());
         CourierEnum courier = CourierEnum.fromCode(a.getCourier());
+        CourierEnum returnCourier = sub != null && sub.returnCourier != null ? CourierEnum.fromCode(sub.returnCourier) : null;
         return AfterSaleVO.builder()
                 .id(a.getId())
                 .orderId(a.getOrderId())
@@ -458,6 +497,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .phone(a.getPhone())
                 .region(a.getRegion())
                 .detailAddress(a.getDetailAddress())
+                .shipAddress(sub == null ? null : sub.shipAddress)
                 .payType(a.getPayType())
                 .payTypeDesc(payType == null ? null : payType.getDesc())
                 .payAt(a.getPayAt())
@@ -468,6 +508,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .orderStatus(a.getOrderStatus())
                 .returnWay(sub == null ? null : sub.returnWay)
                 .returnTimeSlot(sub == null ? null : sub.returnTimeSlot)
+                .returnCourier(sub == null ? null : sub.returnCourier)
+                .returnCourierDesc(returnCourier == null ? null : returnCourier.getDesc())
+                .returnTrackingNumber(sub == null ? null : sub.returnTrackingNumber)
                 .returnAt(sub == null ? null : sub.returnAt)
                 .reviewAt(sub == null ? null : sub.reviewAt)
                 .rejectedAt(sub == null ? null : sub.rejectedAt)
@@ -542,6 +585,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     private static class SubInfo {
         String returnWay;
         String returnTimeSlot;
+        String returnCourier;
+        String returnTrackingNumber;
+        String shipAddress;
         LocalDateTime returnAt;
         LocalDateTime reviewAt;
         LocalDateTime rejectedAt;

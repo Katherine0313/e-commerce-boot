@@ -106,6 +106,7 @@
 - [✓] stock 库存预警表已建 + 30 条数据迁入（`docs/sql/stock-data.sql`，时间字段 create_time/update_time DATETIME）
 - [✓] 库存预警接口（AdminStockController：列表/创建/状态常量，前端 StockList 页对接；路径统一 `/api/admin/stock`，字段统一驼峰）
 - [✓] 商品图上传（`POST /api/admin/upload`，type 分流 `upload/image/{upload|body|category|after-sale}`，白名单 png/jpg/gif/webp + multipart 10MB，前端 AddGoods/EditModal/Editor/售后凭证上传已接；**放 product-service 而非 file-service**，网关 `/image/**` 已指 product-service）
+- [✓] C 端图片/视频上传（`POST /api/upload`，需登录，复用 UploadService；type=review 评价晒图 / after-sale 售后凭证；白名单加 video/mp4，multipart 上限 50MB；网关 `/api/upload` 路由，2026-10-21）
 - [ ] parameters 表 + 参数组/参数项；促销 business_onsale 表 + 活动 CRUD
 - **状态：** in_progress（商品/分类/标签/库存预警后台 CRUD 已通，前端 goods/category/tag/stock 页已对接并统一驼峰；参数、促销未做）
 
@@ -130,6 +131,7 @@
 - [✓] 订单时间时区修复收尾：`updateStatus`/`delete` 的 MySQL `NOW()` 全改 Java `LocalDateTime.now()` 传参，存量 created_at>pay_at 脏数据已修（2026-10-17）
 - [✓] 后台订单管理接口（`/api/admin/orders`：分页列表（状态/关键词/时间范围筛选，dateField 白名单）/详情/状态常量/快递/更新/确认收款/发货/完成/取消/删除/批量删除/物流；shopId 走 UserContext，状态文案用 adminDesc，前端 orders 页对接统一驼峰 + 状态数字 code）
 - [✓] 订单超时自动确认收货（发货满 7 天自动 `SHIPPED → FINISHED`，`sign_status` 记 `auto` 与用户主动签收 `signed` 区分；`@Scheduled` 每分钟扫 + `findExpiredShipped` + `autoConfirm`，2026-10-20）
+- [✓] 商品评价（product_reviews 表 + ReviewController/Service/Mapper/dto/vo + OrderVO.reviewed 标记 + 前端 review.vue 提交 + 评价晒图/视频上传 + order-card「已评价」状态；一单评一次、已完成可评，2026-10-21）
 - [ ] 取消订单自动生成退款售后单（only_refund），关联 aftersale
 - **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路 + 后台订单管理接口已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 2 项缺口见上，售后关联未做、未启动端到端验证）
 
@@ -139,8 +141,15 @@
 - [✓] C 端售后接口（`AfterSaleController` 5 接口：申请/列表/详情/状态常量/提交退货）
   - 归属隔离通过 `order_id LEFT JOIN orders` 的 `user_id`，修正原 Node 越权；gateway 补 `/api/after-sales/**` 路由
 - [✓] 后台审核/删除（`review`/`delete`，走 `/api/admin/after-sales/**`；审核=主表状态+商家备注+子表时间戳，删除=主表/明细/子表软删）
+- [✓] 单品售后（`CreateAfterSaleDTO.orderItemId` 快照单个订单项，`OrderItemVO.orderItemId` 前端定位，退款金额=单品小计，2026-10-21）
+- [✓] 货物状态（`AfterSaleGoodsStatusEnum` + `after_sales.goods_status` 列 + `status-constants` 下发 `goodsStatusMap`，已发货订单申请时必填，2026-10-21）
+- [✓] 两套退款原因（未发货 5 个 / 已发货 9 个，`AfterSaleReasonEnum` 带 shipped 标志，`status-constants` 下发 `unshippedReasonMap`/`shippedReasonMap`，前端按订单状态选，2026-10-21）
+- [✓] 仅退款状态规则（only_refund 允许未发货 2/3 与已发货 4，不含已完成 5；return_refund/exchange 仅 4/5，2026-10-21）
+- [✓] 售后详情物流（`AfterSaleVO` 加 `courier`/`courierDesc`/`trackingNumber`，JOIN orders 带出 + `CourierEnum` 转中文，2026-10-21）
+- [✓] 按订单查售后（`GET /api/after-sales/by-order` + `OrderVO.afterSale` 标记，前端订单卡已申请售后的订单显示「售后详情」，2026-10-21）
+- [✓] 小程序售后前端（apply 选服务类型按状态过滤 + only-refund 申请页 + only-refund-detail 详情页时间轴按状态动态，2026-10-21）
 - [ ] 取消订单自动生成退款售后单（关联 order-service，见阶段 4）
-- **状态：** in_progress（C 端售后接口 + 后台审核/删除已实现并编译通过；取消订单自动生成退款售后单未做、端到端未验证）
+- **状态：** in_progress（C 端售后接口 + 后台审核/删除 + 单品/货物状态/两套原因/状态规则/详情物流已实现并编译通过；取消订单自动生成退款售后单未做、退货退款/换货详情页未做、端到端未验证）
 
 ### 阶段 6：user-service + file-service
 - [✓] user-service：整合现有 user 模块（小程序登录/资料/头像/昵称/注销链路已在 user-service 跑通）；收货地址已实现在 order-service（address 表），不归 user-service
