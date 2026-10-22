@@ -2,13 +2,14 @@ package ecommerce.order.ws;
 
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 /**
- * 订单 WebSocket 处理器：只管连接的建立与关闭，注册/注销到会话注册表。
+ * 订单 WebSocket 处理器：负责连接的建立/关闭与心跳应答。
  * <p>
- * 本服务是服务端单向推送（新订单提醒），不处理客户端发来的消息，故不重写 handleTextMessage。
+ * 业务推送是服务端 → 客户端单向；客户端只发心跳 ping，服务端回 pong 保持连接活跃。
  */
 @Component
 public class OrderWebSocketHandler extends TextWebSocketHandler {
@@ -29,5 +30,17 @@ public class OrderWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
         Long shopId = (Long) session.getAttributes().get("shopId");
         sessionRegistry.remove(shopId, session);
+    }
+
+    /** 心跳：前端每 25 秒发一次 {"type":"ping"}，回 pong 防止网关/中间设备因空闲断开 */
+    @Override
+    protected void handleTextMessage(WebSocketSession session, TextMessage message) throws Exception {
+        if (message.getPayload().contains("\"ping\"")) {
+            synchronized (session) {
+                if (session.isOpen()) {
+                    session.sendMessage(new TextMessage("{\"type\":\"pong\"}"));
+                }
+            }
+        }
     }
 }

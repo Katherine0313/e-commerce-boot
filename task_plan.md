@@ -220,11 +220,13 @@
 - [✓] 会话注册表：`WebSocketSessionRegistry` 按 shopId 分组的 `ConcurrentHashMap`，多商户不串店
 - [✓] 网关加 `ws://` 路由：`/ws/**` → `lb://order-service`
 - [✓] 事件发布点：`order-service` 支付成功 `payOrder` → 推 `{shopId, type:1, orderId, content}`
-- [✓] 后台管理端：登录后自动建连 + 断线重连（3s，最多 10 次防死循环）+ notification 弹窗 + 语音播报（`utils/orderNotify.js`）
+- [✓] 后台管理端：登录后自动建连 + 断线重连 + notification 弹窗 + 语音播报（`utils/orderNotify.js`）
+- [✓] 前端心跳 ping/pong（25s）+ 握手 10s 超时 + 无限退避重连（3s→30s）+ 页面可见/网络恢复立即重连；重连成功后刷新工作台统计作为对账（2026-10-22）
+- [✓] 语音播报浏览器策略：首次点击/按键静音预热解锁、缓存中文语音、`cancel()` 后延迟 speak；**刷新页面后需随便点一下页面（菜单/空白处）才会出声**（2026-10-22）
+- [✓] 后端发送可靠性：`sendToShop` 串行发送（session 非线程安全），失败/半开连接移除，避免僵尸 session 持续漏推（2026-10-22）
 - [ ] Redis pub/sub 跨实例广播：每实例订阅 `ws:push`，只推本地在线 session（解 `lb://` 长连接握手后钉死单实例的问题）
 - [ ] 事件补齐：发货、新售后单（aftersale-service）
-- [ ] 前端心跳 ping/pong + **重连后拉全量对账**（补漏掉的消息）
-- **状态：** in_progress（单实例版已实现并演示跑通；跨实例广播、事件补齐、心跳/对账待做）
+- **状态：** in_progress（单实例版 + 心跳/重连/发送可靠性已实现；跨实例广播、事件补齐待做）
 
 ### 阶段 12：微信支付接入（真实支付，解决「扣款成功但订单未到账」一致性）
 

@@ -42,13 +42,23 @@ public class WebSocketSessionRegistry {
             return;
         }
         for (WebSocketSession session : set) {
-            if (session.isOpen()) {
-                try {
-                    session.sendMessage(new TextMessage(message));
-                } catch (Exception e) {
-                    // 发送失败忽略：连接可能已断，等重连后前端拉全量对账补漏
-                }
+            if (!session.isOpen()) {
+                // 连接已关闭但未触发 afterConnectionClosed（半开连接），顺手清掉
+                set.remove(session);
+                continue;
             }
+            try {
+                // WebSocketSession 非线程安全，多个订单同时支付时串行发送，避免并发写导致漏推
+                synchronized (session) {
+                    session.sendMessage(new TextMessage(message));
+                }
+            } catch (Exception e) {
+                // 发送失败视为连接失效，移除以免后续推送继续失败
+                set.remove(session);
+            }
+        }
+        if (set.isEmpty()) {
+            sessions.remove(shopId);
         }
     }
 }

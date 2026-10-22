@@ -5,15 +5,15 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-22 后台营业额统计（order-service `ReportController`：卡片 `/api/admin/report/turnover` + 折线 `/turnover-report`，口径实收 − 退款、退款跟原订单 `pay_at`）+ 取消订单自动生成退款售后单（用户/后台取消已支付未发货订单时，同事务直写售后三表，`reason=cancel`）；网关已补 `/api/admin/report/**` 路由；后台工作台营业额面板已接（昨日/近7天/本月，替换原 MonthlySales）。此前 2026-10-21 已完成商品评价、售后增强、售后三类型申请/详情页、售后列表 Tab 与角标。剩余：参数/促销、购物车 2 缺口、退货入库单（仓库核验）、file-service(CDN)、沙箱过期回收/templateGuard、端到端验证。
+  2026-10-22 后台营业额统计（order-service `ReportController`：卡片 `/api/admin/report/turnover` + 折线 `/turnover-report`，口径实收 − 退款、退款跟原订单 `pay_at`）+ 取消订单自动生成退款售后单（用户/后台取消已支付未发货订单时，同事务直写售后三表，`reason=cancel`）；网关已补 `/api/admin/report/**` 路由；后台工作台营业额面板已接（昨日/近7天/本月，昨日用前日 vs 昨日双柱，替换原 MonthlySales；纵轴按 2000 的倍数自适应，横轴防裁切）；四张统计卡改走后端 `/api/admin/report/dashboard` + `users/statistics.totalUsers`；来单 WebSocket 收到推送后自动刷新工作台（心跳/重连/语音解锁已加固，**刷新页面后点一下页面才会出声**）。此前 2026-10-21 已完成商品评价、售后增强、售后三类型申请/详情页、售后列表 Tab 与角标。剩余：参数/促销、购物车 2 缺口、退货入库单（仓库核验）、file-service(CDN)、沙箱过期回收/templateGuard、端到端验证。
 
 - **我要去哪里？**
   1. 促销/参数表（business_onsale + parameters）
   2. 补购物车 2 缺口
-  4. file-service（CDN/通用文件，图片上传已放 product-service）
-  5. 沙箱过期回收 + templateGuard
-  6. 端到端验证全链路
-  7. 阶段 11 WebSocket 剩余：Redis pub/sub 跨实例广播 + 发货/新售后事件补齐
+  3. file-service（CDN/通用文件，图片上传已放 product-service）
+  4. 沙箱过期回收 + templateGuard
+  5. 端到端验证全链路
+  6. 阶段 11 WebSocket 剩余：Redis pub/sub 跨实例广播 + 发货/新售后事件补齐
 
 - **目标是什么？**
   拆成真·微服务部署，跑通 Nacos 注册 + Gateway 路由，再逐个补业务服务。
@@ -52,7 +52,10 @@
   - 2026-10-22：文档回滚更新——修正商品模块蛇形契约、`/api/admin/shops/current` 路径、springdoc 已替代手写 `docs/openapi.yaml`、WebSocket 阶段 11 改为已实现单实例版
   - 2026-10-22：网关补 `/api/admin/report,/api/admin/report/**` → `lb://order-service` 路由（原先落到兜底 `/api/**` 转 user-service 404）
   - 2026-10-22：后台工作台营业额面板（`TurnoverPanel.vue` + `api/report.js` + `useWorkplaceData.loadTurnover`，维度 昨日/近7天/本月 + 大数字；近7天/本月折线，昨日用「前日 vs 昨日」双柱对比，复用 week 报表按日期取两点）；舍弃 `MonthlySales.vue`（近12月柱状图，前端本地聚合）；后端移除 quarter 维度
-  - 2026-10-22：工作台四张统计卡对齐后端——order-service 新增 `/api/admin/report/dashboard`（今日/昨日营业额、今日/昨日订单量、待发货），user-service `/api/admin/users/statistics` 新增 `totalUsers`；前端 `cards` 不再用订单列表本地聚合
+  - 2026-10-22：工作台四张统计卡对齐后端——order-service 新增 `/api/admin/report/dashboard`（今日/昨日营业额、今日/昨日订单量、待发货），user-service `/api/admin/users/statistics` 新增 `totalUsers`；前端 `cards` 不再用订单列表本地聚合；来单 WebSocket 推送后工作台自动刷新
+  - 2026-10-22：来单提醒可靠性加固——前端 25s 心跳 + 10s 握手超时 + 无限退避重连（3s→30s）+ 页面可见/网络恢复重连 + 重连后对账刷新；后端回 pong、串行发送、失败/半开连接移除
+  - 2026-10-22：来单语音播报修复——浏览器自动播放策略导致刷新后无声，首次点击/按键静音预热解锁 + 缓存中文语音 + `cancel()` 后延迟 speak；使用注意：刷新页面后随便点一下后台页面任意位置（菜单/空白处），之后来单才会正常播报
+  - 2026-10-22：营业额图坐标调整——纵轴按数据量级自动选 2000 的整数倍，横轴 `grid.right` 加宽 + 首尾留白 + `hideOverlap` 防日期标签裁切/重叠
 
 ## 错误日志（最近）
 

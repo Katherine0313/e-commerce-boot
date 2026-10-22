@@ -298,8 +298,11 @@ ecommerce
 - **握手鉴权**：浏览器 `new WebSocket` 不能带 header，token 走 `?token=` query，`AuthHandshakeInterceptor` 用 `JwtUtil.parseToken` 验 admin + 取 shopId 存 attributes。
 - **会话按 shopId 分组**：`WebSocketSessionRegistry`（`ConcurrentHashMap<Long, Set<WebSocketSession>>`），多商户不串店。
 - **触发点**：支付成功 `payOrder` → `pushNewOrderNotice` 推 `{shopId, type:1, orderId, content}` 给对应店铺的在线连接。
-- **前端**：`utils/orderNotify.js` 登录后自动连 + 断线重连（3s，最多 10 次防死循环）+ notification 弹窗 + SpeechSynthesis 语音。
+- **前端**：`utils/orderNotify.js` 登录后自动连 + notification 弹窗 + SpeechSynthesis 语音；收到推送后 `orderNotifyTick` 自增，工作台监听它自动刷新统计卡/营业额。
 - **单实例内存版**：真多实例要补 Redis pub/sub 跨实例广播（task_plan 阶段 11）。
+- **连接可靠性加固（2026-10-22）**：前端加 25s 心跳 ping（后端回 pong）、握手 10s 超时、无限退避重连（3s→30s，登出/token 清除时停止）、页面 `visibilitychange`/`online` 时断线立即重连；重连成功后触发一次 `orderNotifyTick` 作为对账。后端 `sendToShop` 串行发送（`WebSocketSession` 非线程安全），发送失败或半开连接直接从注册表移除，避免僵尸 session 导致后续推送持续丢失。
+- **语音播报的浏览器限制（2026-10-22）**：`speechSynthesis` 受自动播放策略限制，**页面刷新后如果没有用户交互，语音会被静默拒绝**（表现：弹窗正常、没有声音；退出登录点击过页面后才恢复）。处理：首次 `pointerdown`/`keydown` 时播一条音量为 0 的短语音预热解锁；缓存中文语音（`voiceschanged` 后再取）；播报前 `resume()`，`cancel()` 后延迟 60ms 再 `speak()`（Chrome 偶发吞掉）。
+  - **使用注意：刷新页面后，随便点一下后台页面任意位置（菜单、空白处都行），之后来单就会正常播报。** 如果刷新后完全不点击页面，浏览器仍会拒绝发声，代码层面无法绕过。
 
 ## 遗留风险（已决策暂不修，勿反复提起）
 
@@ -647,6 +650,7 @@ gateway `CorsWebFilter` 加一次 CORS 头 + 下游 auth-service 的 common `Cor
   - 折线按 `DATE_FORMAT(pay_at, '%Y-%m-%d')` 分组，退款同样按原订单 `pay_at` 分组；缺失日期补 0。
 - **period 语义**：`yesterday`=昨天完整自然日 `[昨天0点, 今天0点)`；`week`=近 7 天含今天 `[今天-6天0点, now)`；`month`=本月 `[月初0点, now)`。日期均用 JVM 本地时区，与 `pay_at` 同基准。
 - **前端对接（2026-10-22）**：后台工作台新增 `TurnoverPanel.vue`（维度切换 + 大数字 + 图表），`api/report.js` 封装两个接口，`useWorkplaceData` 统一取数；原 `MonthlySales.vue`（近 12 月柱状图、前端本地聚合）已删除。近7天/本月用 `LineChart` 折线；昨日用 `BarChart` 做「前日 vs 昨日」双柱对比（复用 `period=week` 报表，按日期取前天/昨天两点，不新增后端接口）。
+- **图表坐标规则（2026-10-22）**：营业额图纵轴传 `yAxisInterval=2000`，组件按数据量级选 2000 的整数倍（约 8 档）——2.5 万→4000、5 万→8000、22 万→28000；纵轴刻度加千分位，`grid.containLabel` 防长数字裁切。横轴 `grid.right=24`、`boundaryGap=['2%','2%']`、`hideOverlap=true`，防首尾日期和本月多日期标签裁切/重叠。
 - **工作台四张统计卡（2026-10-22）**：新增 `GET /api/admin/report/dashboard` → `DashboardStatsVO{todayTurnover, yesterdayTurnover, todayOrders, yesterdayOrders, pendingShip}`，一次取齐「今日销售额 / 今日订单量（含环比）/ 待发货订单」；营业额复用 `turnoverOf` 口径，订单量按 `created_at` 且排除已取消（status 6），待发货 = status 3。用户总量改由 `/api/admin/users/statistics` 新增的 `totalUsers` 字段提供（`user` 表按 shop_id count，不再由前端累加近 12 月新增）。前端 `cards` 全部改读后端，不再用订单列表本地聚合。
 - **网关路由（2026-10-22 已修）**：`gateway/application.yml` 的 order-service 路由原只覆盖 `/api/orders/**` 与 `/api/admin/orders/**`，`/api/admin/report/**` 会落到兜底 `/api/**` → user-service 返回 404。已把 `/api/admin/report,/api/admin/report/**` 加入 order-service 的 `Path` 断言；改完需重启 gateway 才生效。
 
