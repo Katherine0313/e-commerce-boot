@@ -10,7 +10,8 @@ import java.util.List;
 /**
  * 用户增长统计 VO（后台工作台 /api/admin/users/statistics）。
  * <p>
- * newUsers 是每月新增用户数；「用户总量」由前端累加 newUsers 得到（累计曲线）。
+ * newUsers 是每月新增用户数；累计曲线由前端累加 newUsers 得到。
+ * totalUsers 是当前店铺的真实用户总量（不受近 12 个月窗口限制），供工作台统计卡使用。
  */
 @Data
 @Builder
@@ -21,4 +22,6 @@ public class UserStatisticsVO {
     private List<String> months;
     /** 每月新增用户数，与 months 对齐 */
     private List<Long> newUsers;
+    /** 用户总量（当前店铺未删除用户数） */
+    private Long totalUsers;
 }

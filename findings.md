@@ -9,7 +9,7 @@
 ### 核心机制：必须先 Nacos，再服务
 
 所有服务在启动阶段都要向 Nacos 注册（各 `application.yml` 里的 `spring.cloud.nacos.discovery.server-addr`，默认 `${NACOS_ADDR:127.0.0.1:8848}`）。
-Nacos 只有一份，是 Docker 容器（根目录 `docker-compose.yml`，**该文件只起 Nacos 一件事**）。
+Nacos 只有一份，是 Docker 容器（根目录 `docker-compose.yml`）。**注意**：该文件里仍保留 `mysql` 服务（映射宿主 3307），但 2026-10-18 起 MySQL 已统一用本机 3306，开发期不需要这个容器；只想起 Nacos 用 `docker compose up -d nacos` 即可（compose 文件注释尚未清理）。
 
 **Docker 没起 → Nacos 没起 → 8848 无监听 → 服务注册失败、启动不成功。**
 
@@ -83,6 +83,8 @@ curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 
 | aftersale-service | 9005 | `AftersaleServiceApplication` | 否 |
 | user-service | 9006 | `UserServiceApplication` | **是** |
 | file-service | 9007 | `FileServiceApplication` | 否 |
+| ai-agent-service | 9008 | `AiAgentServiceApplication` | **是**（AI key） |
+| recommender-python | 9009 | `uvicorn main:app --port 9009` | 否 |
 | Nacos | 8848 / 9848 / 9849 | — | — |
 | Nacos 控制台 | 18080（容器内 8080） | — | — |
 | MySQL | 3306（本机 MySQL80） | — | — |
@@ -126,6 +128,8 @@ docker compose down    # 停 Nacos（数据在容器内嵌 derby，开发期无�
 ### 核心原则
 
 按 **业务模块** 建包，不按「端」建包。每个业务模块内部「数据共用、接口分层」。
+
+> 现状（2026-10）：项目已拆成 `user-service`/`product-service`/`order-service`/`aftersale-service` 等独立 Maven 模块，但**服务内部**仍遵循本节约定 —— 按业务模块建包，包内分 `controller/service/mapper/entity/dto/vo`，C 端 `User*` / 后台 `Admin*` 前缀保留；原 `goods` 域对应现在的 `product-service`。
 
 - 不建 `wx`（小程序端）大包 + `pc`（PC 端商城）大包 + `admin`（后台）大包，而是 `goods` / `order` / `aftersale` 这种业务包。
 - 同一份业务数据多端共用，只是接口、权限、可见字段不同。
@@ -201,13 +205,11 @@ ecommerce
 
 贴合分阶段迁移策略：小程序先跑通（`user` + 各业务模块的 `User*` 部分），PC 端商城接入时补登录入口（`PcLoginController`），后台功能之后逐个模块补 `Admin*` 部分。结构先留好位置，往里填即可。
 
-### 接口文档同步约定
+### 接口文档（springdoc 自动生成）
 
-> 后端接口有改动，`docs/openapi.yaml` 必须同步，不能只改代码。
+> 手写静态契约 `docs/openapi.yaml` 已删除；接口文档以 springdoc 运行时生成 + 网关聚合 Swagger UI 为准（`gateway/application.yml` 的 `springdoc.swagger-ui.urls` 聚合各服务文档）。以下注解约定仍然有效。
 
-- **同步时机**：新增 / 修改 / 删除 Controller 接口，或 DTO / VO 字段变化时，同步更新 `docs/openapi.yaml`。
-- **为什么**：`docs/openapi.yaml` 是给前端看的静态契约文档，不会随代码自动更新，必须手动同步。
-- **响应结构**：统一按 `Result<T>` 的实际字段写 —— `success` / `data` / `message` / `code`；HTTP 状态码真实返回（成功 200，失败 400/401/403/404/500），不要沿用旧的 `code`/`msg`、HTTP 恒 200 的写法。
+- **响应结构**：统一按 `Result<T>` 的实际字段 —— `success` / `data` / `message` / `code`；HTTP 状态码真实返回（成功 200，失败 400/401/403/404/500），不要沿用旧的 `code`/`msg`、HTTP 恒 200 的写法。
 - **要不要带令牌怎么声明**：根级 `security: - bearerAuth: []` 表示全文档默认要带令牌，登录接口用 `security: []` 单独关掉
   - `commonFailureResponsesCustomizer` 按 `EXCLUDE_AUTH_PATHS` 自动补这个覆盖，Swagger UI 上登录接口不显示锁图标
   - 令牌方案 `bearerAuth`（`type: http` / `scheme: bearer` / `bearerFormat: JWT`）在 `components.securitySchemes` 定义一次
@@ -229,13 +231,12 @@ ecommerce
 - **上传接口必须声明 `consumes`**：`@PostMapping(value = "/avatar", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)`
   - 不写的话 springdoc 套用默认 `application/json`，文档请求体变 JSON，Swagger UI 给 JSON 编辑器而非文件选择框
   - 同时 413 注入规则失效（判不出是上传接口）；声明后非 multipart 返回 415，是预期行为
-- **`docs/openapi.yaml` 里的公共码**引用 `components/responses` 下的定义（`BadRequest` / `Unauthorized` / `Forbidden` 等）
-  - 失败响应体统一引用 `components/schemas/ResultVoid`；静态契约不会自动更新，新增接口时按上表手工补上对应码
+- **公共码无需手写**：上表的 400/401/403/413/500 全部由 `commonFailureResponsesCustomizer` 注入，失败响应体统一为 `ResultVoid`；新增接口不加注解也会自动带上
 - **写 `@ApiResponses` 的两个坑**（当前代码里已无任何本地注解，但将来真要写时必须知道）：
   1. 方法上一旦标了 `@ApiResponses`，springdoc 就**不再自动补 200**，成功响应必须显式写 `@ApiResponse(responseCode = "200", useReturnTypeSchema = true)`，否则 Swagger UI 里该接口只剩失败码。零注解的接口才享受自动 200。
   2. 手写的失败码如果不给 `content`，springdoc 会拿方法返回值类型去填响应体（把 400 的 `data` 写成头像 URL）。所以失败响应体一律交给 `commonFailureResponsesCustomizer` 纠正，注解里不要自己写 `content`。
 - **免登录清单只有一份**：`WebMvcConfig.EXCLUDE_AUTH_PATHS`。拦截器豁免和文档补全都读它（同一套 Ant 匹配语义，支持 `/api/products/**` 前缀豁免），新增免登录接口（登录入口、C 端商品浏览等）只改这一处。
-- **运行时文档**：springdoc 自动生成的 `/swagger-ui.html`、`/v3/api-docs` 无需手动维护；`docs/openapi.yaml` 是另一份手工契约，两者都要保持一致。
+- **运行时文档**：网关聚合入口 `/swagger-ui.html`，各服务 `/v3/api-docs`；`SPRINGDOC_ENABLED=true` 时开启，无需手工维护静态契约。
 
 ### 头像上传遗留待办
 
@@ -269,7 +270,7 @@ ecommerce
 | 免登录清单唯一来源 `EXCLUDE_AUTH_PATHS` | 拦截器豁免与文档补全读同一份，防漂移 |
 | C 端商品浏览免登录（列表/详情/分类/标签），加购、下单需登录 | 小程序进首页看商品不带 token；写操作走购物车/订单接口需 user 令牌；后台商品管理走 `/api/admin/**` 需 admin 令牌 |
 | 头像存相对路径、返回时拼完整 URL | 换域名不失效 |
-| 后台 Admin 端统一驼峰（前后端 + C 端三套对齐），分页 `Result<PageVO<T>>`，shopId 从 admin 令牌取 | 旧 Node 前端蛇形 vs 后端驼峰；统一驼峰消除翻译层（不用 @JsonNaming），见下节「后台 Admin 端对接契约」 |
+| 后台 Admin 端以驼峰为主（订单/库存/用户统计等），商品模块保留蛇形（`@JsonNaming(SnakeCase)` 兼容旧 Node 前端），分页 `Result<PageVO<T>>`，shopId 从 admin 令牌取 | 商品前端照旧 Node 蛇形契约写、改动成本高；其余模块用驼峰消除翻译层，见下节「后台 Admin 端对接契约」 |
 
 ## 后台 Admin 端对接契约（2026-10-19）
 
@@ -320,8 +321,7 @@ ecommerce
 | 电商后台管理系统后端（待重构） | `D:\study\my-workspace\wechat-workspace\e-commerce\server` | Node.js（Express + SQLite），准备整合进本项目做微服务拆分 |
 
 - 架构与约定入口：**本文档「项目架构约定」一节**（2026-09-28 由原根目录 `project_spec.md` 全文并入，含三端划分、命名规则、OpenAPI 同步约定、头像上传待办表）
-- 静态接口契约：`docs/openapi.yaml`（263 行）
-- 运行时文档：`/swagger-ui.html`、`/v3/api-docs`（`SPRINGDOC_ENABLED=true` 时开）
+- 接口文档：网关聚合 `/swagger-ui.html`、各服务 `/v3/api-docs`（`SPRINGDOC_ENABLED=true` 时开；手写 `docs/openapi.yaml` 已删）
 - 配置：`src/main/resources/application.yml`；本地真实值走环境变量（清单见 `docs/env.md`）
 
 ## 头像静态资源路由 + 绝对 URL 拼接（2026-10-10）
@@ -604,4 +604,58 @@ gateway `CorsWebFilter` 加一次 CORS 头 + 下游 auth-service 的 common `Cor
 - 物流：`AfterSaleVO` 加 `courier`/`courierDesc`/`trackingNumber`，从 `orders` 表 JOIN 带出（`o.courier` 存英文 code，`CourierEnum` 转中文）。
 - 时间轴：按售后状态动态生成节点（提交申请 → 商家审核 → 退款处理 → 退款到账；rejected 显示「审核未通过」），节点完成态 = 对应时间戳非空，不再写死「退款成功」三节点。
 - 入口：`OrderVO.afterSale` 标记（EXISTS after_sales），已申请售后的订单商品上显示「售后详情」而非「申请售后」；「申请退款/申请售后」统一叫「申请售后」。
+
+## 退货退款/换货详情页 + 退货方式弹窗 + 售后列表角标（2026-10-21）
+
+### 1. 退货方式弹窗（return-way-popup，售后模块内组件）
+
+- 退货退款/换货申请页选「退货方式」：底部弹窗，官方退货卡片（上门取件 + 时段 09:00–13:00 / 13:00–19:00，code 仍 morning/afternoon）+ 自行寄回（放弃丢损必赔，运费自付）。
+- 组件放 `pages/after-sales/`（模块内就近），不放全局 `components/`。
+
+### 2. 自行寄回回填物流（独立页 return-tracking）
+
+- 退货方式选「自行寄回」后，商家审核通过（returning），用户寄出后回填物流单号：独立页 `return-tracking.vue`（快递公司 8 家 + 单号），提交 `submitReturn`（courier/trackingNumber）。
+- 退货物流存子表 `after_sale_returns.return_courier/return_tracking_number`（退货退款）、`after_sale_exchange_returns` 同名字段（换货）。
+- 防止忘记填：申请提交时 toast 提示 + 详情页退货物流行显示「回填物流单号，点击填写」。
+
+### 3. 换货发货地址（ship_address）
+
+- 换货是「退旧货 + 寄新货」，申请时填「发货地址」（商家寄新货地址），单字段 `ship_address`（一个 textarea 填收货人/电话/地址），存换货子表 `after_sale_exchange_returns.ship_address`。
+- 主表 `after_sales` 不存换货专属字段。
+
+### 4. 时间轴拒绝态
+
+- 售后详情页时间轴，`rejected`（商家拒绝）时「审核未通过」节点标 `reject`，红色圆点 + 叉「×」，不再是绿色对勾。
+
+### 5. 售后列表 Tab + 角标真实数量
+
+- 订单列表「售后」Tab 对接 `listAfterSales`，售后卡片 `after-sale-card`（类型/状态/商品明细/金额），点击按类型跳对应详情页。
+- 「我的」页订单入口右上角红色数字角标：`onShow` 拉 `listOrders`/`listAfterSales`，按状态（待付款 1 / 待发货 2·3 / 待收货 4 / 待评价 5 且未评价）回填 badge，售后=售后列表条数；0 隐藏、>99 显示 99+。
+
+## 营业额统计 + 取消订单自动退款（2026-10-22）
+
+### 1. 营业额统计接口（order-service）
+
+- **归属**：新建 `order-service/controller/ReportController`（`/api/admin/report`）+ `ReportService`/`ReportServiceImpl`，与订单 CRUD 解耦；后续订单统计、销量 Top10 可在此扩展，不再往 `AdminOrderController` 里塞。
+- **接口**：
+  - `GET /api/admin/report/turnover?period=yesterday|week|month` → `TurnoverVO{timeDesc, turnover}`（工作台卡片，一次一个维度）
+  - `GET /api/admin/report/turnover-report?period=yesterday|week|month` → `TurnoverReportVO{dateList, turnoverList}`（ECharts 折线，按天）
+  - 原 `quarter` 维度已按前端需求移除（2026-10-22），后端传 quarter 返回 400
+- **口径（实时统计，不落统计表）**：营业额 = 实收 − 退款。
+  - 实收：`orders.pay_amount` 按 `pay_at` 落在区间内合计（`pay_at IS NOT NULL`，**含已取消订单**，因为取消自动退款后实收和退款要同时体现、净额抵消）。
+  - 退款：`after_sale_items.refund_amount` JOIN `after_sales`（`status='refunded'`、`is_deleted=0`），**按原订单的 `pay_at` 归属**，不按退款时间；因此历史营业额会随后续退款动态减少。
+  - 折线按 `DATE_FORMAT(pay_at, '%Y-%m-%d')` 分组，退款同样按原订单 `pay_at` 分组；缺失日期补 0。
+- **period 语义**：`yesterday`=昨天完整自然日 `[昨天0点, 今天0点)`；`week`=近 7 天含今天 `[今天-6天0点, now)`；`month`=本月 `[月初0点, now)`。日期均用 JVM 本地时区，与 `pay_at` 同基准。
+- **前端对接（2026-10-22）**：后台工作台新增 `TurnoverPanel.vue`（维度切换 + 大数字 + 图表），`api/report.js` 封装两个接口，`useWorkplaceData` 统一取数；原 `MonthlySales.vue`（近 12 月柱状图、前端本地聚合）已删除。近7天/本月用 `LineChart` 折线；昨日用 `BarChart` 做「前日 vs 昨日」双柱对比（复用 `period=week` 报表，按日期取前天/昨天两点，不新增后端接口）。
+- **工作台四张统计卡（2026-10-22）**：新增 `GET /api/admin/report/dashboard` → `DashboardStatsVO{todayTurnover, yesterdayTurnover, todayOrders, yesterdayOrders, pendingShip}`，一次取齐「今日销售额 / 今日订单量（含环比）/ 待发货订单」；营业额复用 `turnoverOf` 口径，订单量按 `created_at` 且排除已取消（status 6），待发货 = status 3。用户总量改由 `/api/admin/users/statistics` 新增的 `totalUsers` 字段提供（`user` 表按 shop_id count，不再由前端累加近 12 月新增）。前端 `cards` 全部改读后端，不再用订单列表本地聚合。
+- **网关路由（2026-10-22 已修）**：`gateway/application.yml` 的 order-service 路由原只覆盖 `/api/orders/**` 与 `/api/admin/orders/**`，`/api/admin/report/**` 会落到兜底 `/api/**` → user-service 返回 404。已把 `/api/admin/report,/api/admin/report/**` 加入 order-service 的 `Path` 断言；改完需重启 gateway 才生效。
+
+### 2. 取消订单自动生成退款售后单
+
+- **触发点**：用户端 `OrderServiceImpl.cancelOrder`、后台 `AdminOrderServiceImpl.cancelOrder` 各加同一段逻辑；只对**已支付未发货**（状态 2 `PENDING_CONFIRM` / 3 `PENDING_SHIP`）生效，待付款取消不生成。
+- **实现**：新增 `order-service/mapper/AfterSaleRefundMapper`，用注解 SQL **直写售后三表**（`after_sales`/`after_sale_items`/`after_sale_only_refunds`），与订单取消同事务；不调 aftersale-service 接口（共享库方案，与订单服务直接读 products 表同思路）。
+- **落库形态**：`after_sale_type=only_refund`、`status=refunded`、`reason=cancel`（枚举 `AfterSaleReasonEnum.CANCEL` 已存在）、`goods_status=not_received`、`images='[]'`；明细按订单项快照，`refund_amount=sub_total`（整单退）；`refund_at=refunded_at=取消时间`。
+- **防重**：取消前 `countAfterSale(order_id, shop_id)`，已有未删除售后单则跳过（退款已走售后流程，不重复退）。
+- **单号**：`AS + yyyyMMddHHmmss`（照 aftersale-service 的 `generateAfterSaleNo`）。`after_sales.after_sale_no` 当前**无唯一索引**，同秒并发取消可能产生重复单号，但不影响主键/业务。
+- **与营业额的关系**：自动退款单 `status='refunded'`，会被 `sumRefundAmount` 统计到，并按原订单 `pay_at` 归属，与取消订单的实收在同一区间抵消。
 

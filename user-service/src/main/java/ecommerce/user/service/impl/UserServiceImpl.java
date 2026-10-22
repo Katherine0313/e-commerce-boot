@@ -311,6 +311,10 @@ public class UserServiceImpl implements UserService {
             months.add(month);
             newUsers.add(cntMap.getOrDefault(month, 0L));
         }
-        return UserStatisticsVO.builder().months(months).newUsers(newUsers).build();
+        return UserStatisticsVO.builder()
+                .months(months)
+                .newUsers(newUsers)
+                .totalUsers(userMapper.countTotalUsers(shopId))
+                .build();
     }
 }

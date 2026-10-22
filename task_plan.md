@@ -62,7 +62,7 @@
 
 ### 阶段 0：基础设施 + 版本兼容验证（关键，先行）
 - [✓] Docker：装 Docker Desktop（用户级安装到 `AppData\Local\Programs\DockerDesktop`）
-  - `docker-compose` 只起 Nacos（MySQL 已于 2026-10-18 迁回本机 MySQL80 的 3306，不再用 Docker 部署）
+  - `docker-compose` 只**使用** Nacos（文件里仍保留 `mysql` 服务 3307，但 2026-10-18 起不用，MySQL 统一本机 3306；建议 `docker compose up -d nacos`）
   - 8 个业务服务开发期用 IDE/mvn 跑，跑通后再逐个容器化
 - [✓] 改造为 Maven 多模块父工程：`e-commerce-boot` 变父工程，抽 `common` 下沉框架层
   - 下沉 `Result`/`BusinessException`/`GlobalExceptionHandler`/`JwtUtil`/`UserContext`/`JwtInterceptor`
@@ -100,7 +100,7 @@
   - 图片转 webp 迁入 + 浏览接口接库（真实查询替换占位数据）
 - [✓] Redis 分类树缓存：`category:parent:{id}` 按一级父分类一棵树一个 key + `category:parent:ids` 索引，纯 JSON 序列化（见 findings「Redis 缓存（分类树）」）
 - [✓] 商品关键词搜索（`GET /api/products?keyword=` 匹配 name/sub_title/brand；前端 search 页 + 首页/分类页顶部搜索框跳转）
-- [✓] 后台商品 CRUD（`/api/admin/products`：分页列表/详情/新增/编辑/删除/brands，含成本价与图文详情；前端 goods 列表/编辑/新增页对接）
+- [✓] 后台商品 CRUD（`/api/admin/products`：分页列表/详情/新增/编辑/删除/brands，含成本价与图文详情；前端 goods 列表/编辑/新增页对接；**商品 VO/DTO 仍用 `@JsonNaming(SnakeCase)` 蛇形**，照旧 Node 契约，与其余后台模块的驼峰不同）
 - [✓] 后台分类管理（`/api/admin/categories`：树/扁平/增删改/同级 move，sort_order 服务端算 + move 整级重编号；前端 Category 页对接）
 - [✓] 后台标签管理（`/api/admin/tags`：CRUD + 商品绑定/解绑，一商品一标签写 products.tag_id，绑定后重算 product_count；前端 Tag 页对接）
 - [✓] stock 库存预警表已建 + 30 条数据迁入（`docs/sql/stock-data.sql`，时间字段 create_time/update_time DATETIME）
@@ -108,7 +108,7 @@
 - [✓] 商品图上传（`POST /api/admin/upload`，type 分流 `upload/image/{upload|body|category|after-sale}`，白名单 png/jpg/gif/webp + multipart 10MB，前端 AddGoods/EditModal/Editor/售后凭证上传已接；**放 product-service 而非 file-service**，网关 `/image/**` 已指 product-service）
 - [✓] C 端图片/视频上传（`POST /api/upload`，需登录，复用 UploadService；type=review 评价晒图 / after-sale 售后凭证；白名单加 video/mp4，multipart 上限 50MB；网关 `/api/upload` 路由，2026-10-21）
 - [ ] parameters 表 + 参数组/参数项；促销 business_onsale 表 + 活动 CRUD
-- **状态：** in_progress（商品/分类/标签/库存预警后台 CRUD 已通，前端 goods/category/tag/stock 页已对接并统一驼峰；参数、促销未做）
+- **状态：** in_progress（商品/分类/标签/库存预警后台 CRUD 已通，前端 goods/category/tag/stock 页已对接；字段以驼峰为主、商品模块保持蛇形；参数、促销未做）
 
 ### 阶段 4：order-service
 - [✓] orders / order_items / cart / address 表 + 数据迁移（`order.sql` 建表 + `order-data.sql` 迁数据：52 订单 / 76 订单项 / 15 地址）
@@ -132,8 +132,10 @@
 - [✓] 后台订单管理接口（`/api/admin/orders`：分页列表（状态/关键词/时间范围筛选，dateField 白名单）/详情/状态常量/快递/更新/确认收款/发货/完成/取消/删除/批量删除/物流；shopId 走 UserContext，状态文案用 adminDesc，前端 orders 页对接统一驼峰 + 状态数字 code）
 - [✓] 订单超时自动确认收货（发货满 7 天自动 `SHIPPED → FINISHED`，`sign_status` 记 `auto` 与用户主动签收 `signed` 区分；`@Scheduled` 每分钟扫 + `findExpiredShipped` + `autoConfirm`，2026-10-20）
 - [✓] 商品评价（product_reviews 表 + ReviewController/Service/Mapper/dto/vo + OrderVO.reviewed 标记 + 前端 review.vue 提交 + 评价晒图/视频上传 + order-card「已评价」状态；一单评一次、已完成可评，2026-10-21）
-- [ ] 取消订单自动生成退款售后单（only_refund），关联 aftersale
-- **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路 + 后台订单管理接口已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 2 项缺口见上，售后关联未做、未启动端到端验证）
+- [✓] 取消订单自动生成退款售后单（仅已支付未发货 status 2/3；用户端 `OrderServiceImpl.cancelOrder` 与后台 `AdminOrderServiceImpl.cancelOrder` 同时触发；与订单取消同事务直写 `after_sales`/`after_sale_items`/`after_sale_only_refunds`，`after_sale_type=only_refund`、`status=refunded`、`reason=cancel`；订单已有售后单则跳过，2026-10-22）
+- [✓] 后台营业额统计（`ReportController` + `ReportService`：`GET /api/admin/report/turnover` 卡片、`GET /api/admin/report/turnover-report` 折线；口径 = `pay_at` 区间实收 − `refunded` 售后退款，退款按原订单 `pay_at` 归属；period=yesterday/week/month，2026-10-22）
+- [✓] 网关补 `/api/admin/report/**` → `lb://order-service` 路由（原会落到兜底 `/api/**` 转 user-service 404，2026-10-22 已加）
+- **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路 + 后台订单管理 + 营业额统计 + 取消订单自动退款已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 2 项缺口见上、未启动端到端验证）
 
 ### 阶段 5：aftersale-service
 - [✓] after_sales + 三类子表建表 + 数据迁移（`after-sale-data.sql`：28 售后单 / 43 明细 / 17 仅退款 / 4 换货）
@@ -148,14 +150,18 @@
 - [✓] 售后详情物流（`AfterSaleVO` 加 `courier`/`courierDesc`/`trackingNumber`，JOIN orders 带出 + `CourierEnum` 转中文，2026-10-21）
 - [✓] 按订单查售后（`GET /api/after-sales/by-order` + `OrderVO.afterSale` 标记，前端订单卡已申请售后的订单显示「售后详情」，2026-10-21）
 - [✓] 小程序售后前端（apply 选服务类型按状态过滤 + only-refund 申请页 + only-refund-detail 详情页时间轴按状态动态，2026-10-21）
-- [ ] 取消订单自动生成退款售后单（关联 order-service，见阶段 4）
-- **状态：** in_progress（C 端售后接口 + 后台审核/删除 + 单品/货物状态/两套原因/状态规则/详情物流已实现并编译通过；取消订单自动生成退款售后单未做、退货退款/换货详情页未做、端到端未验证）
+- [✓] 退货退款申请页/详情页 + 退货方式弹窗（return-way-popup 官方退货卡片 + 上门取件/自行寄回 + 时段）+ 回填物流独立页（return-tracking，自行寄回回填快递公司/单号，2026-10-21）
+- [✓] 换货申请页/详情页（exchange/exchange-detail，5 节点时间轴 + 换货发货地址 ship_address 存换货子表，2026-10-21）
+- [✓] 售后列表 Tab 对接（订单列表「售后」Tab 展示售后单 + after-sale-card 组件 + 售后详情按类型跳）+「我的」页角标真实数量（listOrders/listAfterSales 回填 badge，2026-10-21）
+- [✓] 时间轴拒绝态（rejected 显示红色叉节点，2026-10-21）
+- [✓] 取消订单自动生成退款售后单（由 order-service 取消订单时同事务直写售后三表，未走 aftersale-service 的接口；实现见阶段 4，2026-10-22）
+- **状态：** in_progress（C 端售后接口 + 后台审核/删除 + 单品/货物状态/两套原因/状态规则/详情物流 + 退货退款换货申请与详情页/退货方式弹窗与回填物流/售后列表与角标 + 取消订单自动退款已实现并编译通过；退货入库单（仓库核验）未做、端到端未验证）
 
 ### 阶段 6：user-service + file-service
 - [✓] user-service：整合现有 user 模块（小程序登录/资料/头像/昵称/注销链路已在 user-service 跑通）；收货地址已实现在 order-service（address 表），不归 user-service
 - [✓] 用户增长统计接口（`GET /api/admin/users/statistics`：近 12 月每月新增用户，AdminUserController + UserMapper.countMonthlyNewUsers @Select；后台工作台「用户增长」双折线用，2026-10-20）
 - [ ] file-service：图片上传已放 product-service（`/api/admin/upload`），file-service 留作后续 CDN/通用文件；uploads 表
-- **状态：** pending
+- **状态：** in_progress（user-service 已整合完成；file-service 未做）
 
 ### 阶段 7：前端对接联调
 - [✓] 前端 baseURL 指向网关，登录响应结构对齐（商品浏览/加购/下单链路已接入）
@@ -164,7 +170,10 @@
 - [✓] 待发货订单详情页（pending-ship.vue，支付方式/下单时间/地址/商品/金额）+ 商品搜索页（search.vue）+ 收货地址管理页（address.vue 列表 + address-edit.vue 编辑，设默认/删除）
 - [ ] 端到端跑通商品/订单/售后全链路（确认收款/发货是商家操作，走后台）
 - [✓] 接口文档改为 springdoc 自动生成（手写 `docs/openapi.yaml` 已删）；Result 结构与前端拦截器已对齐
-- **状态：** in_progress（商品/购物车/下单/订单列表链路已通；售后 C 端接口已实现；订单/商品搜索、订单列表 6 Tab、待发货详情、地址管理页已做，端到端未验证）
+- [✓] 后台工作台对接：商品统计 `GET /api/admin/products/dashboard`、用户增长 `GET /api/admin/users/statistics`、库存预警列表（2026-10-20）
+- [✓] 工作台四张统计卡改走后端：`GET /api/admin/report/dashboard`（今日/昨日营业额、今日/昨日订单量、待发货）+ `/api/admin/users/statistics` 新增 `totalUsers`（2026-10-22）
+- [✓] 后台工作台营业额面板接 `GET /api/admin/report/turnover`、`/turnover-report`（维度切换 昨日/近7天/本月 + 大数字；近7天/本月折线，昨日「前日 vs 昨日」双柱；舍弃原 MonthlySales 近12月柱状图，2026-10-22）
+- **状态：** in_progress（商品/购物车/下单/订单列表链路已通；售后 C 端接口已实现；订单/商品搜索、订单列表 6 Tab、待发货详情、地址管理页、后台工作台统计与营业额面板已做；端到端未验证）
 
 ### 阶段 8：ai-agent-service（AI 导购 Agent，小程序悬浮 AI）
 - [✓] 新建 ai-agent-service 骨架（Spring AI 2.0.1 + 硅基流动 DeepSeek + OpenFeign + MCP + SimpleVectorStore），端口 9008，注册 Nacos + 接入网关 + 免登录白名单
@@ -201,22 +210,21 @@
 
 - **状态：** pending（方案已定，待动手）
 
-### 阶段 11：后台实时提醒（WebSocket，后置）
+### 阶段 11：后台实时提醒（WebSocket）
 
-> **现在不做，将来做。** 触发时机：后台管理端开始嫌「要手动刷新才看到新订单/新售后」。
-> 现状盘点：全项目 **0 处 WebSocket**（无依赖、无配置、无代码），网关 9 条路由全为 `lb://` HTTP。
-> 关键结论：这是**纯新增、非改造** —— 现架构没堵死任何路（Redis 已接、网关是 WebFlux 原生支持 ws、`JwtUtil` 可复用）。
-> 范围：**仅后台管理端**（新订单 / 新售后提醒）；C 端订单状态推送、客服聊天**不在本阶段**。
+> **已实现单实例版（2026-10-20）。** 范围仅后台管理端（新订单提醒）；C 端订单状态推送、客服聊天**不在本阶段**。
+> 端点挂 `order-service` `/ws/order`（非独立推送服务），Spring 原生 `WebSocketHandler` + 握手鉴权；细节见 findings「后台来单提醒 WebSocket（2026-10-20）」。
 
-- [ ] 先定推送端点归属（见「风险与待确认」#7）
-- [ ] common 抽 WS 握手鉴权拦截器：握手阶段解析 `?token=`（浏览器 `new WebSocket` 不能带自定义 header），复用 `JwtUtil.parseToken` + admin/user 类型分流，对齐 `JwtInterceptor` 的 401/403 语义
-- [ ] 会话注册表：`ConcurrentHashMap<userId, Set<WebSocketSession>>`；userId 存 `session.getAttributes()`（`UserContext` 是 ThreadLocal，WS 里失效，必须换法）
-- [ ] 网关加 `ws://` 路由：写在 `spring.cloud.gateway.server.webflux.routes` 下（与现有 HTTP 路由规则不同）
-- [ ] Redis pub/sub 跨实例广播：每实例订阅 `ws:push`，只推本地在线 session —— 解 `lb://` 长连接握手后钉死单实例的问题
-- [ ] 事件发布点：`order-service`（下单成功 / 支付成功 / 发货）、`aftersale-service`（新售后单）各发一条 `ws:push`
-- [ ] 后台管理端：建连 + 心跳 ping/pong + 断线重连 + **重连后拉全量对账**（补漏掉的消息）
-- **状态：** pending（仅规划，未动手；预备调研见 findings「WebSocket 实时提醒接入预研（2026-10-15）」）
-  - 2026-10-15 曾搭过一版练习骨架（order-service + 定时群发时间）并演示跑通，**当天已全部回滚**，知识点留在 findings「练习验证与回收（2026-10-15）」
+- [✓] 推送端点归属：`order-service` `/ws/order`（风险 #7 已定）
+- [✓] 握手鉴权：`AuthHandshakeInterceptor` 解析 `?token=`（浏览器 `new WebSocket` 不能带自定义 header），`JwtUtil.parseToken` 验 admin + 取 shopId 存 attributes
+- [✓] 会话注册表：`WebSocketSessionRegistry` 按 shopId 分组的 `ConcurrentHashMap`，多商户不串店
+- [✓] 网关加 `ws://` 路由：`/ws/**` → `lb://order-service`
+- [✓] 事件发布点：`order-service` 支付成功 `payOrder` → 推 `{shopId, type:1, orderId, content}`
+- [✓] 后台管理端：登录后自动建连 + 断线重连（3s，最多 10 次防死循环）+ notification 弹窗 + 语音播报（`utils/orderNotify.js`）
+- [ ] Redis pub/sub 跨实例广播：每实例订阅 `ws:push`，只推本地在线 session（解 `lb://` 长连接握手后钉死单实例的问题）
+- [ ] 事件补齐：发货、新售后单（aftersale-service）
+- [ ] 前端心跳 ping/pong + **重连后拉全量对账**（补漏掉的消息）
+- **状态：** in_progress（单实例版已实现并演示跑通；跨实例广播、事件补齐、心跳/对账待做）
 
 ### 阶段 12：微信支付接入（真实支付，解决「扣款成功但订单未到账」一致性）
 
@@ -265,10 +273,10 @@
 | 1 | ~~Nacos 对 Boot 4.1 的实际兼容性~~（已解决：阶段 0 实测通过） | 阶段 0 首验，不通过全盘阻塞 | 已验证兼容，无需降级 Boot |
 | 2 | 每服务独立库 vs 共享库（多租户） | 影响事务边界与 Feign 调用复杂度 | 建议先「共享库共享表 + shopId」起步，后续按需拆库 |
 | 3 | 沙箱回收的跨服务一致性 | shop-service 调多个服务清数据，非事务 | 用「软删除 + 最终一致」而非强事务，回收失败重试 |
-| 4 | ~~前端登录返回结构差异（Node `{token,user,shop}` vs Spring `{token,user}`）~~（2026-10-18 已确认） | 前端登录后若用 `shop` 字段会拿不到 | 已确认：前端登录后走独立 `GET /api/shops/current` 拉店铺，不依赖登录响应的 shop；后台管理端登录端到端已跑通 |
+| 4 | ~~前端登录返回结构差异（Node `{token,user,shop}` vs Spring `{token,user}`）~~（2026-10-18 已确认） | 前端登录后若用 `shop` 字段会拿不到 | 已确认：前端登录后走独立 `GET /api/admin/shops/current` 拉店铺，不依赖登录响应的 shop；后台管理端登录端到端已跑通 |
 | 5 | 现有 `user` 模块（小程序）与 `admin`（后台）账号体系并存 | 两套登录入口 | admin 走 auth-service，user 走 user-service，JWT type 区分 |
 | 6 | Spring Cloud 组件在 Boot 4 下的学习/调试成本 | 单人项目进度 | 阶段 0 先搭最小可跑骨架再铺开 |
-| 7 | 阶段 11 实时提醒的**推送端点归属**：网关内做 / 新建独立推送服务 / 挂在 order-service | 决定连接数、部署形态、前端要连几条 WS | 倾向**新建独立推送服务**（网关保持无状态、前端只连一条；端口避开 9009 用 9010）；动手前先与用户确认 |
+| 7 | ~~阶段 11 实时提醒的**推送端点归属**~~（2026-10-20 已定） | 决定连接数、部署形态、前端要连几条 WS | 最终挂在 **order-service** `/ws/order`（未新建独立推送服务），多实例跨实例广播待补 Redis pub/sub |
 
 ## 遇到的错误
 

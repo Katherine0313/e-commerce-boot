@@ -154,4 +154,50 @@
         WHERE id = #{id} AND shop_id = #{shopId}
     </update>
 
+    <!-- 营业额统计：某区间支付成功订单实收合计（pay_at 区间，含取消订单） -->
+    <select id="sumPaidAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(pay_amount), 0)
+        FROM orders
+        WHERE shop_id = #{shopId} AND is_deleted = 0
+          AND pay_at IS NOT NULL
+          AND pay_at &gt;= #{start} AND pay_at &lt; #{end}
+    </select>
+
+    <!-- 营业额统计：某区间退款合计（退款跟着原订单 pay_at 归属，status=refunded，含取消订单退款） -->
+    <select id="sumRefundAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(asi.refund_amount), 0)
+        FROM after_sale_items asi
+        JOIN after_sales a ON a.id = asi.after_sale_id AND a.shop_id = #{shopId} AND a.is_deleted = 0
+        JOIN orders o ON o.id = a.order_id AND o.shop_id = #{shopId} AND o.is_deleted = 0
+        WHERE a.status = 'refunded'
+          AND asi.is_deleted = 0
+          AND o.pay_at IS NOT NULL
+          AND o.pay_at &gt;= #{start} AND o.pay_at &lt; #{end}
+    </select>
+
+    <!-- 营业额折线：某区间实收按天分组（date_key 形如 2026-10-01） -->
+    <select id="sumPaidAmountByDay" resultType="map">
+        SELECT DATE_FORMAT(pay_at, '%Y-%m-%d') AS date_key, COALESCE(SUM(pay_amount), 0) AS amount
+        FROM orders
+        WHERE shop_id = #{shopId} AND is_deleted = 0
+          AND pay_at IS NOT NULL
+          AND pay_at &gt;= #{start} AND pay_at &lt; #{end}
+        GROUP BY DATE_FORMAT(pay_at, '%Y-%m-%d')
+        ORDER BY date_key
+    </select>
+
+    <!-- 营业额折线：某区间退款按天分组（跟着原订单 pay_at） -->
+    <select id="sumRefundAmountByDay" resultType="map">
+        SELECT DATE_FORMAT(o.pay_at, '%Y-%m-%d') AS date_key, COALESCE(SUM(asi.refund_amount), 0) AS amount
+        FROM after_sale_items asi
+        JOIN after_sales a ON a.id = asi.after_sale_id AND a.shop_id = #{shopId} AND a.is_deleted = 0
+        JOIN orders o ON o.id = a.order_id AND o.shop_id = #{shopId} AND o.is_deleted = 0
+        WHERE a.status = 'refunded'
+          AND asi.is_deleted = 0
+          AND o.pay_at IS NOT NULL
+          AND o.pay_at &gt;= #{start} AND o.pay_at &lt; #{end}
+        GROUP BY DATE_FORMAT(o.pay_at, '%Y-%m-%d')
+        ORDER BY date_key
+    </select>
+
 </mapper>

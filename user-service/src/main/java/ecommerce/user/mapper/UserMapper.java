@@ -19,4 +19,8 @@ public interface UserMapper extends BaseMapper<User> {
             "AND create_time >= #{startDate} " +
             "GROUP BY DATE_FORMAT(create_time, '%Y-%m') ORDER BY month ASC")
     List<Map<String, Object>> countMonthlyNewUsers(@Param("shopId") Long shopId, @Param("startDate") String startDate);
+
+    /** 当前店铺用户总量（工作台统计卡用） */
+    @Select("SELECT COUNT(*) FROM `user` WHERE shop_id = #{shopId} AND is_deleted = 0")
+    long countTotalUsers(@Param("shopId") Long shopId);
 }

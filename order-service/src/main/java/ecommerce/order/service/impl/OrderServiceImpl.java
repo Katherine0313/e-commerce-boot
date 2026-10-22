@@ -9,6 +9,7 @@ import ecommerce.order.entity.Product;
 import ecommerce.order.enums.CourierEnum;
 import ecommerce.order.enums.OrderStatusEnum;
 import ecommerce.order.enums.PayTypeEnum;
+import ecommerce.order.mapper.AfterSaleRefundMapper;
 import ecommerce.order.mapper.CartMapper;
 import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
@@ -34,6 +35,7 @@ import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
@@ -57,6 +59,8 @@ public class OrderServiceImpl implements OrderService {
     private static final DateTimeFormatter ORDER_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
     /** 物流轨迹时间展示格式 */
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    /** 售后单号格式：AS + 年月日时分秒（照 aftersale-service 的 generateAfterSaleNo） */
+    private static final DateTimeFormatter AFTER_SALE_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     /** 下单幂等：Redis key 前缀，key = 前缀 + userId + ":" + idempotencyKey */
     private static final String IDEMPOTENCY_KEY_PREFIX = "order:idempotency:";
     /** 幂等占位值：表示该 key 对应的下单请求正在处理中 */
@@ -72,11 +76,13 @@ public class OrderServiceImpl implements OrderService {
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final WebSocketSessionRegistry webSocketSessionRegistry;
+    private final AfterSaleRefundMapper afterSaleRefundMapper;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper, ProductMapper productMapper,
                             CartMapper cartMapper, ProductReviewMapper productReviewMapper,
                             StringRedisTemplate stringRedisTemplate,
-                            ObjectMapper objectMapper, WebSocketSessionRegistry webSocketSessionRegistry) {
+                            ObjectMapper objectMapper, WebSocketSessionRegistry webSocketSessionRegistry,
+                            AfterSaleRefundMapper afterSaleRefundMapper) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
@@ -85,6 +91,7 @@ public class OrderServiceImpl implements OrderService {
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
         this.webSocketSessionRegistry = webSocketSessionRegistry;
+        this.afterSaleRefundMapper = afterSaleRefundMapper;
     }
 
     @Override
@@ -282,6 +289,11 @@ public class OrderServiceImpl implements OrderService {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.CANCEL);
         restoreStock(order.getId(), order.getShopId());
+        // 已支付未发货（status 2/3）取消 → 自动生成退款售后单（整单退）
+        if (OrderStatusEnum.PENDING_CONFIRM.getCode().equals(order.getOrderStatus())
+                || OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getOrderStatus())) {
+            autoRefundOnCancel(order, order.getShopId());
+        }
         orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
@@ -373,6 +385,29 @@ public class OrderServiceImpl implements OrderService {
         for (OrderItem item : items) {
             productMapper.restoreStock(item.getProductId(), item.getQuantity(), shopId);
         }
+    }
+
+    /** 取消订单自动退款：生成 refunded 售后单（整单退，退款跟着原订单 pay_at 归属营业额） */
+    private void autoRefundOnCancel(Order order, Long shopId) {
+        // 已有售后单则跳过（退款已走售后流程，不重复退）
+        if (afterSaleRefundMapper.countAfterSale(order.getId(), shopId) > 0) {
+            return;
+        }
+        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId(), shopId);
+        if (items.isEmpty()) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        Map<String, Object> params = new HashMap<>();
+        params.put("shopId", shopId);
+        params.put("orderId", order.getId());
+        params.put("orderNo", order.getOrderNo());
+        params.put("afterSaleNo", "AS" + now.format(AFTER_SALE_NO_FORMATTER));
+        params.put("now", now);
+        afterSaleRefundMapper.insertAfterSale(params);
+        Long afterSaleId = ((Number) params.get("id")).longValue();
+        afterSaleRefundMapper.insertItems(shopId, afterSaleId, items, now);
+        afterSaleRefundMapper.insertOnlyRefund(shopId, afterSaleId, now);
     }
 
     private String generateOrderNo() {

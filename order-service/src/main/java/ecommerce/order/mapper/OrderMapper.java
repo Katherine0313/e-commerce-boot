@@ -2,9 +2,12 @@ package ecommerce.order.mapper;
 
 import ecommerce.order.entity.Order;
 import org.apache.ibatis.annotations.Param;
+import org.apache.ibatis.annotations.Select;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 订单 Mapper（orders 表）。
@@ -56,4 +59,28 @@ public interface OrderMapper {
 
     // 更新订单信息（收货人/电话/地址/备注，动态 set）
     int update(Order order);
+
+    // 营业额统计：某区间支付成功订单实收合计（pay_at 区间，含取消订单）
+    BigDecimal sumPaidAmount(@Param("shopId") Long shopId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    // 营业额统计：某区间退款合计（退款跟着原订单 pay_at 归属，status=refunded，含取消订单退款）
+    BigDecimal sumRefundAmount(@Param("shopId") Long shopId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    // 营业额折线：某区间实收按天分组，返回 [{date_key, amount}]（date_key 形如 2026-10-01）
+    List<Map<String, Object>> sumPaidAmountByDay(@Param("shopId") Long shopId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    // 营业额折线：某区间退款按天分组（跟着原订单 pay_at）
+    List<Map<String, Object>> sumRefundAmountByDay(@Param("shopId") Long shopId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+
+    // 工作台：某区间创建的订单量（按 created_at，排除已取消）
+    @Select("SELECT COUNT(*) FROM orders WHERE shop_id = #{shopId} AND is_deleted = 0 " +
+            "AND order_status <> 6 AND created_at >= #{start} AND created_at < #{end}")
+    long countCreatedBetween(@Param("shopId") Long shopId,
+                             @Param("start") LocalDateTime start,
+                             @Param("end") LocalDateTime end);
+
+    // 工作台：某状态订单数（如待发货）
+    @Select("SELECT COUNT(*) FROM orders WHERE shop_id = #{shopId} AND is_deleted = 0 " +
+            "AND order_status = #{status}")
+    long countByStatus(@Param("shopId") Long shopId, @Param("status") Integer status);
 }

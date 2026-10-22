@@ -9,6 +9,7 @@ import ecommerce.order.entity.Product;
 import ecommerce.order.enums.CourierEnum;
 import ecommerce.order.enums.OrderStatusEnum;
 import ecommerce.order.enums.PayTypeEnum;
+import ecommerce.order.mapper.AfterSaleRefundMapper;
 import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductMapper;
@@ -25,6 +26,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -41,16 +43,20 @@ import java.util.stream.Collectors;
 public class AdminOrderServiceImpl implements AdminOrderService {
 
     private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
+    /** 售后单号格式：AS + 年月日时分秒（照 aftersale-service 的 generateAfterSaleNo） */
+    private static final DateTimeFormatter AFTER_SALE_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final ProductMapper productMapper;
+    private final AfterSaleRefundMapper afterSaleRefundMapper;
 
     public AdminOrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
-                                 ProductMapper productMapper) {
+                                 ProductMapper productMapper, AfterSaleRefundMapper afterSaleRefundMapper) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
+        this.afterSaleRefundMapper = afterSaleRefundMapper;
     }
 
     private Long requireShopId() {
@@ -178,6 +184,11 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         Order order = requireOrder(id);
         checkTransition(order, OrderStatusEnum.CANCEL);
         restoreStock(order.getId(), shopId);
+        // 已支付未发货（status 2/3）取消 → 自动生成退款售后单（整单退）
+        if (OrderStatusEnum.PENDING_CONFIRM.getCode().equals(order.getOrderStatus())
+                || OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getOrderStatus())) {
+            autoRefundOnCancel(order, shopId);
+        }
         orderMapper.updateStatus(id, shopId, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
@@ -231,6 +242,29 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         for (OrderItem item : items) {
             productMapper.restoreStock(item.getProductId(), item.getQuantity(), shopId);
         }
+    }
+
+    /** 取消订单自动退款：生成 refunded 售后单（整单退，退款跟着原订单 pay_at 归属营业额） */
+    private void autoRefundOnCancel(Order order, Long shopId) {
+        // 已有售后单则跳过（退款已走售后流程，不重复退）
+        if (afterSaleRefundMapper.countAfterSale(order.getId(), shopId) > 0) {
+            return;
+        }
+        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId(), shopId);
+        if (items.isEmpty()) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        Map<String, Object> params = new HashMap<>();
+        params.put("shopId", shopId);
+        params.put("orderId", order.getId());
+        params.put("orderNo", order.getOrderNo());
+        params.put("afterSaleNo", "AS" + now.format(AFTER_SALE_NO_FORMATTER));
+        params.put("now", now);
+        afterSaleRefundMapper.insertAfterSale(params);
+        Long afterSaleId = ((Number) params.get("id")).longValue();
+        afterSaleRefundMapper.insertItems(shopId, afterSaleId, items, now);
+        afterSaleRefundMapper.insertOnlyRefund(shopId, afterSaleId, now);
     }
 
     /** 生成假物流轨迹（照旧 Node getLogistics）：订单 id 做种子，courier 英文 key 转中文 */

@@ -116,4 +116,5 @@ public class AdminOrderController {
     public Result<LogisticsVO> logistics(@PathVariable Long id) {
         return Result.success(adminOrderService.getLogistics(id));
     }
+
 }
