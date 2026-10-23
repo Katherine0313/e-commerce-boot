@@ -648,7 +648,7 @@ gateway `CorsWebFilter` 加一次 CORS 头 + 下游 auth-service 的 common `Cor
   - 实收：`orders.pay_amount` 按 `pay_at` 落在区间内合计（`pay_at IS NOT NULL`，**含已取消订单**，因为取消自动退款后实收和退款要同时体现、净额抵消）。
   - 退款：`after_sale_items.refund_amount` JOIN `after_sales`（`status='refunded'`、`is_deleted=0`），**按原订单的 `pay_at` 归属**，不按退款时间；因此历史营业额会随后续退款动态减少。
   - 折线按 `DATE_FORMAT(pay_at, '%Y-%m-%d')` 分组，退款同样按原订单 `pay_at` 分组；缺失日期补 0。
-- **period 语义**：`yesterday`=昨天完整自然日 `[昨天0点, 今天0点)`；`week`=近 7 天含今天 `[今天-6天0点, now)`；`month`=本月 `[月初0点, now)`。日期均用 JVM 本地时区，与 `pay_at` 同基准。
+- **period 语义（2026-10-23 重构）**：先解析成日期闭区间再查库：`yesterday`=昨天 `[昨天, 昨天]`；`week`=近 7 天含今天 `[今天-6, 今天]`；`month`=本月至今 `[月初, 今天]`。查询上界统一取 `end.plusDays(1).atStartOfDay()`，与原 `now` 上界等价（`pay_at` 不会晚于当前时刻）。日期均用 JVM 本地时区，与 `pay_at` 同基准。
 - **前端对接（2026-10-22）**：后台工作台新增 `TurnoverPanel.vue`（维度切换 + 大数字 + 图表），`api/report.js` 封装两个接口，`useWorkplaceData` 统一取数；原 `MonthlySales.vue`（近 12 月柱状图、前端本地聚合）已删除。近7天/本月用 `LineChart` 折线；昨日用 `BarChart` 做「前日 vs 昨日」双柱对比（复用 `period=week` 报表，按日期取前天/昨天两点，不新增后端接口）。
 - **图表坐标规则（2026-10-22）**：营业额图纵轴传 `yAxisInterval=2000`，组件按数据量级选 2000 的整数倍（约 8 档）——2.5 万→4000、5 万→8000、22 万→28000；纵轴刻度加千分位，`grid.containLabel` 防长数字裁切。横轴 `grid.right=24`、`boundaryGap=['2%','2%']`、`hideOverlap=true`，防首尾日期和本月多日期标签裁切/重叠。
 - **工作台四张统计卡（2026-10-22）**：新增 `GET /api/admin/report/dashboard` → `DashboardStatsVO{todayTurnover, yesterdayTurnover, todayOrders, yesterdayOrders, pendingShip}`，一次取齐「今日销售额 / 今日订单量（含环比）/ 待发货订单」；营业额复用 `turnoverOf` 口径，订单量按 `created_at` 且排除已取消（status 6），待发货 = status 3。用户总量改由 `/api/admin/users/statistics` 新增的 `totalUsers` 字段提供（`user` 表按 shop_id count，不再由前端累加近 12 月新增）。前端 `cards` 全部改读后端，不再用订单列表本地聚合。
@@ -662,4 +662,60 @@ gateway `CorsWebFilter` 加一次 CORS 头 + 下游 auth-service 的 common `Cor
 - **防重**：取消前 `countAfterSale(order_id, shop_id)`，已有未删除售后单则跳过（退款已走售后流程，不重复退）。
 - **单号**：`AS + yyyyMMddHHmmss`（照 aftersale-service 的 `generateAfterSaleNo`）。`after_sales.after_sale_no` 当前**无唯一索引**，同秒并发取消可能产生重复单号，但不影响主键/业务。
 - **与营业额的关系**：自动退款单 `status='refunded'`，会被 `sumRefundAmount` 统计到，并按原订单 `pay_at` 归属，与取消订单的实收在同一区间抵消。
+
+## 营业额报表重构 + 按天 SQL 修正（2026-10-23）
+
+### 1. 结构：period 只算日期，日期列表只写一遍
+
+- `ReportServiceImpl.resolvePeriod(period)` 返回 `PeriodRange(begin, end, timeDesc)` 记录，switch 只负责算起止日期；`getTurnoverStats`（卡片）与 `getTurnoverReport`（折线）共用一份，不再各写一套 switch。
+- `getDateList(begin, end)` 用 `while (!d.isAfter(end))` 生成闭区间日期，全类只写一次；用局部变量 `d` 递增，不修改入参 `begin`。
+- `turnoverOf(shopId, LocalDate begin, LocalDate end)` 内部转 `[begin 0点, end 次日 0点)`；工作台今日/昨日营业额也改用日期入参。
+
+### 2. 口径不变，上界从 now 改为「end 次日 0 点」
+
+- `week`/`month` 原上界是 `now`，重构后是今天次日 0 点；因为 `pay_at` 不会晚于当前时刻，结果等价。
+- 唯一差异：库里若有未来时间的 `pay_at`（测试/补偿数据），新写法会计入。
+
+### 3. 按天分组 SQL 的坑（`sumPaidAmountByDay` / `sumRefundAmountByDay`）
+
+- **`GROUP BY pay_at` 是错的**：`pay_at` 精确到秒，按它分组等于每笔订单一组，同一天出现多行；Java 端 `toDateAmountMap` 用 `put` 转换时后一条覆盖前一条，折线每天只剩一笔金额。必须 `GROUP BY DATE_FORMAT(pay_at, '%Y-%m-%d')`。
+- **必须带 `shop_id = #{shopId} AND is_deleted = 0`**：漏掉会把所有店铺的实收/退款汇总到一起（跨租户数据泄露），与单区间 `sumPaidAmount`/`sumRefundAmount` 的条件保持一致。
+- 退款按天同样按**原订单** `o.pay_at` 分组（`a.status='refunded'`），与 `sumRefundAmount` 口径一致。
+- MyBatis 参数必须全标 `@Param("shopId")/@Param("start")/@Param("end")`，与单区间查询命名一致；只标部分参数时其余依赖编译期 `-parameters`，不可靠。
+- XML 正文里的 `<` 必须写 `&lt;`（`>` 可以不转义），否则 mapper 解析直接报 well-formed 错误；SQL 里也注意不要出现重复的 `WHERE`。
+
+## 商品收藏（2026-10-23）
+
+### 1. 归属与表
+
+- 放 **product-service**：收藏列表要 join `products` 取名称/图/价格，同库直接 join，不用跨服务 Feign（与订单服务直接读 products 同思路）。
+- 表 `product_favorites(id, shop_id, user_id, product_id, created_at)`：
+  - `uk_shop_user_product (shop_id, user_id, product_id)` 保证一个用户在同一店铺对同一商品只有一条；
+  - `idx_shop_user_time (shop_id, user_id, created_at)` 覆盖列表查询；
+  - `utf8mb4_general_ci`，与服务器 MySQL 5.7 兼容。
+- 取消收藏**物理删除**，不做 `is_deleted`：收藏不是业务单据，不需要留痕；重新收藏也不会产生重复行。
+- `created_at` 用 Java `LocalDateTime.now()` 传参，不用 MySQL `NOW()`（时区差 8 小时）。
+
+### 2. 接口与鉴权
+
+- `GET /api/favorites`（按收藏时间倒序）、`GET /api/favorites/check?productId=`、`POST /api/favorites/{productId}`、`DELETE /api/favorites/{productId}`。
+- 不在 `EXCLUDE_AUTH_PATHS` 白名单 → JwtInterceptor 要求 user 令牌；`userId`/`shopId` 从 `UserContext` 取，不信任前端参数。
+- `shopId` 缺失时回退模板店 1，与 `ProductServiceImpl` 商品浏览口径一致（多租户沙箱接入时一起切换）。
+- 幂等：收藏用 `INSERT ... ON DUPLICATE KEY UPDATE id = id`；取消不存在的记录删 0 行也按成功返回。
+- 收藏前用 `productMapper.findById(productId, shopId)` 校验商品存在且属于本店；该查询**不筛 `listing_status`**，所以下架商品也能收藏。
+
+### 3. 列表口径
+
+- 列表 join `products` **不按 `listing_status` 过滤**：下架商品继续显示，`status` 下发给前端打「已下架」标记；重新上架后仍是已收藏状态。
+- `products` 表没有 `is_deleted`（删除是物理删），被删商品 join 后自然查不到，不会出现空行。
+
+### 4. 网关路由
+
+- product-service 路由补 `/api/favorites,/api/favorites/**`；不补会落到兜底 `/api/**` → user-service 404（与 `/api/admin/report` 同类坑）。改 gateway 配置需重启。
+
+### 5. 小程序端
+
+- `pages/goods/detail.vue` 原先把收藏 id 存 `uni.setStorageSync('favoriteIds')`（假收藏，换手机/清缓存就丢），改为后端接口：进页已登录时 `checkFavorite` 回显；点击先 `ensureLogin()` 静默登录，再按当前状态 POST/DELETE，`favoriteLoading` 防连点，成功后才翻转星标。
+- 新增 `pages/my/favorites.vue`：`ensureLogin` 后拉列表；卡片展示图/名称/售价/划线价，右上角星标取消收藏（成功后本地移除）；空态「去逛逛」；下架商品打标但仍可点进详情。
+- 「我的」页入口「收藏与浏览」保留原名，本期只做收藏（浏览记录后续可同页加 Tab）。
 

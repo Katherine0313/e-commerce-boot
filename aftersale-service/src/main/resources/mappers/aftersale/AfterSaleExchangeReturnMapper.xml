@@ -2,13 +2,14 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="ecommerce.aftersale.mapper.AfterSaleExch
-angeReturnMapper">
+<mapper namespace="ecommerce.aftersale.mapper.AfterSaleExchangeReturnMapper">
 
-    <!-- 插入占位行：创建售后时写，时间戳/退货字段先为 NULL -->
+    <!-- 插入占位行：创建售后时写，退货方式申请时已选，时间戳/物流字段先为 NULL -->
     <insert id="insertPlaceholder" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO after_sale_exchange_returns (shop_id, after_sale_id, ship_address, is_deleted, created_at, updated_at)
-        VALUES (#{shopId}, #{afterSaleId}, #{shipAddress}, 0, #{createdAt}, #{updatedAt})
+        INSERT INTO after_sale_exchange_returns (shop_id, after_sale_id, return_way, return_time_slot,
+                                                 ship_address, is_deleted, created_at, updated_at)
+        VALUES (#{shopId}, #{afterSaleId}, #{returnWay}, #{returnTimeSlot},
+                #{shipAddress}, 0, #{createdAt}, #{updatedAt})
     </insert>
 
     <select id="findByAfterSaleId" resultType="ecommerce.aftersale.entity.AfterSaleExchangeReturn">

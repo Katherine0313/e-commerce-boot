@@ -170,7 +170,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .build();
         afterSaleMapper.insert(afterSale);
 
-        // 写子表占位行（按类型路由；退货退款一并写退货方式）
+        // 写子表占位行（按类型路由；退货退款、换货一并写退货方式）
         insertSubPlaceholder(afterSale.getId(), type, dto.getReturnWay(), dto.getReturnTimeSlot(), dto.getShipAddress(), now);
 
         // 写售后明细（快照）
@@ -452,6 +452,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                     AfterSaleOnlyRefund.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId).createdAt(now).updatedAt(now).build());
             case EXCHANGE -> afterSaleExchangeReturnMapper.insertPlaceholder(
                     AfterSaleExchangeReturn.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId)
+                            .returnWay(returnWay).returnTimeSlot(returnTimeSlot)
                             .shipAddress(shipAddress).createdAt(now).updatedAt(now).build());
         }
     }

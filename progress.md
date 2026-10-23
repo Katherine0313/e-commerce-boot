@@ -5,7 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-22 后台营业额统计（order-service `ReportController`：卡片 `/api/admin/report/turnover` + 折线 `/turnover-report`，口径实收 − 退款、退款跟原订单 `pay_at`）+ 取消订单自动生成退款售后单（用户/后台取消已支付未发货订单时，同事务直写售后三表，`reason=cancel`）；网关已补 `/api/admin/report/**` 路由；后台工作台营业额面板已接（昨日/近7天/本月，昨日用前日 vs 昨日双柱，替换原 MonthlySales；纵轴按 2000 的倍数自适应，横轴防裁切）；四张统计卡改走后端 `/api/admin/report/dashboard` + `users/statistics.totalUsers`；来单 WebSocket 收到推送后自动刷新工作台（心跳/重连/语音解锁已加固，**刷新页面后点一下页面才会出声**）。此前 2026-10-21 已完成商品评价、售后增强、售后三类型申请/详情页、售后列表 Tab 与角标。剩余：参数/促销、购物车 2 缺口、退货入库单（仓库核验）、file-service(CDN)、沙箱过期回收/templateGuard、端到端验证。
+  2026-10-23 C 端商品收藏（product-service `product_favorites` + `/api/favorites` 列表/check/收藏/取消，同库 join products、唯一键幂等、下架商品保留并打标；网关补 `/api/favorites/**`；小程序详情页假收藏换真接口 + `pages/my/favorites` 收藏页，「我的」入口接通）。此前 2026-10-23 营业额报表重构（order-service：`resolvePeriod` 返回 `PeriodRange(begin,end,timeDesc)` 日期闭区间、`getDateList` 统一生成连续日期、`turnoverOf` 改收 `LocalDate`，卡片/折线共用一份 period 解析；按天 SQL 修掉 `GROUP BY pay_at` 按秒分组导致折线每天只剩一笔的 bug，补 `shop_id`/`is_deleted` 过滤与 `@Param` 参数名）。此前 2026-10-22 后台营业额统计（order-service `ReportController`：卡片 `/api/admin/report/turnover` + 折线 `/turnover-report`，口径实收 − 退款、退款跟原订单 `pay_at`）+ 取消订单自动生成退款售后单（用户/后台取消已支付未发货订单时，同事务直写售后三表，`reason=cancel`）；网关已补 `/api/admin/report/**` 路由；后台工作台营业额面板已接（昨日/近7天/本月，昨日用前日 vs 昨日双柱，替换原 MonthlySales；纵轴按 2000 的倍数自适应，横轴防裁切）；四张统计卡改走后端 `/api/admin/report/dashboard` + `users/statistics.totalUsers`；来单 WebSocket 收到推送后自动刷新工作台（心跳/重连/语音解锁已加固，**刷新页面后点一下页面才会出声**）。此前 2026-10-21 已完成商品评价、售后增强、售后三类型申请/详情页、售后列表 Tab 与角标。剩余：参数/促销、购物车 2 缺口、退货入库单（仓库核验）、file-service(CDN)、沙箱过期回收/templateGuard、端到端验证。
 
 - **我要去哪里？**
   1. 促销/参数表（business_onsale + parameters）
@@ -56,6 +56,8 @@
   - 2026-10-22：来单提醒可靠性加固——前端 25s 心跳 + 10s 握手超时 + 无限退避重连（3s→30s）+ 页面可见/网络恢复重连 + 重连后对账刷新；后端回 pong、串行发送、失败/半开连接移除
   - 2026-10-22：来单语音播报修复——浏览器自动播放策略导致刷新后无声，首次点击/按键静音预热解锁 + 缓存中文语音 + `cancel()` 后延迟 speak；使用注意：刷新页面后随便点一下后台页面任意位置（菜单/空白处），之后来单才会正常播报
   - 2026-10-22：营业额图坐标调整——纵轴按数据量级自动选 2000 的整数倍，横轴 `grid.right` 加宽 + 首尾留白 + `hideOverlap` 防日期标签裁切/重叠
+  - 2026-10-23：营业额报表重构——`ReportServiceImpl` 抽出 `PeriodRange(begin,end,timeDesc)` + `resolvePeriod` + `getDateList`，switch 只算日期；`turnoverOf` 改收 `LocalDate` 内部转 `[begin 0点, end 次日 0点)`；按天 SQL 改 `GROUP BY DATE_FORMAT(pay_at,'%Y-%m-%d')`、补 `shop_id`/`is_deleted`/`@Param`，退款按天单列一条 SQL（跟原订单 `pay_at`）
+  - 2026-10-23：C 端商品收藏——后端 product-service 新增 `product_favorites` entity/vo/mapper/service/controller（`/api/favorites` 4 接口：列表/check/收藏/取消），唯一键幂等、取消物理删除、下架商品保留并下发 `status`；网关 product-service 路由补 `/api/favorites/**`；前端新增 `api/favorite.js` + `pages/my/favorites.vue`，商品详情页 Storage 假收藏换成真接口（静默登录 + 防连点），「我的」页入口接通
 
 ## 错误日志（最近）
 
@@ -64,6 +66,8 @@
 | 2026-10-15 | order-service 启动报 `UndeclaredThrowableException`（Nacos 注册失败） | Docker Desktop 没开 → 起 Docker 重启；纯练 WS 可加 `--spring.cloud.nacos.discovery.enabled=false` 跳过注册 |
 | 2026-10-18 | 登录报 `admin` 表不存在 | 应用连错库（3306 本机 MySQL80 旧 schema），数据在 3307 Docker MySQL；最终将数据迁回本机 3306，MySQL 统一本地 3306 |
 | 2026-10-18 | 前端跨域 CORS 无头 / 头重复 | gateway 是 WebFlux 无 CORS；加 `CorsWebFilter` + 去重 `GlobalFilter` 解决 |
+| 2026-10-23 | 营业额折线每天金额偏小（同一天只剩一笔） | 按天 SQL 误用 `GROUP BY pay_at`（按秒分组），同一天多行被 Java `put` 覆盖；改 `GROUP BY DATE_FORMAT(pay_at,'%Y-%m-%d')`，并补 `shop_id`/`is_deleted` 过滤 |
+| 2026-10-23 | 报表接口返回 `{"message":"请求不合法"}` | `GlobalExceptionHandler` 兜底分支（Spring `ErrorResponse`）：路由不存在 404 / `period` 缺参 400；排查时先确认 URL 与方法、参数是否齐全 |
 
 ---
 

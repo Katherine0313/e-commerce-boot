@@ -7,6 +7,7 @@ import ecommerce.order.vo.TurnoverReportVO;
 import ecommerce.order.vo.TurnoverVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -21,7 +22,9 @@ import org.springframework.web.bind.annotation.RestController;
 @Tag(name = "后台报表统计", description = "营业额卡片/折线等统计（管理员）")
 @RestController
 @RequestMapping("/api/admin/report")
+@Slf4j
 public class ReportController {
+
     private final ReportService reportService;
 
     public ReportController(ReportService reportService) {
@@ -37,7 +40,9 @@ public class ReportController {
     @Operation(summary = "营业额折线报表（period：yesterday/week/month）")
     @GetMapping("/turnover-report")
     public Result<TurnoverReportVO> turnoverReport(@RequestParam String period) {
-        return Result.success(reportService.getTurnoverReport(period));
+        TurnoverReportVO vo = reportService.getTurnoverReport(period);
+        log.info("dateList:{}, turnoverList:{}",vo.getDateList(),vo.getTurnoverList());
+        return Result.success(vo);
     }
 
     @Operation(summary = "工作台统计卡（今日/昨日营业额与订单量、待发货数）")

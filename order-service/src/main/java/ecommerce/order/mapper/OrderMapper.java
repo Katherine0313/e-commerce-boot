@@ -67,10 +67,14 @@ public interface OrderMapper {
     BigDecimal sumRefundAmount(@Param("shopId") Long shopId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
     // 营业额折线：某区间实收按天分组，返回 [{date_key, amount}]（date_key 形如 2026-10-01）
-    List<Map<String, Object>> sumPaidAmountByDay(@Param("shopId") Long shopId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    List<Map<String, Object>> sumPaidAmountByDay(@Param("shopId") Long shopId,
+                                                 @Param("start") LocalDateTime start,
+                                                 @Param("end") LocalDateTime end);
 
     // 营业额折线：某区间退款按天分组（跟着原订单 pay_at）
-    List<Map<String, Object>> sumRefundAmountByDay(@Param("shopId") Long shopId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+    List<Map<String, Object>> sumRefundAmountByDay(@Param("shopId") Long shopId,
+                                                   @Param("start") LocalDateTime start,
+                                                   @Param("end") LocalDateTime end);
 
     // 工作台：某区间创建的订单量（按 created_at，排除已取消）
     @Select("SELECT COUNT(*) FROM orders WHERE shop_id = #{shopId} AND is_deleted = 0 " +

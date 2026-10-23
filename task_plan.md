@@ -72,6 +72,7 @@
 - [✓] 起最小服务 + 注册到 Nacos + Gateway 路由打通
   - auth-service、user-service 均注册成功；gateway 8080 经 `lb://user-service` 转发到 9006，返回一致（HTTP 401 + Result 结构），链路已验证
 - [✓] Nacos 3.1.1 与 Boot 4.1 兼容性验证通过，无需降级 Boot 或换注册中心（踩坑细节见 findings.md「Nacos 3.x 部署踩坑」）
+- [✓] 全局 Jackson LocalDateTime 格式化（`common/JacksonConfig`：Boot 4 / Jackson 3 的 `JsonMapperBuilderCustomizer` + `LocalDateTimeSerializer`，统一 `yyyy-MM-dd HH:mm:ss`，去掉 ISO 的 `T`；只覆盖序列化，2026-10-23）
 - **状态：** completed（Nacos 已起、服务注册成功、网关路由打通）
 
 ### 阶段 1：gateway + auth-service
@@ -107,8 +108,10 @@
 - [✓] 库存预警接口（AdminStockController：列表/创建/状态常量，前端 StockList 页对接；路径统一 `/api/admin/stock`，字段统一驼峰）
 - [✓] 商品图上传（`POST /api/admin/upload`，type 分流 `upload/image/{upload|body|category|after-sale}`，白名单 png/jpg/gif/webp + multipart 10MB，前端 AddGoods/EditModal/Editor/售后凭证上传已接；**放 product-service 而非 file-service**，网关 `/image/**` 已指 product-service）
 - [✓] C 端图片/视频上传（`POST /api/upload`，需登录，复用 UploadService；type=review 评价晒图 / after-sale 售后凭证；白名单加 video/mp4，multipart 上限 50MB；网关 `/api/upload` 路由，2026-10-21）
+  - 2026-10-23 扩展 type=feedback → `upload/image/feedback/`（意见反馈截图，前端 `uploadMedia(path, 'feedback')`）
+- [✓] C 端商品收藏（`product_favorites` 表 + `FavoriteController/Service/Mapper`：`GET /api/favorites` 列表、`GET /check`、`POST/DELETE /{productId}`；放 product-service 同库 join `products`，`shop_id+user_id+product_id` 唯一键做幂等、取消物理删除、下架商品保留展示；网关补 `/api/favorites/**`；小程序详情页假收藏（Storage）换真接口 + `pages/my/favorites` 收藏列表页，2026-10-23）
 - [ ] parameters 表 + 参数组/参数项；促销 business_onsale 表 + 活动 CRUD
-- **状态：** in_progress（商品/分类/标签/库存预警后台 CRUD 已通，前端 goods/category/tag/stock 页已对接；字段以驼峰为主、商品模块保持蛇形；参数、促销未做）
+- **状态：** in_progress（商品/分类/标签/库存预警后台 CRUD + C 端商品收藏已通，前端 goods/category/tag/stock/收藏页已对接；字段以驼峰为主、商品模块保持蛇形；参数、促销未做）
 
 ### 阶段 4：order-service
 - [✓] orders / order_items / cart / address 表 + 数据迁移（`order.sql` 建表 + `order-data.sql` 迁数据：52 订单 / 76 订单项 / 15 地址）
@@ -134,6 +137,7 @@
 - [✓] 商品评价（product_reviews 表 + ReviewController/Service/Mapper/dto/vo + OrderVO.reviewed 标记 + 前端 review.vue 提交 + 评价晒图/视频上传 + order-card「已评价」状态；一单评一次、已完成可评，2026-10-21）
 - [✓] 取消订单自动生成退款售后单（仅已支付未发货 status 2/3；用户端 `OrderServiceImpl.cancelOrder` 与后台 `AdminOrderServiceImpl.cancelOrder` 同时触发；与订单取消同事务直写 `after_sales`/`after_sale_items`/`after_sale_only_refunds`，`after_sale_type=only_refund`、`status=refunded`、`reason=cancel`；订单已有售后单则跳过，2026-10-22）
 - [✓] 后台营业额统计（`ReportController` + `ReportService`：`GET /api/admin/report/turnover` 卡片、`GET /api/admin/report/turnover-report` 折线；口径 = `pay_at` 区间实收 − `refunded` 售后退款，退款按原订单 `pay_at` 归属；period=yesterday/week/month，2026-10-22）
+  - 2026-10-23 重构：`resolvePeriod` 返回 `PeriodRange(begin,end,timeDesc)` 日期闭区间、`getDateList` 统一生成连续日期、`turnoverOf` 改收 `LocalDate`；两个接口共用一份 period 解析。按天 SQL 修掉 `GROUP BY pay_at` 按秒分组的 bug，补 `shop_id`/`is_deleted` 过滤与 `@Param` 参数名
 - [✓] 网关补 `/api/admin/report/**` → `lb://order-service` 路由（原会落到兜底 `/api/**` 转 user-service 404，2026-10-22 已加）
 - **状态：** in_progress（下单/状态流转/超时关闭/购物车 CRUD/下单幂等/小程序前端下单链路 + 后台订单管理 + 营业额统计 + 取消订单自动退款已实现并编译通过，下单接口已评审加固（订单号防撞唯一索引 + 手机号 11 位校验）；购物车有 2 项缺口见上、未启动端到端验证）
 
@@ -152,6 +156,7 @@
 - [✓] 小程序售后前端（apply 选服务类型按状态过滤 + only-refund 申请页 + only-refund-detail 详情页时间轴按状态动态，2026-10-21）
 - [✓] 退货退款申请页/详情页 + 退货方式弹窗（return-way-popup 官方退货卡片 + 上门取件/自行寄回 + 时段）+ 回填物流独立页（return-tracking，自行寄回回填快递公司/单号，2026-10-21）
 - [✓] 换货申请页/详情页（exchange/exchange-detail，5 节点时间轴 + 换货发货地址 ship_address 存换货子表，2026-10-21）
+- [✓] 换货子表修复（2026-10-23）：`AfterSaleExchangeReturnMapper.xml` 的 namespace 被换行截断，导致换货详情/审核等所有换货子表语句绑定失败（GET 详情 500）——修正 namespace；创建换货售后时补写 `return_way`/`return_time_slot`（原 `insertPlaceholder` 只写 ship_address，详情一直显示「退货方式：—」且回填物流被拒）
 - [✓] 售后列表 Tab 对接（订单列表「售后」Tab 展示售后单 + after-sale-card 组件 + 售后详情按类型跳）+「我的」页角标真实数量（listOrders/listAfterSales 回填 badge，2026-10-21）
 - [✓] 时间轴拒绝态（rejected 显示红色叉节点，2026-10-21）
 - [✓] 取消订单自动生成退款售后单（由 order-service 取消订单时同事务直写售后三表，未走 aftersale-service 的接口；实现见阶段 4，2026-10-22）
@@ -160,8 +165,9 @@
 ### 阶段 6：user-service + file-service
 - [✓] user-service：整合现有 user 模块（小程序登录/资料/头像/昵称/注销链路已在 user-service 跑通）；收货地址已实现在 order-service（address 表），不归 user-service
 - [✓] 用户增长统计接口（`GET /api/admin/users/statistics`：近 12 月每月新增用户，AdminUserController + UserMapper.countMonthlyNewUsers @Select；后台工作台「用户增长」双折线用，2026-10-20）
+- [✓] 意见反馈（`feedback` 表 + `POST /api/feedback`：类型 suggestion/product/order/other、内容 5~1000 字、截图最多 6 张且只收 `/image/feedback/` 相对路径、联系方式选填；user_id/shop_id 从 UserContext，网关兜底 `/api/**` 无需加路由；前端 feedback 页接真实提交，2026-10-23）
 - [ ] file-service：图片上传已放 product-service（`/api/admin/upload`），file-service 留作后续 CDN/通用文件；uploads 表
-- **状态：** in_progress（user-service 已整合完成；file-service 未做）
+- **状态：** in_progress（user-service 已整合完成 + 意见反馈接口已实现；file-service 未做）
 
 ### 阶段 7：前端对接联调
 - [✓] 前端 baseURL 指向网关，登录响应结构对齐（商品浏览/加购/下单链路已接入）
@@ -173,6 +179,7 @@
 - [✓] 后台工作台对接：商品统计 `GET /api/admin/products/dashboard`、用户增长 `GET /api/admin/users/statistics`、库存预警列表（2026-10-20）
 - [✓] 工作台四张统计卡改走后端：`GET /api/admin/report/dashboard`（今日/昨日营业额、今日/昨日订单量、待发货）+ `/api/admin/users/statistics` 新增 `totalUsers`（2026-10-22）
 - [✓] 后台工作台营业额面板接 `GET /api/admin/report/turnover`、`/turnover-report`（维度切换 昨日/近7天/本月 + 大数字；近7天/本月折线，昨日「前日 vs 昨日」双柱；舍弃原 MonthlySales 近12月柱状图，2026-10-22）
+- [✓] 小程序商品收藏页（`pages/my/favorites`：收藏列表/取消收藏/空态，下架商品打「已下架」；商品详情页收藏态走 `GET /api/favorites/check`，点击先 `ensureLogin` 静默登录再落库，「我的」页入口接通，2026-10-23）
 - **状态：** in_progress（商品/购物车/下单/订单列表链路已通；售后 C 端接口已实现；订单/商品搜索、订单列表 6 Tab、待发货详情、地址管理页、后台工作台统计与营业额面板已做；端到端未验证）
 
 ### 阶段 8：ai-agent-service（AI 导购 Agent，小程序悬浮 AI）

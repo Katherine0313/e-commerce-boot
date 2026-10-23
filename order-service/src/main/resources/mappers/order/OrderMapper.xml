@@ -190,8 +190,8 @@
     <select id="sumRefundAmountByDay" resultType="map">
         SELECT DATE_FORMAT(o.pay_at, '%Y-%m-%d') AS date_key, COALESCE(SUM(asi.refund_amount), 0) AS amount
         FROM after_sale_items asi
-        JOIN after_sales a ON a.id = asi.after_sale_id AND a.shop_id = #{shopId} AND a.is_deleted = 0
-        JOIN orders o ON o.id = a.order_id AND o.shop_id = #{shopId} AND o.is_deleted = 0
+                 JOIN after_sales a ON a.id = asi.after_sale_id AND a.shop_id = #{shopId} AND a.is_deleted = 0
+                 JOIN orders o ON o.id = a.order_id AND o.shop_id = #{shopId} AND o.is_deleted = 0
         WHERE a.status = 'refunded'
           AND asi.is_deleted = 0
           AND o.pay_at IS NOT NULL

@@ -46,75 +46,22 @@ public class ReportServiceImpl implements ReportService {
     @Override
     public TurnoverVO getTurnoverStats(String period) {
         Long shopId = requireShopId();
-        LocalDate today = LocalDate.now();
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime todayStart = today.atStartOfDay();
-
-        LocalDateTime start;
-        LocalDateTime end;
-        String timeDesc;
-        switch (period == null ? "" : period) {
-            case "yesterday" -> {
-                // 昨日：完整自然日 [昨天0点, 今天0点)
-                start = todayStart.minusDays(1);
-                end = todayStart;
-                timeDesc = "昨日";
-            }
-            case "week" -> {
-                // 近7天（含今天）：[今天-6天0点, now)
-                start = todayStart.minusDays(6);
-                end = now;
-                timeDesc = "近7天";
-            }
-            case "month" -> {
-                // 本月：[月初0点, now)
-                start = today.withDayOfMonth(1).atStartOfDay();
-                end = now;
-                timeDesc = "本月";
-            }
-            default -> throw new BusinessException(HttpStatus.BAD_REQUEST, "非法的统计维度");
-        }
-
+        PeriodRange range = resolvePeriod(period);
         return TurnoverVO.builder()
-                .turnover(turnoverOf(shopId, start, end))
-                .timeDesc(timeDesc)
+                .turnover(turnoverOf(shopId, range.begin(), range.end()))
+                .timeDesc(range.timeDesc())
                 .build();
     }
 
     @Override
     public TurnoverReportVO getTurnoverReport(String period) {
         Long shopId = requireShopId();
-        LocalDate today = LocalDate.now();
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime todayStart = today.atStartOfDay();
+        PeriodRange range = resolvePeriod(period);
+        List<LocalDate> dates = getDateList(range.begin(), range.end());
 
-        LocalDateTime start;
-        LocalDateTime end;
-        List<LocalDate> dates = new ArrayList<>();
-        switch (period == null ? "" : period) {
-            case "yesterday" -> {
-                start = todayStart.minusDays(1);
-                end = todayStart;
-                dates.add(today.minusDays(1));
-            }
-            case "week" -> {
-                start = todayStart.minusDays(6);
-                end = now;
-                for (int i = 6; i >= 0; i--) {
-                    dates.add(today.minusDays(i));
-                }
-            }
-            case "month" -> {
-                start = today.withDayOfMonth(1).atStartOfDay();
-                end = now;
-                LocalDate d = today.withDayOfMonth(1);
-                while (!d.isAfter(today)) {
-                    dates.add(d);
-                    d = d.plusDays(1);
-                }
-            }
-            default -> throw new BusinessException(HttpStatus.BAD_REQUEST, "非法的统计维度");
-        }
+        // 查询区间：[begin 0点, end 次日 0点)
+        LocalDateTime start = range.begin().atStartOfDay();
+        LocalDateTime end = range.end().plusDays(1).atStartOfDay();
 
         // 实收/退款按天分组 → Map<日期, 金额>，逐日相减，缺失日期补 0
         Map<String, BigDecimal> paidMap = toDateAmountMap(orderMapper.sumPaidAmountByDay(shopId, start, end));
@@ -147,8 +94,8 @@ public class ReportServiceImpl implements ReportService {
 
         return DashboardStatsVO.builder()
                 // 营业额与 /turnover 同口径：pay_at 区间实收 − 退款
-                .todayTurnover(turnoverOf(shopId, todayStart, tomorrowStart))
-                .yesterdayTurnover(turnoverOf(shopId, yesterdayStart, todayStart))
+                .todayTurnover(turnoverOf(shopId, today, today))
+                .yesterdayTurnover(turnoverOf(shopId, today.minusDays(1), today.minusDays(1)))
                 // 订单量按 created_at，排除已取消（与工作台原前端口径一致）
                 .todayOrders(orderMapper.countCreatedBetween(shopId, todayStart, tomorrowStart))
                 .yesterdayOrders(orderMapper.countCreatedBetween(shopId, yesterdayStart, todayStart))
@@ -157,14 +104,55 @@ public class ReportServiceImpl implements ReportService {
                 .build();
     }
 
-    /** 单区间营业额 = 实收 − 退款（时间用 JVM 本地时区，与 pay_at 同基准） */
-    private BigDecimal turnoverOf(Long shopId, LocalDateTime start, LocalDateTime end) {
-        BigDecimal paid = orderMapper.sumPaidAmount(shopId, start, end);
-        BigDecimal refund = orderMapper.sumRefundAmount(shopId, start, end);
+    /**
+     * 根据 period 算起止日期（闭区间），switch 只负责这一件事
+     */
+    private PeriodRange resolvePeriod(String period) {
+        LocalDate today = LocalDate.now();
+        return switch (period == null ? "" : period) {
+            // 昨日：完整自然日
+            case "yesterday" -> new PeriodRange(today.minusDays(1), today.minusDays(1), "昨日");
+            // 近7天（含今天）
+            case "week" -> new PeriodRange(today.minusDays(6), today, "近7天");
+            // 本月：月初至今天
+            case "month" -> new PeriodRange(today.withDayOfMonth(1), today, "本月");
+            default -> throw new BusinessException(HttpStatus.BAD_REQUEST, "非法的统计维度");
+        };
+    }
+
+    /**
+     * 连续日期列表（闭区间，按天递增）
+     */
+    private List<LocalDate> getDateList(LocalDate begin, LocalDate end) {
+        List<LocalDate> dates = new ArrayList<>();
+        LocalDate d = begin;
+        while (!d.isAfter(end)) {
+            dates.add(d);
+            d = d.plusDays(1);
+        }
+        return dates;
+    }
+
+    /**
+     * 单区间营业额 = 实收 − 退款（日期闭区间 → [begin 0点, end 次日 0点)，JVM 本地时区与 pay_at 同基准）
+     */
+    private BigDecimal turnoverOf(Long shopId, LocalDate begin, LocalDate end) {
+        LocalDateTime start = begin.atStartOfDay();
+        LocalDateTime endExclusive = end.plusDays(1).atStartOfDay();
+        BigDecimal paid = orderMapper.sumPaidAmount(shopId, start, endExclusive);
+        BigDecimal refund = orderMapper.sumRefundAmount(shopId, start, endExclusive);
         return (paid == null ? BigDecimal.ZERO : paid).subtract(refund == null ? BigDecimal.ZERO : refund);
     }
 
-    /** 分组查询结果 [{date_key, amount}] 转 Map<日期, 金额> */
+    /**
+     * 统计周期：日期闭区间 + 文案
+     */
+    private record PeriodRange(LocalDate begin, LocalDate end, String timeDesc) {
+    }
+
+    /**
+     * 分组查询结果 [{date_key, amount}] 转 Map<日期, 金额>
+     */
     private Map<String, BigDecimal> toDateAmountMap(List<Map<String, Object>> rows) {
         Map<String, BigDecimal> map = new HashMap<>();
         for (Map<String, Object> row : rows) {

@@ -17,7 +17,8 @@ import java.util.UUID;
  * 图片/视频上传实现（后台商品图与 C 端评价晒图共用）。
  * <p>
  * 落盘规则与现有数据对齐：商品主图 → upload/image/upload/，富文本正文图 → upload/image/body/，
- * 分类图 → upload/image/category/，售后凭证图 → upload/image/after-sale/，评价晒图/视频 → upload/image/review/。
+ * 分类图 → upload/image/category/，售后凭证图 → upload/image/after-sale/，评价晒图/视频 → upload/image/review/，
+ * 意见反馈截图 → upload/image/feedback/。
  * 磁盘根目录与 WebMvcConfig 的 /image/** → file:upload/image/ 静态映射一致，存完返回 /image/{sub}/{文件名}
  * 相对路径，前端直接存库，展示走网关 /image/** 托管。
  */
@@ -32,7 +33,8 @@ public class UploadServiceImpl implements UploadService {
             "body", "body",
             "category", "category",
             "after-sale", "after-sale",
-            "review", "review"
+            "review", "review",
+            "feedback", "feedback"
     );
 
     /**
