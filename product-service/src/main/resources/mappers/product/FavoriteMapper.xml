@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.product.mapper.FavoriteMapper">
+
+    <!-- 收藏：唯一键冲突时只更新 id，不插新行（幂等） -->
+    <insert id="insert">
+        INSERT INTO product_favorites (shop_id, user_id, product_id, created_at)
+        VALUES (#{shopId}, #{userId}, #{productId}, #{createdAt})
+        ON DUPLICATE KEY UPDATE id = id
+    </insert>
+
+    <!-- 取消收藏：按 shop_id + user_id + product_id 定位，重复删除 0 行也算成功 -->
+    <delete id="delete">
+        DELETE
+        FROM product_favorites
+        WHERE shop_id = #{shopId} AND user_id = #{userId} AND product_id = #{productId}
+    </delete>
+
+    <!-- 是否已收藏 -->
+    <select id="exists" resultType="boolean">
+        SELECT EXISTS(SELECT 1
+                      FROM product_favorites
+                      WHERE shop_id = #{shopId} AND user_id = #{userId} AND product_id = #{productId})
+    </select>
+
+    <!-- 收藏列表：join 商品取展示字段；不按 listing_status 过滤，下架商品也返回（status 交给前端打标） -->
+    <select id="listByUser" resultType="ecommerce.product.vo.FavoriteVO">
+        SELECT p.id            AS product_id,
+               p.name,
+               p.image,
+               p.sales_price   AS price,
+               p.market_price  AS market_price,
+               p.stock,
+               p.listing_status AS status,
+               f.created_at
+        FROM product_favorites f
+                 JOIN products p ON p.id = f.product_id AND p.shop_id = f.shop_id
+        WHERE f.shop_id = #{shopId}
+          AND f.user_id = #{userId}
+        ORDER BY f.created_at DESC, f.id DESC
+    </select>
+
+</mapper>
