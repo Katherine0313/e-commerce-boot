@@ -5,7 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-23 C 端商品收藏（product-service `product_favorites` + `/api/favorites` 列表/check/收藏/取消，同库 join products、唯一键幂等、下架商品保留并打标；网关补 `/api/favorites/**`；小程序详情页假收藏换真接口 + `pages/my/favorites` 收藏页，「我的」入口接通）。此前 2026-10-23 营业额报表重构（order-service：`resolvePeriod` 返回 `PeriodRange(begin,end,timeDesc)` 日期闭区间、`getDateList` 统一生成连续日期、`turnoverOf` 改收 `LocalDate`，卡片/折线共用一份 period 解析；按天 SQL 修掉 `GROUP BY pay_at` 按秒分组导致折线每天只剩一笔的 bug，补 `shop_id`/`is_deleted` 过滤与 `@Param` 参数名）。此前 2026-10-22 后台营业额统计（order-service `ReportController`：卡片 `/api/admin/report/turnover` + 折线 `/turnover-report`，口径实收 − 退款、退款跟原订单 `pay_at`）+ 取消订单自动生成退款售后单（用户/后台取消已支付未发货订单时，同事务直写售后三表，`reason=cancel`）；网关已补 `/api/admin/report/**` 路由；后台工作台营业额面板已接（昨日/近7天/本月，昨日用前日 vs 昨日双柱，替换原 MonthlySales；纵轴按 2000 的倍数自适应，横轴防裁切）；四张统计卡改走后端 `/api/admin/report/dashboard` + `users/statistics.totalUsers`；来单 WebSocket 收到推送后自动刷新工作台（心跳/重连/语音解锁已加固，**刷新页面后点一下页面才会出声**）。此前 2026-10-21 已完成商品评价、售后增强、售后三类型申请/详情页、售后列表 Tab 与角标。剩余：参数/促销、购物车 2 缺口、退货入库单（仓库核验）、file-service(CDN)、沙箱过期回收/templateGuard、端到端验证。
+  2026-10-23 意见反馈（user-service `feedback` 表 + `POST /api/feedback`，类型/内容/截图/联系方式校验，截图落 `upload/image/feedback/`；小程序反馈页接真实提交）+ 换货子表修复（`AfterSaleExchangeReturnMapper.xml` namespace 换行导致换货详情/审核 500；创建换货单补存 return_way/return_time_slot）+ 全局 LocalDateTime 格式化（common `JacksonConfig`，所有接口时间不再带 ISO 的 `T`）。此前 2026-10-23 C 端商品收藏（product-service `product_favorites` + `/api/favorites` 列表/check/收藏/取消，同库 join products、唯一键幂等、下架商品保留并打标；网关补 `/api/favorites/**`；小程序详情页假收藏换真接口 + `pages/my/favorites` 收藏页，「我的」入口接通）。此前 2026-10-23 营业额报表重构（order-service：`resolvePeriod` 返回 `PeriodRange(begin,end,timeDesc)` 日期闭区间、`getDateList` 统一生成连续日期、`turnoverOf` 改收 `LocalDate`，卡片/折线共用一份 period 解析；按天 SQL 修掉 `GROUP BY pay_at` 按秒分组导致折线每天只剩一笔的 bug，补 `shop_id`/`is_deleted` 过滤与 `@Param` 参数名）。此前 2026-10-22 后台营业额统计（order-service `ReportController`：卡片 `/api/admin/report/turnover` + 折线 `/turnover-report`，口径实收 − 退款、退款跟原订单 `pay_at`）+ 取消订单自动生成退款售后单（用户/后台取消已支付未发货订单时，同事务直写售后三表，`reason=cancel`）；网关已补 `/api/admin/report/**` 路由；后台工作台营业额面板已接（昨日/近7天/本月，昨日用前日 vs 昨日双柱，替换原 MonthlySales；纵轴按 2000 的倍数自适应，横轴防裁切）；四张统计卡改走后端 `/api/admin/report/dashboard` + `users/statistics.totalUsers`；来单 WebSocket 收到推送后自动刷新工作台（心跳/重连/语音解锁已加固，**刷新页面后点一下页面才会出声**）。此前 2026-10-21 已完成商品评价、售后增强、售后三类型申请/详情页、售后列表 Tab 与角标。剩余：参数/促销、购物车 2 缺口、退货入库单（仓库核验）、file-service(CDN)、沙箱过期回收/templateGuard、端到端验证。
 
 - **我要去哪里？**
   1. 促销/参数表（business_onsale + parameters）
@@ -58,6 +58,9 @@
   - 2026-10-22：营业额图坐标调整——纵轴按数据量级自动选 2000 的整数倍，横轴 `grid.right` 加宽 + 首尾留白 + `hideOverlap` 防日期标签裁切/重叠
   - 2026-10-23：营业额报表重构——`ReportServiceImpl` 抽出 `PeriodRange(begin,end,timeDesc)` + `resolvePeriod` + `getDateList`，switch 只算日期；`turnoverOf` 改收 `LocalDate` 内部转 `[begin 0点, end 次日 0点)`；按天 SQL 改 `GROUP BY DATE_FORMAT(pay_at,'%Y-%m-%d')`、补 `shop_id`/`is_deleted`/`@Param`，退款按天单列一条 SQL（跟原订单 `pay_at`）
   - 2026-10-23：C 端商品收藏——后端 product-service 新增 `product_favorites` entity/vo/mapper/service/controller（`/api/favorites` 4 接口：列表/check/收藏/取消），唯一键幂等、取消物理删除、下架商品保留并下发 `status`；网关 product-service 路由补 `/api/favorites/**`；前端新增 `api/favorite.js` + `pages/my/favorites.vue`，商品详情页 Storage 假收藏换成真接口（静默登录 + 防连点），「我的」页入口接通
+  - 2026-10-23：全局 Jackson LocalDateTime 格式化——common 新增 `JacksonConfig`（Boot 4/Jackson 3 的 `JsonMapperBuilderCustomizer` + `LocalDateTimeSerializer`），统一 `yyyy-MM-dd HH:mm:ss`；只改序列化，不动反序列化；字段级 `@JsonFormat` 不受影响；解决后台售后等页面时间带 `T`
+  - 2026-10-23：换货子表修复——`AfterSaleExchangeReturnMapper.xml` namespace 被换行截断（`AfterSaleExch\nangeReturnMapper`），换货详情/审核调 `findByAfterSaleId` 抛 BindingException 返回 500，namespace 修正为完整一行；创建换货售后时 `insertSubPlaceholder` 补写 `return_way`/`return_time_slot`，`insertPlaceholder` SQL 同步加列（原详情一直显示「退货方式：—」、回填物流被后端拒绝）
+  - 2026-10-23：意见反馈——user-service 新增 `Feedback` entity/mapper/dto/service/controller，`POST /api/feedback`（类型 suggestion/product/order/other、内容 5~1000 字、截图最多 6 张且只收 `/image/feedback/`、联系方式选填，userId/shopId 从 UserContext）；`UploadServiceImpl` 增加 `type=feedback` 目录；前端 `pages/my/feedback.vue` 从本地 Storage 改为真实提交（类型 code+label、截图上传预览删除）
 
 ## 错误日志（最近）
 
@@ -68,6 +71,9 @@
 | 2026-10-18 | 前端跨域 CORS 无头 / 头重复 | gateway 是 WebFlux 无 CORS；加 `CorsWebFilter` + 去重 `GlobalFilter` 解决 |
 | 2026-10-23 | 营业额折线每天金额偏小（同一天只剩一笔） | 按天 SQL 误用 `GROUP BY pay_at`（按秒分组），同一天多行被 Java `put` 覆盖；改 `GROUP BY DATE_FORMAT(pay_at,'%Y-%m-%d')`，并补 `shop_id`/`is_deleted` 过滤 |
 | 2026-10-23 | 报表接口返回 `{"message":"请求不合法"}` | `GlobalExceptionHandler` 兜底分支（Spring `ErrorResponse`）：路由不存在 404 / `period` 缺参 400；排查时先确认 URL 与方法、参数是否齐全 |
+| 2026-10-23 | `GET /api/admin/after-sales/{id}` 返回 500（换货审核弹窗打不开） | `AfterSaleExchangeReturnMapper.xml` 的 namespace 中间断行，实际值含空格，XML 语句未绑定到接口 → `Invalid bound statement`；namespace 写回完整一行 |
+| 2026-10-23 | 售后时间显示 `2026-10-21T10:44:55`（带 T） | `spring.jackson.date-format` 只作用于 `java.util.Date`，管不到 `LocalDateTime`；在 common 加 `JsonMapperBuilderCustomizer` 注册 `LocalDateTimeSerializer` 全局格式化 |
+| 2026-10-23 | 换货详情「退货方式」一直显示 —，回填物流被拒 | 创建换货售后时 `insertSubPlaceholder` 只写 ship_address，`return_way`/`return_time_slot` 未落库；Service 补字段 + `insertPlaceholder` SQL 加两列 |
 
 ---
 

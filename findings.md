@@ -719,3 +719,44 @@ gateway `CorsWebFilter` 加一次 CORS 头 + 下游 auth-service 的 common `Cor
 - 新增 `pages/my/favorites.vue`：`ensureLogin` 后拉列表；卡片展示图/名称/售价/划线价，右上角星标取消收藏（成功后本地移除）；空态「去逛逛」；下架商品打标但仍可点进详情。
 - 「我的」页入口「收藏与浏览」保留原名，本期只做收藏（浏览记录后续可同页加 Tab）。
 
+## 换货子表修复（2026-10-23）
+
+### 1. namespace 被换行截断 → BindingException → 500
+
+- `AfterSaleExchangeReturnMapper.xml` 的 `<mapper namespace="ecommerce.aftersale.mapper.AfterSaleExch\nangeReturnMapper">` 中间断行，XML 属性值里的换行会被规范化成空格，实际 namespace 变成 `...AfterSaleExch angeReturnMapper`，与接口 FQN 对不上。
+- MyBatis 启动不报错，但 XML 里的语句不会绑定到接口；调用时抛 `Invalid bound statement (not found)`，被 `GlobalExceptionHandler` 兜底成 500「服务器内部错误」。
+- 影响该子表的全部操作：换货详情（`findByAfterSaleId`）、创建换货售后（`insertPlaceholder`）、回填退货方式/物流、后台审核时间戳、软删除——换货链路此前整体不可用。
+- 修复：namespace 写回完整一行。排查同名问题时，可用脚本扫描所有 mapper XML 的 namespace 是否含换行/空格。
+
+### 2. 创建换货售后未保存退货方式
+
+- 前端 `exchange.vue` 提交时带了 `returnWay`/`returnTimeSlot`，`CreateAfterSaleDTO` 也接收，但 `insertSubPlaceholder` 的 `EXCHANGE` 分支只写了 `shipAddress`，`insertPlaceholder` SQL 也没有这两列。
+- 结果：换货详情一直显示「退货方式：—」；回填物流时 `detail.returnWay` 为空，后端 `submitReturn` 校验 `return_way 必须是 pickup 或 self`，提交被拒。
+- 修复：`AfterSaleServiceImpl` 的 `EXCHANGE` 分支补 `.returnWay(returnWay).returnTimeSlot(returnTimeSlot)`；`AfterSaleExchangeReturnMapper.xml` 的 `insertPlaceholder` 增加 `return_way`、`return_time_slot`。
+- 修复前创建的换货单子表这两列为 NULL，历史数据无法恢复用户选择，需要重新申请或手工补值。
+
+## 全局 LocalDateTime 格式化（2026-10-23）
+
+- 现象：后台售后模块时间显示 `2026-10-21T10:44:55`。根因是 `AfterSaleVO` 除 `payAt` 外的时间字段没有 `@JsonFormat`，Jackson 默认把 `LocalDateTime` 序列化成 ISO-8601（日期和时间之间带 `T`）。
+- **`spring.jackson.date-format` 对 `LocalDateTime` 无效**：该属性只设置 `java.util.Date`/`Calendar` 的 `DateFormat`；`spring.jackson.time-zone` 对不带时区的 `LocalDateTime` 也无意义；`write-dates-as-timestamps: false` 只是不输出数组/时间戳，不会去掉 `T`。所以只加 yml 解决不了。
+- 正确做法（Boot 4.1 / Jackson 3）：在 `common` 注册 `JsonMapperBuilderCustomizer`，用 `tools.jackson.databind.ext.javatime.ser.LocalDateTimeSerializer` + `SimpleModule` 覆盖 `LocalDateTime` 序列化：
+  - `common/src/main/java/ecommerce/configuration/JacksonConfig.java`
+  - 注意不是网上常见的 `Jackson2ObjectMapperBuilderCustomizer`，Boot 4 已改用 Jackson 3 的 `JsonMapperBuilderCustomizer`。
+- 只注册序列化器，不动反序列化：Jackson 默认仍能接收 ISO（含 `T`）格式，避免影响请求体解析。
+- 字段级 `@JsonFormat` 优先级更高（`OrderVO` 各时间、`AfterSaleVO.payAt` 输出不变）。
+- common 被所有业务服务依赖（`scanBasePackages = "ecommerce"`），配置自动生效；gateway 不引 common，但它是 WebFlux 网关、无业务 VO，不受影响。
+- 验证：`mvn -pl common,aftersale-service -am compile` 通过，并用 Jackson 3 实测 `LocalDateTime.of(2026,10,21,10,44,55)` → `"2026-10-21 10:44:55"`。
+
+## 意见反馈（2026-10-23）
+
+- 表 `feedback`（手工建表，DDL 未纳入 `docs/sql`）：`id / shop_id / user_id / type / content / images / contact / status / is_deleted / created_at / updated_at`。
+  - `type` 存 code：`suggestion` 功能建议 / `product` 商品问题 / `order` 订单物流 / `other` 其他；
+  - `images` 存 JSON 数组字符串（与 `product_reviews.images` 同款），只存 `/image/feedback/xxx` 相对路径；
+  - `status` 预留后台处理状态（0 未处理 / 1 已处理）；
+  - `created_at` 不用 MySQL 默认值，由 Java `LocalDateTime.now()` 写入（服务器时区 UTC 差 8 小时）。
+- 接口：`POST /api/feedback`（user-service，需 user 令牌；`/api/feedback` 不在免登录白名单，网关兜底 `/api/**` → user-service，无需新增路由）。
+  - 校验：类型白名单；内容 trim 后 5~1000 字；截图最多 6 张且必须以 `/image/feedback/` 开头（防外链）；联系方式 ≤64 字；
+  - `userId` 取 `UserContext`，`shopId` 缺失回退模板店 1；落库用 MyBatis-Plus `BaseMapper.insert`，返回反馈 ID。
+- 图片上传：`UploadServiceImpl.TYPE_SUBDIR` 新增 `feedback → upload/image/feedback/`，前端用 `uploadMedia(path, 'feedback')`。
+- 前端 `pages/my/feedback.vue`：类型胶囊单选（code + label）、内容 200 字计数、最多 6 张截图上传/预览/删除、联系方式默认带出账号手机号；提交调真实接口，成功返回上一页。
+
