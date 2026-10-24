@@ -44,11 +44,11 @@
                  OR EXISTS (SELECT 1 FROM order_items oi
                             WHERE oi.order_id = a.order_id AND oi.product_name LIKE CONCAT('%', #{search}, '%')))
         </if>
-        <if test="startDate != null">
-            AND a.${dateField} &gt;= #{startDate}
+        <if test="start != null">
+            AND a.${dateField} &gt;= #{start}
         </if>
-        <if test="endDate != null">
-            AND a.${dateField} &lt;= #{endDate}
+        <if test="end != null">
+            AND a.${dateField} &lt;= #{end}
         </if>
         ORDER BY a.created_at DESC, a.id DESC
     </select>
@@ -66,11 +66,11 @@
                  OR EXISTS (SELECT 1 FROM order_items oi
                             WHERE oi.order_id = a.order_id AND oi.product_name LIKE CONCAT('%', #{search}, '%')))
         </if>
-        <if test="startDate != null">
-            AND a.${dateField} &gt;= #{startDate}
+        <if test="start != null">
+            AND a.${dateField} &gt;= #{start}
         </if>
-        <if test="endDate != null">
-            AND a.${dateField} &lt;= #{endDate}
+        <if test="end != null">
+            AND a.${dateField} &lt;= #{end}
         </if>
         ORDER BY a.created_at DESC, a.id DESC
     </select>
