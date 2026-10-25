@@ -16,6 +16,9 @@ public interface CartService {
    /** 购物车列表 */
    List<CartVO> getCart();
 
+   /** 购物车商品总件数（首页角标，不查明细） */
+   int getCount();
+
    /** 加入购物车：已存在累加数量，不存在新增 */
    void addItem(AddCartDTO dto);
 

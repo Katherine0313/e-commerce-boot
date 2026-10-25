@@ -167,10 +167,13 @@ Nacos 控制台里应该能看到 9 个服务实例。
 - [ ] `WECHAT_SECRET` 正确
 - [ ] `DB_URL` 指向正确的库，且库里有表和数据
 - [ ] `/www/java/upload` 存在且可写，且已上传现有图片（`image/upload`、`body`、`category`、`swiper`、`share`、`QRcode.webp`、`store-logo.webp` 等）
+- [ ] 已上传压缩图目录 `/www/java/upload/image/opt/`（`category` 200px、`upload` 1024px、`body` 1080px）；`WebMvcConfig` 优先读 opt，缺失时回落原图
+- [ ] 图片/分类更新后已清 Cloudflare 缓存（`/image/category/*` 曾缓存 404，不清会继续 404，最长 4 小时）
 - [ ] 时区是 `Asia/Shanghai`（Dockerfile 已带）
 - [ ] 只放行 22/80/443；Nacos 控制台限制来源 IP
 - [ ] 3306 不暴露公网；Redis 容器没有 `ports` 映射
 - [ ] `REDIS_HOST=redis`、`SPRING_DATA_REDIS_PASSWORD` 已填；`docker exec redis redis-cli -a '密码' ping` 返回 PONG
 - [ ] `docker compose ps` 全部 Up
 - [ ] `https://api.jiemids.com/api/products/1` 能返回商品
+- [ ] `https://api.jiemids.com/api/home?limit=10` 一次返回 `categories` + `recommend`
 - [ ] `curl -o /dev/null -w "%{time_total}s\n" http://127.0.0.1:8080/api/categories` 在毫秒级（说明 Redis 命中，没走降级）

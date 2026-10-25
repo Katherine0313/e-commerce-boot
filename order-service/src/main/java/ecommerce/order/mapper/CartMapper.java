@@ -13,6 +13,9 @@ public interface CartMapper {
     // 查某用户购物车列表（按加购时间倒序）
     List<Cart> listByUser(@Param("userId") Long userId, @Param("shopId") Long shopId);
 
+    // 查某用户购物车商品总件数（首页角标用，避免拉完整列表）
+    int countQuantity(@Param("userId") Long userId, @Param("shopId") Long shopId);
+
     // 查某用户购物车里某个商品的行（不存在返回 null）
     Cart findByUserAndProduct(@Param("userId") Long userId, @Param("productId") Long productId,
                               @Param("shopId") Long shopId);

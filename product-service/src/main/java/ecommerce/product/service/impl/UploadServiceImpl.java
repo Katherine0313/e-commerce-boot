@@ -65,7 +65,9 @@ public class UploadServiceImpl implements UploadService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "只支持 png / jpg / gif / webp 图片或 mp4 视频");
         }
 
-        String sub = TYPE_SUBDIR.getOrDefault(type, "upload");
+        // Map.of 是不可变 Map，key 为 null 时 get/getOrDefault 会抛 NPE；
+        // 商品主图上传不带 type，这里先判空，缺省归到 upload/
+        String sub = (type == null || type.isBlank()) ? "upload" : TYPE_SUBDIR.getOrDefault(type, "upload");
         String dirPath = IMAGE_DIR + sub + "/";
         File dir = new File(dirPath);
         if (!dir.exists()) {

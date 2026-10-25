@@ -15,6 +15,13 @@
         ORDER BY c.created_at DESC, c.id DESC
     </select>
 
+    <!-- 某用户购物车商品总件数（首页角标用，不查明细） -->
+    <select id="countQuantity" resultType="int">
+        SELECT COALESCE(SUM(quantity), 0)
+        FROM cart
+        WHERE user_id = #{userId} AND shop_id = #{shopId}
+    </select>
+
     <!-- 某用户购物车里某个商品的行 -->
     <select id="findByUserAndProduct" resultType="ecommerce.order.entity.Cart">
         SELECT id, shop_id, user_id, product_id, quantity, name, image, price, description,

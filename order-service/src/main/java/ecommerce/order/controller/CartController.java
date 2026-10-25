@@ -42,6 +42,12 @@ public class CartController {
         return Result.success(cartService.getCart());
     }
 
+    @Operation(summary = "购物车商品总件数（首页角标）")
+    @GetMapping("/count")
+    public Result<Integer> getCount() {
+        return Result.success(cartService.getCount());
+    }
+
     @Operation(summary = "加入购物车")
     @PostMapping
     public Result<Void> addItem(@RequestBody AddCartDTO dto) {

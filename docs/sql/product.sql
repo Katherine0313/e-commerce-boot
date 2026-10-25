@@ -96,12 +96,12 @@ CREATE TABLE IF NOT EXISTS `products` (
 INSERT IGNORE INTO `shops` (`id`, `name`, `is_template`, `create_time`, `expires_at`) VALUES (1, '杰米小店', 1, FROM_UNIXTIME(1789453491), NULL);
 
 -- categories
-INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (1, 1, '手机', NULL, 2, 1, 0, '/image/category/phone.png');
-INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (2, 1, '电脑', NULL, 1, 1, 0, '/image/category/laptop.png');
-INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (3, 1, '平板', NULL, 3, 1, 0, '/image/category/tablet.png');
-INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (4, 1, '配件', NULL, 4, 1, 0, '/image/category/headphones.png');
-INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (5, 1, '手表', NULL, 5, 1, 0, '/image/category/watch.png');
-INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (6, 1, '相机', NULL, 6, 1, 0, '/image/category/camera.png');
+INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (1, 1, '手机', NULL, 2, 1, 0, '/image/category/phone.webp');
+INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (2, 1, '电脑', NULL, 1, 1, 0, '/image/category/laptop.webp');
+INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (3, 1, '平板', NULL, 3, 1, 0, '/image/category/tablet.webp');
+INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (4, 1, '配件', NULL, 4, 1, 0, '/image/category/headphones.webp');
+INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (5, 1, '手表', NULL, 5, 1, 0, '/image/category/watch.webp');
+INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`, `image`) VALUES (6, 1, '相机', NULL, 6, 1, 0, '/image/category/camera.webp');
 INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (806, 1, '家具', NULL, 9, 1, 0);
 INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (101, 1, '苹果手机', 1, 1, 1, 0);
 INSERT IGNORE INTO `categories` (`id`, `shop_id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (102, 1, '安卓手机', 1, 2, 1, 0);

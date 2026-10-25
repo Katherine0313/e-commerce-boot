@@ -45,6 +45,11 @@ public class CartServiceImpl implements CartService {
     }
 
     @Override
+    public int getCount() {
+        return cartMapper.countQuantity(currentUserId(), currentShopId());
+    }
+
+    @Override
     public void addItem(AddCartDTO dto) {
         if (dto.getProductId() == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "product_id 不能为空");

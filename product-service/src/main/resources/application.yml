@@ -66,5 +66,6 @@ logging:
 # Python 推荐服务地址（猜你喜欢）；超时毫秒，防止慢调用拖垮商品浏览
 recommend:
   base-url: http://127.0.0.1:9009
-  connect-timeout: 500
-  read-timeout: 1000
+  # 首页场景宁可快速兜底，也不让 Python 慢调用拖住首屏
+  connect-timeout: 300
+  read-timeout: 500

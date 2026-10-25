@@ -2,11 +2,13 @@ package ecommerce.configuration;
 
 import ecommerce.interceptor.JwtInterceptor;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.CacheControl;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
 import java.util.List;
+import java.util.concurrent.TimeUnit;
 
 /**
  * Web MVC 配置：注册登录鉴权拦截器
@@ -30,6 +32,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
             // C 端商品浏览（裸路径=列表，/**=详情等子路径），只读接口免登录
             "/api/products", "/api/products/**",
             "/api/categories", "/api/categories/**",
+            // 首页聚合（分类 + 猜你喜欢），只读免登录
+            "/api/home",
             "/api/tags", "/api/tags/**",
             // AI 导购助手（对话/推荐免登录；下单阶段三需登录取 userId，届时再单独收紧鉴权）
             "/api/agent", "/api/agent/**",
@@ -59,9 +63,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
         // 用户头像等上传文件：/upload/** → 工作目录 upload/
         registry.addResourceHandler("/upload/**")
                 .addResourceLocations("file:upload/");
-        // 商品图片：数据库 image 字段存 /image/upload/N.webp，映射到 upload/image/ 下的真实文件
+        // 商品图片：数据库 image 字段存 /image/upload/N.webp，映射到 upload/image/ 下的真实文件。
+        // opt/ 是压缩后的图片（分类 200px、商品 1024px、详情 1080px），优先命中；找不到再回落原图，
+        // 这样不用改数据库里的历史路径，原图也保留可随时回滚。
         registry.addResourceHandler("/image/**")
-                .addResourceLocations("file:upload/image/");
+                .addResourceLocations("file:upload/image/opt/", "file:upload/image/")
+                // 图片内容按文件名固定，允许浏览器/小程序缓存；更新图片后需清 Cloudflare 缓存
+                .setCacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic());
     }
 
 

@@ -92,6 +92,8 @@
 - [✓] 后台订单管理 12 接口 + 前端订单页（分页/状态/关键词/日期筛选）
 - [✓] 商品评价、取消订单自动生成退款售后单
 - [✓] 报表：`/dashboard`、`/turnover`、`/turnover-report`、`/sales-ranking`（2026-10-24）
+- [✓] 订单未支付一次性订阅消息（2026-10-25）：提交订单时授权 → 下单写入 `is_subscribe_unpaid` → 第 20 分钟推送 → 点击跳 `pending-pay?orderNo`；access_token 改为 Redis 全局共享
+- [ ] 订阅消息上线：**先 ALTER 生产库 `orders` 两列+索引** → 部署 order-service/user-service → 小程序发行（顺序不能反，否则订单接口报 Unknown column）
 - [ ] 购物车加购校验上架状态（`ProductMapper.findById` 无 `listing_status` 过滤）
 - [ ] 购物车 5 接口端到端验证
 - [✓] 地址/购物车归属校验补齐：`AddressMapper.findById/update/deleteById`、`CartMapper.update` 全部加 `user_id` 条件（2026-10-24，用户不再走沙箱方案）
@@ -116,7 +118,9 @@
 - [✓] baseURL→网关、登录对齐、小程序下单/订单列表 6 Tab/详情/搜索/地址
 - [✓] 后台工作台：四张统计卡、营业额面板、全局时间选择器、销量排名（2026-10-24）
 - [✓] 小程序分包 + 图片后端化（2026-10-24）：主包保留 4 个 tabBar 页 + 我的子页（12 页），商品/搜索/订单/售后拆 4 个分包；`OrderCard`/`AfterSaleCard` 移到 `components`；删除 15M 的 `static/image`，商品图/轮播/分享图全部走后端
-- [✓] 生产部署（2026-10-24~25）：腾讯云 8G + Docker Compose（Nacos 3.1.1 + 9 服务）+ 宝塔 MySQL/Redis；`api.jiemids.com` / `www.jiemids.com` 经 Cloudflare + Nginx；后台沙箱/图片/来单 WebSocket、小程序发行已通；部署文件见 `deploy/` 与根目录 `nginx`
+- [✓] 生产部署（2026-10-24~25）：腾讯云 8G + Docker Compose（Nacos 3.1.1 + **Redis 容器** + 9 服务）+ 宝塔 MySQL；`api.jiemids.com` / `www.jiemids.com` 经 Cloudflare + Nginx；后台沙箱/图片/来单 WebSocket、小程序发行已通；部署文件见 `deploy/` 与根目录 `nginx`
+- [✓] 线上问题修复（2026-10-25）：小程序审核白屏（上传了 `dist/dev`，接口地址是 127.0.0.1 → 改传 `dist/build`）、分类接口 Redis 降级 + Redis 容器化、用户头像 http→https（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg（iOS 兼容）
+- [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + 后台三个域名（request/uploadFile/downloadFile）
 - [ ] 微信审核：模拟支付、隐私政策/用户协议、AI/UGC 内容安全、VIP/优惠券占位
 - [ ] 端到端跑通商品/订单/售后全链路（含商家确认收款/发货）
 - **状态：** in_progress
@@ -124,7 +128,7 @@
 ### 阶段 8：ai-agent-service（AI 导购 Agent）
 - [✓] 骨架（Spring AI 2.0.1 + DeepSeek + OpenFeign + MCP + SimpleVectorStore）+ 对话/SSE/意图路由/商品 Tool
 - [✓] 小程序客服 AI 流式对话（2026-10-24）：`/api/agent/chat/stream` SSE 首字推送 + `sessionId` Redis 多轮历史（2h TTL）+ `scene=customer-service` 固定 system prompt；前端 AI 流式优先、人工客服本地拦截、规则失败兜底
-- [✓] 全局悬浮 AI 客服（2026-10-24）：`components/floating-chat` 右侧中间悬浮球 + 底部聊天面板，头像 `static/zongjie.webp`；Pinia `store/ai-chat` 共享会话，已注入 pages.json 注册的 29 个页面（专属客服页除外）
+- [✓] 全局悬浮 AI 客服（2026-10-24）：`components/floating-chat` 右侧中间悬浮球 + 底部聊天面板，头像 `static/zongjie.jpg`（2026-10-25 由本地 webp 转 jpg，修 iOS 不显示）；Pinia `store/ai-chat` 共享会话，已注入 pages.json 注册的 29 个页面（专属客服页除外）
   - ⚠️ **约定：以后新增小程序页面，必须在模板 `<template>` 后手动加 `<FloatingChat />`，否则新页面没有悬浮球。**（uni-app 小程序没有 App 级全局组件，悬浮球靠逐页注入）
 - [ ] 客服场景接入 function calling / RAG（当前 customer-service 场景主动跳过 Tool/RAG）
 - [ ] 真实商品推荐端到端验证（下游服务就绪后重测）
@@ -174,6 +178,7 @@
 |------|---------|---------|------|
 | 超时未支付订单自动取消（30min 恢复库存 + 改取消） | order-service | `fixedDelay=60000` | ✅ 已实现 |
 | 订单超时自动确认收货（发货满 7 天，`sign_status=auto`） | order-service | `fixedDelay=60000` | ✅ 已实现 |
+| 订单未支付提醒（失效前 10 分钟，一次性订阅消息） | order-service | `fixedDelay=60000` | ✅ 已实现（待上线） |
 | 沙箱过期回收（扫 `shops.expires_at`） | shop-service | 每小时 | ⏳ 待做（阶段 2） |
 | 定时下架过期活动商品 | product-service | 每天 | ⏳ 待做（依赖 `business_onsale`） |
 

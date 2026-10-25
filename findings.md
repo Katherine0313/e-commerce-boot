@@ -45,7 +45,7 @@ D:\Software\tools\redis\Redis-x64-5.0.14.1\redis-server.exe D:\Software\tools\re
 
 验证：`Test-NetConnection 127.0.0.1 -Port 6379` 返回 True。
 
-> ⚠️ 不起 Redis 的话，`GET /api/categories`（分类树）会直接 500——`listCategories()` 第一步就查 Redis，连不上就抛异常；商品列表/详情接口不依赖 Redis，不受影响。
+> ⚠️ 不起 Redis 的话，`GET /api/categories`（分类树）会先等约 2 秒连接超时再降级查库——`listCategories()` 已加 try/catch 回源，不会 500，但会变慢；商品列表/详情接口不依赖 Redis，不受影响。
 
 **第 3 步：起后端服务**
 
@@ -117,7 +117,7 @@ docker compose down    # 停 Nacos（数据在容器内嵌 derby，开发期无�
 | 服务日志停在注册阶段、报 Nacos 连接失败 | Docker Desktop 没起 / Nacos 容器没起 |
 | `tasklist` 里 Java 进程只有 IDEA | 后端一个都没起（正常现象，它不会自启） |
 | 启动报 `DB_USERNAME` 占位符解析失败 | `DB_USERNAME` 环境变量没设（凭据清单见 `docs/env.md`） |
-| `GET /api/categories` 返回 500 | Redis 没启动（分类树缓存依赖 Redis，连不上就 500）；起 Redis 即可 |
+| `GET /api/categories` 返回慢（约 2s） | Redis 没启动（分类树缓存依赖 Redis）；代码已降级回源，不会 500，起 Redis 即可恢复毫秒级 |
 
 ## 项目架构约定（原 `project_spec.md`）
 
@@ -558,7 +558,7 @@ ecommerce
 ## 全局悬浮 AI 客服（2026-10-24）
 
 ### 1. 结构
-- `components/floating-chat/floating-chat.vue`：右侧中间悬浮球 + 底部聊天面板；头像 `/static/zongjie.webp`；面板内复用消息气泡、AI 标识、人工客服/意见反馈按钮。
+- `components/floating-chat/floating-chat.vue`：右侧中间悬浮球 + 底部聊天面板；头像 `/static/zongjie.jpg`（2026-10-25 由本地 webp 转 jpg，修 iOS 不显示）；面板内复用消息气泡、AI 标识、人工客服/意见反馈按钮。
 - `store/ai-chat.js`：Pinia 全局会话（messages/sessionId/sending/visible），悬浮球和「专属客服」页共用，切页面不丢消息；`reset()` 开新会话。
 - `main.js` 全局注册 `FloatingChat`；`<FloatingChat />` 注入 pages.json 注册的 29 个页面（`pages/my/customer-service` 除外，那里是全屏客服页）。
 
@@ -609,9 +609,9 @@ ecommerce
 ## 生产部署落地（2026-10-24 ~ 10-25）
 
 ### 1. 服务器与编排
-- 腾讯云 8G；Docker Compose；Nacos **3.1.1**（不是 2.3.2）+ 9 个 Spring Boot 服务；MySQL/Redis 在宝塔宿主机，容器用 `host.docker.internal` 访问；gateway 只绑 `127.0.0.1:8080`；Nacos 控制台绑 `127.0.0.1:18080`，不对公网。
+- 腾讯云 8G；Docker Compose；Nacos **3.1.1**（不是 2.3.2）+ **Redis 容器** + 9 个 Spring Boot 服务；MySQL 在宝塔宿主机，容器用 `host.docker.internal` 访问；Redis 在 `my-net` 内网（不映射 ports，密码 `SPRING_DATA_REDIS_PASSWORD`）；gateway 只绑 `127.0.0.1:8080`；Nacos 控制台绑 `127.0.0.1:18080`，不对公网。
 - 部署文件：`deploy/`（compose/Dockerfile/.env.example/nginx-api.conf/README）+ 根目录 `nginx`（`www.jiemids.com` 后台站点配置）。
-- `.env` 关键：`NACOS_ADDR=nacos:8848`、`DB_*`、`JWT_SECRET`、`WECHAT_*`、`SILICONFLOW_API_KEY`、`REDIS_HOST`；`SPRING_PROFILES_ACTIVE=prod`；JDK 17 + `Asia/Shanghai`。
+- `.env` 关键：`NACOS_ADDR=nacos:8848`、`DB_*`、`JWT_SECRET`、`WECHAT_*`、`SILICONFLOW_API_KEY`、`REDIS_HOST=redis`、`SPRING_DATA_REDIS_PASSWORD`；`SPRING_PROFILES_ACTIVE=prod`；JDK 17 + `Asia/Shanghai`。
 - 图片：把本地 `e-commerce-boot/upload/` 整目录传到 `/www/java/upload/`；product/user 都挂 `./upload:/app/upload`。
 
 ### 2. 域名与 Nginx
@@ -634,3 +634,53 @@ ecommerce
 - 生产安全：安全组关闭 8848/9848/9849/18080/9001~9008；停旧 Node 3000；删网站根 `.env`。
 - 沙箱：过期回收、`templateGuard`。
 - Cloudflare AMS 延迟；正式考虑 DNS-only + Let's Encrypt。
+
+## 线上问题修复（2026-10-25）
+
+### 1. 小程序审核白屏 / 商品不渲染
+- 根因：提审上传的是 `unpackage/dist/dev/mp-weixin`，`BASE_URL` 是 `http://127.0.0.1:8080`，审核员手机上所有请求和图片都指向本机。
+- 正确包：`unpackage/dist/build/mp-weixin`（`https://api.jiemids.com`）；微信开发者工具必须打开这个目录再上传。
+- 已写入 `deploy/README.md` 和 `task_plan.md`，避免复发。
+
+### 2. 分类接口 500 / Redis
+- 生产一开始没装 Redis：`/api/categories` 每次卡约 10 秒后 500；商品接口不受影响。
+- 代码侧：`ProductServiceImpl.listCategories` 加降级（Redis 异常回源查库），`connect-timeout/timeout` 压到 2 秒。
+- 部署侧：改为 docker-compose 的 `redis:7-alpine`（无 ports，AOF 落盘），密码 `SPRING_DATA_REDIS_PASSWORD`；`REDIS_HOST=redis`。
+- 验证：服务器本机分类接口 8～12ms。
+- access_token：user-service 原内存缓存 + order-service 新增订阅消息，会互相刷失效；抽到 `common/utils/WeChatAccessTokenProvider`（Redis 共享 + 10 秒锁 + 内存兜底），user-service 改用同一份。
+
+### 3. 用户头像不显示
+- 现象：`/api/user/profile` 返回 `http://api.jiemids.com/upload/avatar/...`；DevTools 因 HSTS 自动升级成 https，真机原生图片加载器不升级，头像空白。
+- 根因：Spring Cloud Gateway 5.x 默认移除 `X-Forwarded-*`（未配 `trusted-proxies`），Nginx 的 `X-Forwarded-Proto: https` 到 user-service 时已丢，`UrlUtil` 回退到 request scheme=http。
+- 修法：`UrlUtil.fullUrl` 对非本机 host 强制 https（本地 127.0.0.1 仍 http）；没有改网关代理配置。
+
+### 4. 机器人头像不显示
+- `static/zongjie.webp` 是包内本地 webp，微信 iOS 真机解码不稳定（`webp="true"` 只对网络图生效）。
+- 转成 `static/zongjie.jpg`（512×477，42KB），4 处引用同步替换；旧 webp 可删。
+
+### 5. 公网延迟
+- 服务器本机 product/category 接口 8～20ms；公网约 0.9～1.6s，瓶颈是 Cloudflare HKG 跨境 + DevTools 本地代理（127.0.0.1:10809）。
+- 待定：Cloudflare 改 DNS-only（灰云）直连源站，国内预计降到 100～300ms。
+
+## 订单未支付订阅消息（2026-10-25）
+
+### 1. 模板与流程
+- 模板 ID `_81DMBgBaFGYXqh9Cb6X41-32EfTF2zpqdSqFPXjzOg`，字段 `thing1` 商品名称 / `character_string5` 订单编号 / `amount7` 订单金额 / `time8` 订单失效时间。
+- 提交订单（`pages/order/confirm.vue`）：同步校验 → `uni.requestSubscribeMessage`（必须在点击事件里、任何网络请求之前）→ `createOrder` 带上 `subscribeUnpaid` → 后端写 `is_subscribe_unpaid`。
+- 不在页面 onLoad/onShow 弹窗；用户拒绝也继续下单。
+- 推送时机：下单后第 20 分钟（30 分钟失效前 10 分钟），避免和超时关单任务竞争、`time8` 保持未来时间。
+- 点击消息：`pages/order/pending-pay?orderNo=xxx`，`pending-pay.vue` 的 `onLoad` 读 orderNo 后只显示这一单；**不新建详情页**。
+
+### 2. 后端实现
+- `orders` 加 `is_subscribe_unpaid`、`unpaid_notify_sent` + `idx_orders_unpaid_notify`（生产库仍需手动 ALTER）。
+- 定时任务 `sweepUnpaidNotify`：每分钟查 待付款 + 已授权 + 未推送 + `created_at <= now-20min`；二次校验状态/未过期后发送；成功或永久失败标记 `unpaid_notify_sent=1`。
+- openid：order-service 新增 `UserMapper.findOpenidById`，同库查 `user.openid`（不跨服务 Feign）。
+- 发送：`WeChatSubscribeMessageClient` 组 4 字段、调 `cgi-bin/message/subscribe/send`；40001/42001 清 token 重试一次；43101/47003/40003/40037 视为永久失败。
+- 调度线程池 `spring.task.scheduling.pool.size=3`，微信慢调用不阻塞超时关单。
+
+### 3. 上线顺序与测试
+1. 生产库 ALTER `orders`（两列+索引）
+2. 部署 order-service + user-service（common 的 token provider 改动）
+3. 小程序发行（confirm.vue / pending-pay.vue）
+- 测试可临时设 `WECHAT_NOTIFY_BEFORE_MINUTES=29`（下单后 1 分钟触发），验证完改回 10。
+- 一次性订阅每测一次都要重新授权；`amount7` 若报 47003，尝试加币种符号 `¥`。
