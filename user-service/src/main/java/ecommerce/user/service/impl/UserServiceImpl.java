@@ -16,6 +16,7 @@ import ecommerce.properties.WeChatProperties;
 import ecommerce.utils.HttpClientUtil;
 import ecommerce.utils.JwtUtil;
 import ecommerce.utils.UserContext;
+import ecommerce.utils.WeChatAccessTokenProvider;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -41,21 +42,20 @@ public class UserServiceImpl implements UserService {
     private final UserMapper userMapper;
     private final CartMapper cartMapper;
     private final JwtUtil jwtUtil;
-
-    /** 微信 access_token 内存缓存：全局一份，2 小时有效，提前 5 分钟刷新，避免临界点拿到失效 token */
-    private volatile String cachedAccessToken;
-    private volatile long accessTokenExpireAt;
+    /** 微信 access_token 统一走 Redis 共享缓存，避免与 order-service 互相刷失效 */
+    private final WeChatAccessTokenProvider weChatAccessTokenProvider;
 
 
     public UserServiceImpl(WeChatProperties weChatProperties, HttpClientUtil httpClientUtil,
                            ObjectMapper objectMapper, UserMapper userMapper, CartMapper cartMapper,
-                           JwtUtil jwtUtil) {
+                           JwtUtil jwtUtil, WeChatAccessTokenProvider weChatAccessTokenProvider) {
         this.weChatProperties = weChatProperties;
         this.httpClientUtil = httpClientUtil;
         this.objectMapper = objectMapper;
         this.userMapper = userMapper;
         this.cartMapper = cartMapper;
         this.jwtUtil = jwtUtil;
+        this.weChatAccessTokenProvider = weChatAccessTokenProvider;
 
     }
 
@@ -112,8 +112,8 @@ public class UserServiceImpl implements UserService {
         }
         // 2. 用户必须存在且未注销
         findActiveUser(userId);
-        // 3. code 换手机号：先取 access_token，再调 getuserphonenumber（POST JSON）
-        String accessToken = getAccessToken();
+        // 3. code 换手机号：先取 access_token（Redis 共享缓存），再调 getuserphonenumber（POST JSON）
+        String accessToken = weChatAccessTokenProvider.getAccessToken();
         String url = "https://api.weixin.qq.com/wxa/business/getuserphonenumber?access_token=" + accessToken;
         String respBody = httpClientUtil.doPostJson(url, objectMapper.writeValueAsString(Map.of("code", code)));
         JsonNode node = objectMapper.readTree(respBody);
@@ -130,29 +130,6 @@ public class UserServiceImpl implements UserService {
         // updateById 只更新非 null 字段，update_time 由 MyMetaObjectHandler 自动填充
         userMapper.updateById(User.builder().id(userId).phone(phone).build());
         return phone;
-    }
-
-    // 获取微信 access_token：内存缓存，未过期直接用，过期（或首次）调微信 token 接口刷新
-    private String getAccessToken() {
-        long now = System.currentTimeMillis();
-        if (cachedAccessToken != null && now < accessTokenExpireAt) {
-            return cachedAccessToken;
-        }
-        Map<String, String> params = new HashMap<>();
-        params.put("grant_type", "client_credential");
-        params.put("appid", weChatProperties.getAppid());
-        params.put("secret", weChatProperties.getSecret());
-        String respBody = httpClientUtil.doGet("https://api.weixin.qq.com/cgi-bin/token", params);
-        JsonNode node = objectMapper.readTree(respBody);
-        String token = node.path("access_token").asText(null);
-        if (token == null || token.isBlank()) {
-            throw new BusinessException("获取微信 access_token 失败：" + respBody);
-        }
-        // expires_in 单位秒，提前 5 分钟过期，避免临界点拿到失效 token
-        long expiresIn = node.path("expires_in").asLong(7200);
-        cachedAccessToken = token;
-        accessTokenExpireAt = now + (expiresIn - 300) * 1000;
-        return token;
     }
 
     //查询用户，用户不存在就报错；查到了就把实体数据组装成 VO 返回，给前端展示个人资料（包含头像）。

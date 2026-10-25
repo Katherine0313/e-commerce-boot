@@ -23,10 +23,14 @@ spring:
       pool-name: MyHikariCP
   data:
     redis:
-      # 本地 Redis 默认无密码；生产需要密码时补一行 password: ${REDIS_PASSWORD}
+      # 密码不写在 yml 里：生产通过环境变量 SPRING_DATA_REDIS_PASSWORD 注入，
+      # Spring Boot 会自动映射到 spring.data.redis.password；本地无密码时不设该变量即可
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
       database: ${REDIS_DATABASE:0}
+      # 超时压短：Redis 不可用时快速失败，分类接口才能走降级查库，而不是卡 10 秒
+      connect-timeout: 2s
+      timeout: 2s
   servlet:
     multipart:
       # 图片/视频上传限制：单文件 50MB（视频较大，图片仍建议前端按 10MB 拦截），整个请求 51MB 留余量。

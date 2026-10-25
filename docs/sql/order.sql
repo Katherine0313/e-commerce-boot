@@ -46,6 +46,8 @@ CREATE TABLE IF NOT EXISTS `orders` (
     `courier`        VARCHAR(64)   DEFAULT NULL            COMMENT '快递公司',
     `tracking_number` VARCHAR(64)  DEFAULT NULL            COMMENT '快递单号',
     `sign_status`    VARCHAR(32)   NOT NULL DEFAULT 'unsigned' COMMENT '签收状态：signed 用户签收 / auto 系统自动 / unsigned 未签收',
+    `is_subscribe_unpaid` TINYINT   NOT NULL DEFAULT 0      COMMENT '是否授权未支付提醒：1是 0否',
+    `unpaid_notify_sent`  TINYINT   NOT NULL DEFAULT 0      COMMENT '未支付提醒是否已推送：1是 0否',
     `created_at`     DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '下单时间',
     `pay_at`         DATETIME      DEFAULT NULL            COMMENT '支付时间',
     `ship_at`        DATETIME      DEFAULT NULL            COMMENT '发货时间',
@@ -56,6 +58,7 @@ CREATE TABLE IF NOT EXISTS `orders` (
     UNIQUE KEY `uk_orders_order_no` (`order_no`),
     KEY `idx_orders_status_created` (`order_status`, `created_at`),
     KEY `idx_orders_shop_user` (`shop_id`, `user_id`),
+    KEY `idx_orders_unpaid_notify` (`order_status`, `is_subscribe_unpaid`, `unpaid_notify_sent`, `created_at`),
     CONSTRAINT `fk_orders_user` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE RESTRICT
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单';
 

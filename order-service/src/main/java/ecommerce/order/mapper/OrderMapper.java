@@ -20,6 +20,14 @@ public interface OrderMapper {
     // 查单个订单（不含软删除）
     Order findById(@Param("id") Long id, @Param("shopId") Long shopId);
 
+    // 查可推送未支付提醒的订单：待付款 + 已授权 + 未推送 + 创建时间早于阈值
+    List<Order> findPendingUnpaidToNotify(@Param("status") Integer status,
+                                          @Param("createdBefore") LocalDateTime createdBefore);
+
+    // 标记未支付提醒已推送（带 unpaid_notify_sent=0 条件，重复调用不会二次更新）
+    int markUnpaidNotifySent(@Param("id") Long id, @Param("shopId") Long shopId,
+                             @Param("now") LocalDateTime now);
+
     // 查某用户订单列表（按创建时间倒序；keyword 非空时按订单号/收货人/商品名模糊搜索）
     List<Order> listByUser(@Param("userId") Long userId, @Param("shopId") Long shopId, @Param("keyword") String keyword);
 

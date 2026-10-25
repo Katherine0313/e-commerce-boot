@@ -43,7 +43,23 @@ public class UrlUtil {
         if (scheme == null) {
             scheme = request.getScheme();
         }
+        // 生产对外只有 HTTPS：网关/代理没透传协议时会拿到 http，
+        // 而小程序真机会拒绝加载 http 图片（开发者工具会因 HSTS 自动升级，掩盖问题）。
+        // 非本机地址一律按 https 拼接，避免拼出头像等资源的 http 链接。
+        if ("http".equalsIgnoreCase(scheme) && !isLocalHost(host)) {
+            scheme = "https";
+        }
         return scheme + "://" + host + relativeUrl;
+    }
+
+    // 判断是否本机地址（本地开发仍走 http）
+    private static boolean isLocalHost(String host) {
+        if (host == null || host.isBlank()) {
+            return true;
+        }
+        // 去掉端口：127.0.0.1:8080 / localhost:8080；兼容 IPv6 的 [::1]:8080
+        String name = host.startsWith("[") ? host.substring(1, host.indexOf(']')) : host.split(":")[0];
+        return "localhost".equalsIgnoreCase(name) || "127.0.0.1".equals(name) || "::1".equals(name);
     }
 
     // 取转发头：缺失或空白返回 null，多级代理下是逗号分隔列表，取第一段（最靠近客户端）

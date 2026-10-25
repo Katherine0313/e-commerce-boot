@@ -39,6 +39,8 @@
 		<mybatis-spring-boot.version>4.0.1</mybatis-spring-boot.version>
 		<jjwt.version>0.13.0</jjwt.version>
 		<springdoc.version>3.1.1</springdoc.version>
+		<!-- POI 6.x 要求 Java 17+，用于 Excel 读写 -->
+		<poi.version>6.0.0</poi.version>
 	</properties>
 
 	<dependencyManagement>
@@ -84,6 +86,12 @@
 				<groupId>org.springdoc</groupId>
 				<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
 				<version>${springdoc.version}</version>
+			</dependency>
+			<!-- Excel 读写：poi-ooxml 覆盖 xlsx，子模块使用无需写版本 -->
+			<dependency>
+				<groupId>org.apache.poi</groupId>
+				<artifactId>poi-ooxml</artifactId>
+				<version>${poi.version}</version>
 			</dependency>
 			<!-- Spring AI 2.0：BOM 统一管理各 spring-ai-starter 版本（官方支持 Boot 4.1） -->
 			<dependency>

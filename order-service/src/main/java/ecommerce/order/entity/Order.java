@@ -35,6 +35,10 @@ public class Order {
     private String courier;
     private String trackingNumber;
     private String signStatus;
+    /** 是否授权未支付提醒：1是 0否 */
+    private Integer isSubscribeUnpaid;
+    /** 未支付提醒是否已推送：1是 0否 */
+    private Integer unpaidNotifySent;
     private LocalDateTime createdAt;
     private LocalDateTime payAt;
     private LocalDateTime shipAt;

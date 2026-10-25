@@ -7,19 +7,42 @@
     <!-- 创建订单：初始状态待付款，is_deleted 默认 0，sign_status 默认 unsigned -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO orders (shop_id, user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
-                            remark, consignee, phone, region, detail_address, shipping_type, courier, created_at)
+                            remark, consignee, phone, region, detail_address, shipping_type, courier,
+                            is_subscribe_unpaid, unpaid_notify_sent, created_at)
         VALUES (#{shopId}, #{userId}, #{orderNo}, 0, #{payAmount}, #{payType}, #{orderStatus},
-                #{remark}, #{consignee}, #{phone}, #{region}, #{detailAddress}, #{shippingType}, #{courier}, #{createdAt})
+                #{remark}, #{consignee}, #{phone}, #{region}, #{detailAddress}, #{shippingType}, #{courier},
+                #{isSubscribeUnpaid}, #{unpaidNotifySent}, #{createdAt})
     </insert>
 
     <select id="findById" resultType="ecommerce.order.entity.Order">
         SELECT id, shop_id, user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
                remark, consignee, phone, region, detail_address, shipping_type, courier, tracking_number,
-               sign_status, created_at, pay_at, ship_at, confirm_at, finish_at, updated_at,
+               sign_status, is_subscribe_unpaid, unpaid_notify_sent, created_at, pay_at, ship_at, confirm_at, finish_at, updated_at,
                EXISTS (SELECT 1 FROM after_sales a WHERE a.order_id = orders.id AND a.shop_id = orders.shop_id AND a.is_deleted = 0) AS after_sale
         FROM orders
         WHERE id = #{id} AND shop_id = #{shopId} AND is_deleted = 0
     </select>
+
+    <!-- 未支付提醒候选：待付款 + 已授权 + 未推送 + 创建时间早于阈值 -->
+    <select id="findPendingUnpaidToNotify" resultType="ecommerce.order.entity.Order">
+        SELECT id, shop_id, user_id, order_no, pay_amount, order_status,
+               is_subscribe_unpaid, unpaid_notify_sent, created_at
+        FROM orders
+        WHERE order_status = #{status}
+          AND is_subscribe_unpaid = 1
+          AND unpaid_notify_sent = 0
+          AND is_deleted = 0
+          AND created_at &lt;= #{createdBefore}
+        ORDER BY id ASC
+        LIMIT 200
+    </select>
+
+    <!-- 标记已推送：带 sent=0 条件，防止并发重复推送 -->
+    <update id="markUnpaidNotifySent">
+        UPDATE orders
+        SET unpaid_notify_sent = 1, updated_at = #{now}
+        WHERE id = #{id} AND shop_id = #{shopId} AND unpaid_notify_sent = 0
+    </update>
 
     <select id="listByUser" resultType="ecommerce.order.entity.Order">
         SELECT o.id, o.shop_id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.pay_type, o.order_status,

@@ -104,26 +104,33 @@ public class ProductServiceImpl implements ProductService {
     }
 
     // 分类树：读 ids 索引 → MGET 各父分类树 → 合并返回；缺失则整体重建
+    // Redis 不可用时降级直接查库：分类是首页/分类页的必需数据，不能因为缓存故障导致整页加载失败
     @Override
     public List<CategoryTreeVO> listCategories() {
-        String idsJson = stringRedisTemplate.opsForValue().get(CATEGORY_PARENT_IDS_KEY);
-        if (idsJson == null) {
-            return rebuildCategoryCache();
+        try {
+            String idsJson = stringRedisTemplate.opsForValue().get(CATEGORY_PARENT_IDS_KEY);
+            if (idsJson == null) {
+                return rebuildCategoryCache();
+            }
+            List<Long> parentIds = readIds(idsJson);
+            List<String> keys = parentIds.stream()
+                    .map(id -> CATEGORY_PARENT_KEY_TEMPLATE.formatted(id))
+                    .toList();
+            List<String> values = stringRedisTemplate.opsForValue().multiGet(keys);
+            // 有任一父分类树缺失就整体重建（分类少、变更不频繁，重建最省事）
+            if (values.stream().anyMatch(Objects::isNull)) {
+                return rebuildCategoryCache();
+            }
+            List<CategoryTreeVO> result = new ArrayList<>(values.size());
+            for (String v : values) {
+                result.add(readTree(v));
+            }
+            return result;
+        } catch (RuntimeException e) {
+            // 连接超时/拒绝、序列化失败等都回源查库，保证首页和分类页仍可用
+            log.warn("分类缓存不可用，降级直接查库", e);
+            return buildTree(categoryMapper.listCategories(TEMPLATE_SHOP_ID));
         }
-        List<Long> parentIds = readIds(idsJson);
-        List<String> keys = parentIds.stream()
-                .map(id -> CATEGORY_PARENT_KEY_TEMPLATE.formatted(id))
-                .toList();
-        List<String> values = stringRedisTemplate.opsForValue().multiGet(keys);
-        // 有任一父分类树缺失就整体重建（分类少、变更不频繁，重建最省事）
-        if (values.stream().anyMatch(Objects::isNull)) {
-            return rebuildCategoryCache();
-        }
-        List<CategoryTreeVO> result = new ArrayList<>(values.size());
-        for (String v : values) {
-            result.add(readTree(v));
-        }
-        return result;
     }
 
     /** 索引/父分类树缺失时全量重建：写 ids + 每棵父分类树 */

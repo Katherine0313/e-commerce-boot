@@ -24,6 +24,8 @@ public class CreateOrderDTO {
     private String remark;
     @Schema(description = "幂等键：同一次下单意图复用同一值（前端生成 UUID），下单成功后前端丢弃")
     private String idempotencyKey;
+    @Schema(description = "是否同意接收未支付提醒（wx.requestSubscribeMessage 的 accept 结果）")
+    private Boolean subscribeUnpaid;
     @Schema(description = "订单明细")
     private List<OrderItemDTO> items;
 }
