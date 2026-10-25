@@ -73,29 +73,28 @@ curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 
 
 ### 端口对照表
 
-| 服务 | 端口 | 启动类 | 需要 DB 凭据（环境变量） |
+| 服务 | 端口 | 启动类 | 需要环境变量 |
 |---|---|---|---|
 | gateway | 8080 | `GatewayApplication` | 否 |
-| auth-service | 9001 | `AuthServiceApplication` | **是** |
-| shop-service | 9002 | `ShopServiceApplication` | 否 |
-| product-service | 9003 | `ProductServiceApplication` | **是** |
-| order-service | 9004 | `OrderServiceApplication` | 否 |
-| aftersale-service | 9005 | `AftersaleServiceApplication` | 否 |
-| user-service | 9006 | `UserServiceApplication` | **是** |
-| file-service | 9007 | `FileServiceApplication` | 否 |
-| ai-agent-service | 9008 | `AiAgentServiceApplication` | **是**（AI key） |
+| auth-service | 9001 | `AuthServiceApplication` | **是**（DB） |
+| shop-service | 9002 | `ShopServiceApplication` | **是**（DB） |
+| product-service | 9003 | `ProductServiceApplication` | **是**（DB） |
+| order-service | 9004 | `OrderServiceApplication` | **是**（DB） |
+| aftersale-service | 9005 | `AftersaleServiceApplication` | **是**（DB） |
+| user-service | 9006 | `UserServiceApplication` | **是**（DB/微信） |
+| file-service | 9007 | `FileServiceApplication` | 否（DB） |
+| ai-agent-service | 9008 | `AiAgentServiceApplication` | **是**（AI key/Redis） |
 | recommender-python | 9009 | `uvicorn main:app --port 9009` | 否 |
 | Nacos | 8848 / 9848 / 9849 | — | — |
 | Nacos 控制台 | 18080（容器内 8080） | — | — |
 | MySQL | 3306（本机 MySQL80） | — | — |
 | Redis | 6379（本机原生，非 Docker） | — | — |
 
+> 除 gateway 外的所有 Java 服务都依赖 `common`，启动时还会校验 `JWT_SECRET`（`JwtProperties` 非空）；缺了直接启动失败。
+
 ### 已知坑：jar 可能落后于源码
 
-`target/*.jar` 是 2026-09-30 13:48 打的，而 `product-service` 在 10-01 接库时改了 18 个源文件**没有重新打包**，
-它的 jar 是旧代码，直接 `java -jar` 跑会启动失败（现在凭据走环境变量，不打包进 jar）。
-
-所以用 jar 方式起之前，先全量重打一次：
+用 jar 方式启动前先全量重打一次，避免 `target/*.jar` 落后于源码（凭据走环境变量，不打包进 jar）：
 
 ```powershell
 mvn -q install -DskipTests
@@ -327,313 +326,61 @@ ecommerce
 - 接口文档：网关聚合 `/swagger-ui.html`、各服务 `/v3/api-docs`（`SPRINGDOC_ENABLED=true` 时开；手写 `docs/openapi.yaml` 已删）
 - 配置：`src/main/resources/application.yml`；本地真实值走环境变量（清单见 `docs/env.md`）
 
-## 头像静态资源路由 + 绝对 URL 拼接（2026-10-10）
-
-### 背景：加购/看资料时头像显示不出来
-
-小程序点「加入购物车」未登录会先弹 `LoginPopup`，其 `startLogin` 走 `ensureLogin` + `getProfile`；头像 URL 由 user-service 的 `UserController.fullUrl` 拼成**绝对地址**后直接交给 `<image :src>`（前端不再补域名）。
-
-前端 `findings.md` 早已把该静态资源记为 `http://127.0.0.1:8080/upload/avatar/...`，但网关**没有 `/upload/**` 路由**（只有 `/image/**` → product-service）→ 经网关取头像必然 404。
-
-同时确认加购/头像这条链路所需模块（回答「要开哪些服务」）：
-- MySQL（本机 3306）+ Nacos 8848 + gateway 8080
-- user-service 9006（`/api/wxlogin`、`/api/user/profile`、`/api/user/avatar`）+ order-service 9004（`POST /api/cart`）
-- product-service 9003 只在浏览商品时需要（加购请求是 order-service 同库查 `products`），**Redis 不用**（只有 product-service 商品缓存用它）
-
-### 改动 1：网关补 `/upload/**` → `lb://user-service`
-
-与 `/image/**` 对称。静态资源不在 `/api/**` 内，`JwtInterceptor` 不拦，天然免登录。
-
-### 改动 2：`fullUrl` 读到的 Host 经网关是下游实例地址
-
-- 网关转发时 Host 被重写成目标实例地址（实测经网关是 `192.168.92.1:9006`，即 Nacos 注册的那个实例；直连 9006 时才是 `127.0.0.1:9006`），不是客户端访问的 8080。
-- 后果：原实现拼出 `http://192.168.92.1:9006/upload/avatar/xxx.jpg`。开发者工具在本机能加载（本机恰好可达该地址，所以看着「好了」），**真机必坏**。
-- **抽到 common**：新增 `common/utils/UrlUtil.java`（`fullUrl` / `forwardHeader`），`UserController` 与 `WxLoginController` 共用，不再各自拼域名。
-- 顺带拦外链：已经以 `http(s)://` 开头的 avatar 原样返回，否则会拼成 `http://hosthttps://thirdwx.qlogo.cn/...`（与 `UserServiceImpl.deleteOldAvatarFile` 只认本地 `/upload/avatar/` 前缀的处理一致）。
-- ⚠️ 期间一度改成「优先读 `X-Forwarded-Host`」，**实测走不通**，见改动 4。
-
-### 改动 3：`/api/wxlogin` 返回相对路径（渲染层报错的直接根因）
-
-小程序报 `Failed to load local image resource /upload/avatar/9_1791625414298.jpg`（附 500）：
-
-- `/api/user/profile` 的 avatar 走 `fullUrl` 拼域名，但 `/api/wxlogin` 直接把库里原始值返回（`UserServiceImpl.login` 里 `.avatar(user.getAvatar())`）→ 前端 `ensureLogin` 把 `res.avatar`（相对路径）写进 Pinia store → `<image :src="/upload/avatar/...">` 被小程序**当成包内路径**，本地找不到就报这个错。
-- 那个 500 **不是后端返回的**：实测同一文件 `curl http://127.0.0.1:8080/upload/avatar/9_1791625414298.jpg` = **200**（直连 9006 也 200），500 出自开发者工具自己的本地静态服务。
-- 前端 `findings.md:47` 早已约定「两个 avatar 字段都是完整 URL，前端不要再拼域名」——是实现漏了 wxlogin，故修在 `WxLoginController`：`vo.setAvatar(UrlUtil.fullUrl(request, vo.getAvatar()))`。
-
-### 改动 4：`X-Forwarded-*` 不可信 → 网关保留客户端 Host
-
-用自签 HS512 令牌实测 `GET /api/user/profile`（`JWT_SECRET` 与运行时同值，指纹比对一致；最初 401 是因为 id=9 那个用户已不存在，换库里 10 号用户即 200）：
-
-| 请求 | 返回的 avatar |
-|---|---|
-| 直连 9006 | `http://127.0.0.1:9006/upload/avatar/10_...jpg`（Host 即客户端值，回退逻辑本身没错） |
-| 经网关 8080（不加任何头） | `http://192.168.92.1:9006/upload/avatar/10_...jpg` |
-| 经网关 8080 + 客户端自塞 `X-Forwarded-Host: probe1.example.com` | **同上，客户端值被覆盖** |
-
-- 根因（读 `spring-cloud-gateway-server-webflux:5.0.3` 源码）：`XForwardedHeadersFilter` 取的是 `request.getURI().getHost()`——`lb://` 此时已解析成实例地址，所以它产出的 `X-Forwarded-Host` 恒等于下游实例地址，**客户端自带的值也会被覆盖**；`X-Forwarded-Proto` 同理（恒为「网关→下游」的协议）。
-- 正解：**网关侧保留客户端 Host**——`gateway/application.yml` 给 `/api/**`（user-service）路由加 `filters: - PreserveHostHeader`（该类在 5.0.3 里存在，配置名有效）；`UrlUtil` 取值顺序改回 **Host 优先、`X-Forwarded-Host` 仅兜底**。
-- 协议仍是遗留项：网关对外是 https 时 `X-Forwarded-Proto` 会给出 http，需要在网关/Nginx 层显式透传客户端协议（已写进 `UrlUtil` 注释）。
-
-### 验证
-
-- **静态资源**：经网关 8080 取 `upload/avatar/9_...jpg` = 200，直连 9006 也 200 → `/upload/**` 路由与 `WebMvcConfig` 静态映射都通。
-- **接口返回**：见改动 4 的表（自签令牌实测），据此才发现 `X-Forwarded-*` 这条路不可用。
-- **待验证**：`PreserveHostHeader` + Host 优先改完后需重启 gateway 与 user-service 再测一遍，期望经网关返回 `http://127.0.0.1:8080/upload/avatar/...`。
-- 教训：`X-Forwarded-*` 由网关自己生成，别想当然当作「客户端原始信息」——本项目里它等于下游实例地址。
-
-## SQL 书写规范：关键字统一大写（2026-10-11）
-
-> 起因：杰米指出 `AddressMapper.xml` 里 `values` 小写「不规范」。核实后确认这**原本是全项目统一风格**（11 个 mapper 全是小写），讨论后决定全量改为大写，并固化为后续 mapper 的书写规范。
-
-### 规范
-
-| 类别 | 规范 | 示例 |
-|---|---|---|
-| 关键字 | **全大写** | `SELECT` `FROM` `WHERE` `AND` `OR` `ORDER BY` `ASC`/`DESC` `LIMIT` `AS` `IN` `ON` `INSERT INTO` `VALUES` `UPDATE` `SET` `DELETE FROM` `LEFT JOIN` `JOIN` |
-| 内置函数 | **全大写** | `NOW()` `COUNT(*)` |
-| 表名 / 列名 | 保持小写 | `address`、`shop_id`、`created_at` |
-| 别名 | 保持小写 | `c`、`p`、`t`、`item`、`pid` |
-| 反引号包裹的表名 | 原样不动 | `` `user` ``、`` `admin` ``（MySQL 关键字，必须反引号） |
-| `#{...}` 占位符、`<if>`/`<foreach>` 标签及 OGNL 表达式 | 不动 | `#{userId}`、`test="payType != null"` |
-
-### 注意事项
-
-- **功能零影响**：MySQL 的 SQL 关键字大小写不敏感，`values` / `VALUES` / `Values` 在服务端完全等价。本次改的全是关键字，表名/列名/别名一个字符未变。
-- **真正区分大小写的是表名/库名**，且仅在 Linux + `lower_case_table_names=0` 时生效；本项目表名全小写，不受影响。
-- **新增 mapper 照此写**，别再写小写关键字。
-- **`target/classes/` 下的同名 mapper 是编译产物**，不要手改；重新 build（或 IDEA Run）会自动覆盖。
-- 本次涉及 11 个文件：`auth-service`（AdminMapper）、`order-service`（Address/Cart/OrderItem/Order/Product Mapper）、`product-service`（Category/Product/Tag Mapper）、`user-service`（Cart/User Mapper）。
-- **复核方法**：grep 时先排除以 `<` 开头的 XML 标签行（`<select>`/`<insert>` 等标签名本身就是小写，是 MyBatis 语法，不是 SQL）与 `namespace`/`resultType`/`id=` 这类 Java 类名行，剩下的实际 SQL 行应无小写关键字。
-
-## 下单幂等（createOrder 幂等键，2026-10-14）
-
-> 小程序要上线，下单接口（`POST /api/orders`）此前无任何防重，弱网重试 / 双击会重复下单、扣两次库存。给 `createOrder` 加幂等键。
-
-### 语义
-
-`idempotencyKey` = 一次「下单意图」的标识，不是一次请求的标识。用户发起一次下单时前端生成 UUID，这次下单的所有重试复用同一个 key；下单成功返回后前端立即丢弃，下次再下单重新生成。
-
-### Redis key 设计
-
-| 项 | 值 |
-|---|---|
-| key | `order:idempotency:{userId}:{idempotencyKey}` |
-| value | `PENDING`（处理中）或 `orderId`（已成功） |
-| TTL | 24 小时（覆盖 30 分钟待付款超时 + 用户中途退出重进） |
-
-key 带 userId，天然隔离不同用户（越权拿不到别人的 key）。
-
-### 后端流程
-
-1. 校验基础字段 + `idempotencyKey` 非空（空则 400「缺少幂等键」）。
-2. 读 redisKey：命中 `PENDING` → 409「订单处理中」；命中 `orderId` → `getOrder` 返回原订单（内部校验归属）；未命中 → 继续。
-3. `SETNX` 占位 `PENDING`：失败 → 409「订单处理中」（并发竞争，毫秒级，几乎不触发）。
-4. 走原下单逻辑（`doCreateOrder`：查商品 → 校验库存 → 乐观锁扣库存 → 写订单+明细）。
-5. 成功：redisKey 改写成 `orderId`；失败：删除占位，重新抛出（允许重试）。
-
-### 降级（Redis 挂了不阻断下单）
-
-4 个 `safe*` 方法包住 Redis 调用，异常记日志后降级：
-
-- `safeGet` → 返回 null（视为无缓存，走正常下单）
-- `safeSetIfAbsent` → 返回 true（视为占位成功，继续下单）
-- `safeSet` / `safeDelete` → 忽略
-
-Redis 宕机 = 幂等自动失效、退化为普通下单。
-
-### 前端约定（必同步，2026-10-14 已实现）
-
-1. 用户发起下单时生成 `idempotencyKey = UUID`（小程序 `crypto.randomUUID()`）。
-2. 下单成功 → 立即丢弃 key。
-3. 下单失败/超时 → 重试复用同一个 key。
-4. 用户取消、改地址/商品重新提交 → 重新生成 key。
-
-> 前端已落地：`api/order.js` 的 `genIdempotencyKey()` 生成 key；下单确认页 `pages/order/confirm.vue`
-> 在 `onLoad` 生成一次、本页内失败重试复用同一个 key。下单/支付封装在 `api/order.js`（`createOrder` /
-> `payOrder`），「我已支付」= 下单 + 立即支付一步完成（暂未接微信支付，`payType` 传占位 `wechat`）。
-> 三条入口共用确认页：首页/分类页「立即购买」、购物车「去结算」、购物车「猜你喜欢」点商品。
-
-### 改动文件
-
-- `order-service/.../dto/CreateOrderDTO.java`：加 `idempotencyKey`（@Schema）。
-- `order-service/.../service/impl/OrderServiceImpl.java`：注入 StringRedisTemplate；createOrder 加幂等逻辑；抽 `doCreateOrder`；4 个 `safe*` 方法。
-- `order-service/.../resources/application.yml`：补 `spring.data.redis`（`REDIS_HOST`/`REDIS_PORT` 环境变量，本地默认 127.0.0.1:6379）。
-
-### 两个已知边界
-
-- **Redis 与 DB 时序**：Redis 写 `orderId` 在 DB 事务提交前（Spring 事务只管 DB）。极端情况 DB 提交失败、Redis 却写了 orderId，下次命中后 `getOrder` 查不到订单抛「订单不存在」。概率极低且不超卖（库存乐观锁兜底），暂不加自愈。
-- **并发窗口**：两个相同 key 同时到达，第二个请求读到 `PENDING` 返回 409「处理中」。毫秒级，几乎不触发，前端提示「稍后查看订单列表」即可。
-
-## 订单软删 + 订单时间时区（2026-10-16）
-
-### 1. 订单软删（deleteOrder）
-- 语义：用户删除订单只置 `is_deleted=1`，不物理删；`listByUser` 查询带 `WHERE is_deleted=0`，软删后列表自动不返回
-- 接口：`DELETE /api/orders/{id}`；只校验归属（`getOwnedOrder`），不限状态（任何状态都能删，已取消/已完成订单也要能清理）
-- 前端：订单列表「删除订单」按钮直接删（不弹确认），成功后刷新列表
-
-### 2. 订单时间时区坑（待付款倒计时差 8 小时）
-- 现象：待付款订单倒计时一直显示「超时关闭」，实际刚下单
-- 根因：MySQL 容器时区是 UTC，`NOW()` 生成的 `created_at` 比 JVM（UTC+8）少 8 小时；而订单号 `orderNo` 用 Java `LocalDateTime.now()` 是北京时间，两者差了 8 小时
-- 排查线索：同一条订单 `orderNo` 时间戳是 `21:11:11`，`createdAt` 却是 `13:11:11`，差值正好 8 小时
-- 修复：`OrderServiceImpl.doCreateOrder` 的 `createdAt` 改用 `LocalDateTime.now()`（JVM 北京时间），`OrderMapper.xml` insert 的 `NOW()` 改 `#{createdAt}`，与 `orderNo` 同源
-- 已修复（2026-10-17）：`updateStatus` 里 `pay_at`/`ship_at`/`confirm_at`/`finish_at`/`updated_at` 的 `NOW()` 全部改为 Java 传参 `LocalDateTime.now()`（`OrderMapper.updateStatus` 加 `now` 参数，6 处调用 + `delete` 一并传），与 `createdAt` 同源；存量 5 条 `created_at > pay_at` 脏数据（4 条时区 + 1 条种子数据时间戳错）已手动 UPDATE 修复
-
-## 售后域迁移 + C 端接口（2026-10-16）
-
-### 1. 售后主表无 user_id，归属靠 order_id 关联
-- 原 Node 售后主表 `after_sales` 没有 `user_id`，只存 `order_id`；C 端「我的售后」按用户隔离必须 `LEFT JOIN orders` 取 `o.user_id`。
-- 原 Node 的 `getAll`/`getById`/`submitReturn` 只按 `shopId` 过滤，**任何登录用户能看到/操作同店所有人的售后单**（越权 bug）。迁移时修正：所有 C 端查询/操作都校验 `o.user_id == 当前用户`（通过 `AfterSaleMapper` 的 JOIN 查询带出 `user_id`）。
-
-### 2. 售后数据迁移的孤儿记录处理
-- `after_sale_only_refunds` 有 11 条孤儿（`after_sale_id=23` 与 `9108~9117` 的售后主单已被源库删除），直接插入违反外键，迁移时丢弃（保留 17/28）。
-- `after_sale_items` 一条悬空引用（`id=39` 的 `order_item_id=74`/`product_id=41`，对应订单迁移被丢弃的孤儿订单项），该列无外键，保留原值维持售后历史。
-- `after_sales` 保留 `9104/9106/9107` 跳号 id（源库 ID_BLOCK 遗留），四张子表都靠这些 id 关联，重映射风险大故保留。
-
-### 3. 字段名统一 + 时间约定
-- `after_sale_items` 实际建表时字段是 `after_sales_id`（复数），与其它三张子表的 `after_sale_id`（单数）不一致，已 `ALTER` 统一为单数。
-- 售后时间戳用 Java `LocalDateTime.now()` 落库（与订单域同约定，避开 MySQL `NOW()` 的 UTC 时区坑）。
-- gateway 补 `/api/after-sales/**` → `lb://aftersale-service` 路由（原会落到 user-service 兜底）。
-
-## 订单/商品搜索 + 状态双文案 + 前端订单模块（2026-10-16）
-
-### 1. 订单/商品关键词搜索
-- 订单：`GET /api/orders?keyword=` 按 `order_no`/`consignee`/`product_name`（EXISTS 子查询）模糊匹配，keyword 为空时 `<if>` 不拼条件。
-- 商品：`GET /api/products?keyword=` 按 `name`/`sub_title`/`brand` LIKE；与 categoryId 互斥（keyword 优先）。
-- 前端搜索框：订单列表页用真输入框（筛当前列表）；商品搜索用独立页（首页/分类页顶部假搜索框 `@search` 跳转，此前三层缺口——没人接 `@search`、没搜索页、后端没 keyword）。
-
-### 2. 状态/支付方式双文案（C 端 vs 后台）
-- `OrderStatusEnum` 加 `adminDesc` 字段（`desc`=顾客视角 / `adminDesc`=商家视角）：`PENDING_CONFIRM` 顾客「待发货」后台「待确认」、`PENDING_SHIP` 顾客「待发货」后台「待发货」（2026-10-17 把顾客视角「处理中」统一为「待发货」）。顾客付款后就是「等发货」，不该看到商家视角的「待确认」。
-- `PayTypeEnum`：payType 存英文 code（WeChat/Alipay/BankCard），`OrderVO` 返回 `payTypeDesc` 中文；前端 `confirm.vue` 统一传 `WeChat`，下单不写 pay_type（NULL）、支付成功才写（2026-10-18 修正）；`fromCode` 仍用 `equalsIgnoreCase` 兜底历史小写数据。
-
-### 3. 前端订单模块组件化
-- `OrderCard`（订单卡片）只归 order 模块（list + pending-pay 复用），放 `pages/order/` 局部注册，不进全局 `components/`——全局 `components/` 只放跨模块公共组件（Guess/AddressPopup/QuantityStepper 等）。
-- `utils/format.js` 抽金额/时间/图片 URL 三个纯函数（`fmtMoney`/`formatOrderTime`/`parseOrderTime`/`goodsImgUrl`），消除 list/pending-pay 的重复。
-
-## 订单物流轨迹（假数据）+ admin 登录表（2026-10-17）
-
-### 1. 物流轨迹（假数据，参考旧 Node getLogistics）
-- 后端：`CourierEnum`（快递公司 key→中文，照旧 Node COURIER_MAP）、`LogisticsVO`/`LogisticsTraceVO`、`GET /api/orders/{id}/logistics`（假轨迹，用订单 id 做种子生成城市/路线/快递员，`SHIPPED` 5 条 / `FINISHED` 7 条含「已签收」）。
-- `OrderVO` 加 `logisticsStatus`/`latestTrace`，`toVO` 里 courier 从英文 key 转中文——列表卡片直接展示，不额外发请求。
-- 前端：`api/order.js` 加 `getLogistics`；`order-card.vue` 物流信息行 + `pending-ship.vue` 物流卡 + 新建 `logistics.vue`（快递卡片 + 轨迹时间线）。
-- 真实物流 API（微信物流助手）未接，task_plan 定时任务档 2「第三方物流状态同步」仍挂起。
-
-### 2. admin 表（后台登录）
-- `admin` 表 + 种子账号 `admin/admin123` 已建（含 `phone` 字段，`docs/sql/admin.sql` 同步）；密码明文存储，代码已注释「生产换 BCrypt」。
-- 鉴权隐患（已修）：`GET /api/user/info` 原被 `JwtInterceptor` 按 user 类型拦、admin token 调它 403，已迁至 `GET /api/admin/info` 走 admin 分流（前端当前解 token 不调此接口，不影响登录）。
-
-## 后台管理端登录对接 + 网关 CORS（2026-10-18）
-
-### 1. 两个 MySQL 实例（登录报「admin 表不存在」的根因）
-
-本机实际跑着两个 MySQL：**3306**（Windows 原生 MySQL80，旧 schema：无 `admin`/`address`，地址表还是 `consignee_address`）和 **3307**（Docker `mysql-dev`，完整 schema：`admin`/`address`/`after_sale_*` 全齐、种子 `admin/admin123` 已插）。应用配置默认连 3306，而数据/建表都在 3307，于是登录查 `admin` 表报 `Table 'e_commerce_db.admin' doesn't exist`。
-
-处置：
-
-- 5 个连库服务（auth/user/product/order/aftersale）的 `application-dev.yml` 加 `DB_URL=jdbc:mysql://127.0.0.1:3307/...`；
-- `application.yml` 里 `url` 从 `${DB_URL:jdbc:mysql://localhost:3306/...}` 改为 `${DB_URL}`（删掉 3306 默认值，与 username/password 同款「不给默认值、缺失就启动失败」风格）；
-- 本机 MySQL80 服务已停（数据未删；启动类型 `AUTO_START`，重启电脑会再起，要长期关掉需 `sc config MySQL80 start= demand`）。
-
-**最终决策（2026-10-18 收尾）**：不用 Docker 部署 MySQL。将 Docker 3307 的 15 张表迁回本机 MySQL80（3306），MySQL 一律用本地 3306；远程服务器 MySQL（193.112.176.228:3306，库 `baota_ecommerce`）已连上、勿动。5 个服务 dev 配置最终为 `DB_URL=jdbc:mysql://127.0.0.1:3306/e_commerce_db`、账号 `e_commerce_db`。
-
-### 2. gateway 是 WebFlux，CORS 要单独配
-
-`common` 的 `CorsConfig` 是 Servlet 版 `CorsFilter`，gateway 是 WebFlux 且 pom 刻意不引 common（避免带入 Servlet 容器冲突），所以 gateway 一直没 CORS 处理——前端（`localhost:5173`）跨域请求 8080，预检（OPTIONS）请求直接被拒，报 `No Access-Control-Allow-Origin`。
-
-处置：新增 `gateway/src/main/java/ecommerce/gateway/config/CorsConfig.java`，用 reactive `CorsWebFilter`（`org.springframework.web.cors.reactive`，与 common 的 Servlet `CorsFilter` 不同包）。
-
-### 3. CORS 头重复（`Access-Control-Allow-Origin` 多值）
-
-gateway `CorsWebFilter` 加一次 CORS 头 + 下游 auth-service 的 common `CorsFilter` 又加一次，响应里出现两个 `Access-Control-Allow-Origin`，浏览器只允许一个值就拦（报 `header contains multiple values`）。
-
-修复：在 gateway `CorsConfig` 里加去重 `GlobalFilter`（`dedupeCorsHeaders`），响应返回前把 4 个 CORS 头各只保留第一个。
-
-### 4. 前端登录对接结论
-
-前端 `e-commerce`（Vue3 后台）的 `src/api/auth.js`（`POST /api/login`、`/api/logout`）与 Spring 端路径/返回结构/JWT payload 完全对齐，**无需改代码**；唯一改动是 `.env` 的 `VITE_API_BASE_URL` 从 `127.0.0.1:3000`（Node）改为 `127.0.0.1:8080`（网关）。前端登录后取 `res.data.data.token`、`utils/auth.js` 从 JWT payload 解 `{id,username,role}` 均兼容。
-
-### 5. 本地 MySQL 自动备份 + idNumber 字段清理（2026-10-18 收尾）
-
-- **idNumber 冗余字段**：`User` 实体的 `idNumber`「只存不用」（4 个用户全空、前端无消费），删了 entity/mapper/VO/service 4 处；数据库 `user.id_number` 列留待手动 `ALTER TABLE user DROP COLUMN id_number`（代码已不引用，空列无害）。
-- **专用账号**：本地 3306 建 `e_commerce_db`@`localhost`/`127.0.0.1`/`%`（密码 123456），5 个服务 dev 配置改用该账号，不再用 root。
-- **自动备份**：`D:\backup\mysql\backup_mysql.ps1`（mysqldump 导出 e_commerce_db，`--result-file` 直写文件避免 PowerShell 管道破坏 UTF-8，`--no-tablespaces` 消 PROCESS 权限报错）+ `MySQL-Backup` 计划任务（每晚 22:00，保留 7 天）。
-
-## 微信凭据按需加载 + 下单移除购物车后端化（2026-10-18）
-
-### 1. WeChatProperties 从全局 @Component 改为按需启用
-
-- **报错根因**：user-service 启动报 `wechat.appid / wechat.secret 未配置`——`WeChatProperties` 是 common 里的 `@Component` + `@PostConstruct` 强校验，被所有引 common 的服务扫描；但全项目只有 user-service 真正用微信（`UserServiceImpl` 登录），其余 7 个服务被迫在 `application.yml` 塞 `placeholder-appid/secret` 糊弄校验；而 user-service 自己的 `${WECHAT_APPID:}` 默认空、dev.yml 又漏配，反而启动失败。
-- **处置**：
-  - `WeChatProperties` 去掉 `@Component`（保留 `@ConfigurationProperties` + `validate()`）。
-  - `user-service` 启动类加 `@EnableConfigurationProperties(WeChatProperties.class)` 显式启用。
-  - 删 7 个服务（order/product/auth/aftersale/ai-agent/file/shop）`application.yml` 的 `wechat: placeholder-*` 段 + 4 处过时注释。
-  - `user-service/application-dev.yml` 补 `WECHAT_APPID`/`WECHAT_SECRET`（值见 `docs/env.md`）。
-- **结果**：只有 user-service 校验微信凭据（真需要），其他服务彻底不碰微信。
-- **凭据来源澄清**：本地开发凭据实际写在各服务 gitignore 的 `application-dev.yml`（不是 OS 环境变量）；`docs/env.md` 是清单备忘，生产部署才用系统环境变量覆盖。`JWT_SECRET`/`DB_*` 已在 dev.yml，唯独 `WECHAT_APPID`/`WECHAT_SECRET` 之前漏配。
-
-### 2. 下单成功移除购物车：后端同事务 + 前端兜底
-
-- **语义**：勾选购物车 → 结算 → 下单成功后，本次已下单的商品从购物车移除。
-- **实现**：`OrderServiceImpl.doCreateOrder` 注入 `CartMapper`，写订单的同一事务里 `deleteByProducts(userId, orderedProductIds, shopId)` 删除；立即购买场景购物车无该商品则删不到，无害。
-- **前端**：`confirm.vue` 的 `clearCart` 兜底保留（后端已删，多一次请求删不到空购物车，无害）。
-- **为什么后端做**：前端 `clearCart` 若下单成功但清空请求失败（`.catch(()=>{})` 吞错）会残留；后端同事务保证「写订单 + 删购物车」要么都成功要么都回滚。
+## 历史结论速查（2026-10-10 ~ 2026-10-18）
+
+> 这段时间的完整流水账已清理，只保留仍然有效的结论。
+
+### 头像 / 静态资源
+- 网关补 `/upload/**` → `lb://user-service`（与 `/image/**` → product-service 对称）；静态资源在 `/api/**` 外，天然免登录。
+- 头像存相对路径，返回时用 `common/utils/UrlUtil.fullUrl()` 拼绝对地址；`http(s)://` 外链原样返回，避免二次拼接。
+- **`X-Forwarded-*` 不可信**：Gateway 的 `XForwardedHeadersFilter` 取的是 `lb://` 已解析后的实例地址，客户端自带值会被覆盖。正解是网关路由加 `PreserveHostHeader`，`UrlUtil` 以 Host 优先、`X-Forwarded-Host` 仅兜底。
+
+### SQL 规范
+- 关键字/内置函数统一大写；表名、列名、别名保持小写；`` `user` ``/`` `admin` `` 保留反引号。
+- XML 正文里的 `<` 必须写 `&lt;`；MyBatis 多参数方法必须全部标 `@Param`。
+
+### 下单幂等（2026-10-14）
+- key `order:idempotency:{userId}:{idempotencyKey}`，value `PENDING`/`orderId`，TTL 24h。
+- 流程：读 key（PENDING→409，orderId→返回原单）→ `SETNX` 占位 → 下单 → 成功写 orderId、失败删占位。
+- Redis 挂了不阻断下单：`safeGet`/`safeSetIfAbsent`/`safeSet`/`safeDelete` 降级为普通下单。
+- 前端进入确认页生成一次 key，失败重试复用，重新提交重新生成。
+- 下单成功移除购物车由后端同事务删除，前端 `clearCart` 仅兜底。
+
+### 时间与时区
+- 业务时间一律 Java `LocalDateTime.now()` 传参，SQL 不用 MySQL `NOW()`（服务器 UTC，比北京时间早 8h）。
+- 订单软删：`DELETE /api/orders/{id}` 只置 `is_deleted=1`，不限状态；列表查询带 `is_deleted=0`。
+
+### 售后归属
+- `after_sales` 主表没有 `user_id`，C 端隔离靠 `LEFT JOIN orders` 取 `o.user_id`；原 Node 只按 shopId 过滤，存在越权，迁移时已修。
+- 迁移丢弃 11 条孤儿 `after_sale_only_refunds`；`after_sale_items` 字段名 `after_sales_id` 已 ALTER 为 `after_sale_id`；保留跳号 id（重映射风险大）。
+
+### 订单/商品搜索与双文案
+- 订单搜索按 `order_no`/`consignee`/`product_name`（EXISTS）；商品搜索按 `name`/`sub_title`/`brand`，keyword 优先于 categoryId。
+- `OrderStatusEnum` 有 `desc`（顾客）/`adminDesc`（商家）；`PayTypeEnum` 存英文 code，VO 返回中文 `payTypeDesc`；前端下单统一传 `WeChat`，支付成功才写 pay_type。
+- 小程序 `OrderCard` 放 `pages/order/` 局部注册，不进全局 `components/`。
+
+### 物流与 admin
+- 物流轨迹目前是假数据（`CourierEnum` + 按订单 id 生成）；真实微信物流助手未接。
+- `admin` 表种子 `admin/admin123`，密码明文，生产需换 BCrypt。
+- `GET /api/admin/info` 走 admin 分流，避免 admin token 调 `/api/user/info` 403。
+
+### 环境与网关
+- MySQL 统一本机 3306（`e_commerce_db` 账号），不再用 Docker 3307；远程 `193.112.176.228:3306/baota_ecommerce` 勿动；本地每晚 22:00 备份，保留 7 天。
+- gateway 是 WebFlux，CORS 用 reactive `CorsWebFilter`；与下游 common 的 Servlet `CorsFilter` 会重复加头，需 `dedupeCorsHeaders` 只留第一个。
+- 凭据统一走环境变量（`application-dev.yml` 已删，清单见 `docs/env.md`）；微信凭据只在 user-service 按需加载（`@EnableConfigurationProperties`）。
+- 前端 `e-commerce` 的 `VITE_API_BASE_URL` 指向网关 8080。
+- `user.id_number` 代码已删，DB 空列待手动 DROP（不阻塞）。
 
 ## 售后增强 + 商品评价（2026-10-21）
 
-### 1. 单品售后（orderItemId 定位）
-
-- 售后从「整单」改「单品」：`CreateAfterSaleDTO` 加 `orderItemId`，`OrderItemVO` 加 `orderItemId`（order-service 返回订单项 id）。
-- 快照明细：传了 `orderItemId` 只快照那一个订单项，退款金额 = 单品小计（`subTotal`）；不传则整单（向后兼容）。
-- 入口：order-card 商品级「申请售后」传 `item.orderItemId`。
-
-### 2. 两套退款原因 + 货物状态
-
-- 退款原因拆两套：未发货 5 个（多拍/错拍/不想要、不想买了、商家未按时发货、选错规格、其他）/ 已发货 9 个（七天无理由、质量问题、发错货、与描述不符、包裹破损、漏发、物流未更新、不想要了、其他）。
-- `AfterSaleReasonEnum` 带 `shipped` 标志；`status-constants` 下发 `reasonMap`（全量，后台用）+ `unshippedReasonMap` + `shippedReasonMap`（小程序按订单状态选）。
-- 货物状态 `goodsStatus`（未收到货/已收到货/已拒收）只在已发货(4)订单申请时填写，`after_sales` 加 `goods_status` 列。
-
-### 3. 仅退款状态规则
-
-- 仅退款（only_refund）允许未发货(2/3) + 已发货(4)，**不含已完成(5)**——已完成订单货已收到，只能退货退款/换货。
-- 退货退款/换货仍要求已发货(4)/已完成(5)。
-
-### 4. C 端图片/视频上传
-
-- 新增 `POST /api/upload`（需登录），复用 product-service 的 `UploadService`，type 分流 `review`（评价晒图）/ `after-sale`（售后凭证）。
-- 白名单加 `video/mp4`，multipart 上限 10MB → 50MB（视频体积大）；网关补 `/api/upload` 路由。
-- 与 `/api/admin/upload`（后台商品图）共用 UploadService，靠 type 分流目录。
-
-### 5. 售后详情（物流 + 时间轴动态 + 入口标记）
-
-- 物流：`AfterSaleVO` 加 `courier`/`courierDesc`/`trackingNumber`，从 `orders` 表 JOIN 带出（`o.courier` 存英文 code，`CourierEnum` 转中文）。
-- 时间轴：按售后状态动态生成节点（提交申请 → 商家审核 → 退款处理 → 退款到账；rejected 显示「审核未通过」），节点完成态 = 对应时间戳非空，不再写死「退款成功」三节点。
-- 入口：`OrderVO.afterSale` 标记（EXISTS after_sales），已申请售后的订单商品上显示「售后详情」而非「申请售后」；「申请退款/申请售后」统一叫「申请售后」。
-
-## 退货退款/换货详情页 + 退货方式弹窗 + 售后列表角标（2026-10-21）
-
-### 1. 退货方式弹窗（return-way-popup，售后模块内组件）
-
-- 退货退款/换货申请页选「退货方式」：底部弹窗，官方退货卡片（上门取件 + 时段 09:00–13:00 / 13:00–19:00，code 仍 morning/afternoon）+ 自行寄回（放弃丢损必赔，运费自付）。
-- 组件放 `pages/after-sales/`（模块内就近），不放全局 `components/`。
-
-### 2. 自行寄回回填物流（独立页 return-tracking）
-
-- 退货方式选「自行寄回」后，商家审核通过（returning），用户寄出后回填物流单号：独立页 `return-tracking.vue`（快递公司 8 家 + 单号），提交 `submitReturn`（courier/trackingNumber）。
-- 退货物流存子表 `after_sale_returns.return_courier/return_tracking_number`（退货退款）、`after_sale_exchange_returns` 同名字段（换货）。
-- 防止忘记填：申请提交时 toast 提示 + 详情页退货物流行显示「回填物流单号，点击填写」。
-
-### 3. 换货发货地址（ship_address）
-
-- 换货是「退旧货 + 寄新货」，申请时填「发货地址」（商家寄新货地址），单字段 `ship_address`（一个 textarea 填收货人/电话/地址），存换货子表 `after_sale_exchange_returns.ship_address`。
-- 主表 `after_sales` 不存换货专属字段。
-
-### 4. 时间轴拒绝态
-
-- 售后详情页时间轴，`rejected`（商家拒绝）时「审核未通过」节点标 `reject`，红色圆点 + 叉「×」，不再是绿色对勾。
-
-### 5. 售后列表 Tab + 角标真实数量
-
-- 订单列表「售后」Tab 对接 `listAfterSales`，售后卡片 `after-sale-card`（类型/状态/商品明细/金额），点击按类型跳对应详情页。
-- 「我的」页订单入口右上角红色数字角标：`onShow` 拉 `listOrders`/`listAfterSales`，按状态（待付款 1 / 待发货 2·3 / 待收货 4 / 待评价 5 且未评价）回填 badge，售后=售后列表条数；0 隐藏、>99 显示 99+。
+- **单品售后**：`CreateAfterSaleDTO.orderItemId` 定位单个订单项，退款金额 = 单品小计；不传则整单（兼容旧调用）。
+- **货物状态**：`after_sales.goods_status`（未收到/已收到/已拒收），已发货订单申请时必填，`status-constants` 下发。
+- **两套退款原因**：未发货 5 个 / 已发货 9 个，`AfterSaleReasonEnum.shipped` 区分，前端按订单状态选。
+- **仅退款规则**：only_refund 允许状态 2/3/4，不含已完成 5；退货退款/换货要求 4/5。
+- **详情物流**：`AfterSaleVO` JOIN orders 带出 courier/courierDesc/trackingNumber，`CourierEnum` 转中文。
+- **商品评价**：`product_reviews` 表 + 一单一评、已完成可评；订单 VO 带 `reviewed`；小程序评价页真实提交 + 晒图/视频。
+- **退货/换货页面**：退货方式弹窗（上门取件/自行寄回）、回填物流页、换货发货地址 `ship_address`；详情时间轴按状态动态、拒绝态红色叉。
+- **售后列表**：订单列表「售后」Tab + `after-sale-card`；「我的」页角标按状态回填真实数量。
 
 ## 营业额统计 + 取消订单自动退款（2026-10-22）
 
@@ -760,3 +507,130 @@ gateway `CorsWebFilter` 加一次 CORS 头 + 下游 auth-service 的 common `Cor
 - 图片上传：`UploadServiceImpl.TYPE_SUBDIR` 新增 `feedback → upload/image/feedback/`，前端用 `uploadMedia(path, 'feedback')`。
 - 前端 `pages/my/feedback.vue`：类型胶囊单选（code + label）、内容 200 字计数、最多 6 张截图上传/预览/删除、联系方式默认带出账号手机号；提交调真实接口，成功返回上一页。
 
+
+## 工作台全局时间选择器 + 销量排名（2026-10-24）
+
+### 1. 全局时间选择器（前端）
+- 选择器从 `TurnoverPanel` 提到 `Workplace.vue` 报表区顶部，维度仍是 `yesterday / week / month`；`useWorkplaceData` 中 `turnoverPeriod` 改为 `reportPeriod`，由 `setReportPeriod(period)` 统一触发营业额、销量排名、用户增长刷新。
+- 订单统计没有接口，改为前端按时间段聚合：
+  - 昨日：`created_at` 按小时分 24 桶（`HH`）；
+  - 近7天/本月：按天分桶（`YYYY-MM-DD`），本月从月初到今天；
+  - 三条线仍是待付款(1)/已付款(2-5)/取消(6)，环比对比上一等长区间（本月对比上月同期，按已过天数对齐）。
+- 营业额图保留原设计：昨日仍是「前日 vs 昨日」双柱，其余按天折线；其余三张图昨日按小时展示，粒度与营业额不同是有意为之。
+- 用户增长「用户总量」曲线改为「期初总量 + 期间新增累计」，期初总量 = 后端 `totalUsers` − 本时间段新增，避免短周期累计线从 0 开始。
+
+### 2. 用户统计接口支持 period（user-service）
+- `GET /api/admin/users/statistics?period=yesterday|week|month`，默认 `year` 保留原近 12 月行为；`UserStatisticsVO` 的 `months` 改为 `buckets`，新增 `bucketType`（hour/day/month）。
+- `UserMapper.countMonthlyNewUsers` 改为 `countNewUsersByBucket(shopId, start, end, format)`：`format` 传 `'%H' / '%Y-%m-%d' / '%Y-%m'`，用 `DATE_FORMAT(create_time, #{format})` 分组；起止时间由 Java `LocalDateTime` 传入，避开 MySQL 服务器 UTC 时区。
+- 前端用户统计调用改为 `getUserStatistics(period)`，`api/user.js` 透传参数。
+
+### 3. 销量排名（order-service）
+- `GET /api/admin/report/sales-ranking?period=&limit=8` → `List<SalesRankingItemVO>{productId, productName, image, salesQuantity}`。
+- 口径：`orders.pay_at` 落在周期内，排除待付款(1)/已取消(6)，退款暂不扣减；按 `order_items.quantity` 汇总，按件数降序；商品名/图取订单项快照，同一商品多条快照用 `MAX()` 取一条。
+- `ReportServiceImpl` 复用 `resolvePeriod`，limit 限制在 1~20。
+- 前端 `OrderHistory.vue`（最近订单时间轴）删除，换 `SalesRanking.vue`；`useWorkplaceData` 移除 `recentOrders`、订单状态字典请求、`orderStatusClass` 等无用逻辑。
+
+## AI 客服流式对话 + Redis 会话（2026-10-24）
+
+### 1. 后端契约（ai-agent-service）
+- `POST /api/agent/chat/stream`（SSE）与 `POST /api/agent/chat`（非流式）均接收 `{ message, sessionId, scene }`。
+- `scene=customer-service` 时走固定 system prompt「你是杰米多多智能导购AI，请结合用户提出的需求耐心解答问题。」，**主动跳过 IntentRouter / Tool / RAG**；不传 scene 仍走原导购 Agent。
+- 流式返回 `Flux<ServerSentEvent<String>>`，每块单独 `data:`，首字即推送；换行由 SSE 编码，避免破坏事件边界。
+- `AiAgentConfig` 的默认 system prompt 同步改为同一句，避免品牌/口吻漂移。
+
+### 2. Redis 会话历史
+- key `agent:chat:history:{sessionId}`，list 存 `user:xxx` / `assistant:xxx`，保留最近 12 条（约 6 轮），TTL 2h。
+- 每次请求把历史拼成「用户：…/助手：…」文本 + 本轮消息，作为单条 user prompt 发给模型（暂未用 ChatClient 的 messages 列表）。
+- Redis 超时设 500ms，且所有读写 try/catch；Redis 挂了自动降级为单轮，不拖慢首字。
+
+### 3. 小程序端
+- `api/agent.js`：`wx.request({ enableChunked: true })` + `onChunkReceived` 收 SSE 分片；基础库 < 2.20 或非 MP-WEIXIN 自动降级为非流式 `/chat`。
+- SSE 解析按字节找 `\n\n` 边界后整段 UTF-8 解码，避免中文多字节被分片截断；无 `data:` 前缀的续行按内容处理。自实现 `utf8Decode`，不依赖 TextDecoder。
+- 客服页 `pages/my/customer-service.vue`：**AI 流式优先**；「人工客服」本地拦截（要拉起原生客服会话）；AI 失败/超时/空回复时用本地规则兜底，没有规则再走人工客服 + 意见反馈；「正在思考…」→ 首字到达即替换；AI 回复标「AI 生成」。
+- Vue 3 注意：push 进 reactive 数组后，直接改原始对象不触发更新，`append()` 返回 `this.messages[len-1]` 的响应式引用。
+- `sessionId` 每次进入页面重新生成（`cs-时间戳-随机`），同一页面内多轮共享；离开页面再进是新会话。
+
+### 4. 待办
+- 客服场景接 function calling / RAG（当前刻意跳过）。
+- 多轮历史目前是文本拼接，后续可换 ChatClient messages 列表或 Spring AI ChatMemory。
+- `SILICONFLOW_API_KEY` 需在 IDEA 环境变量或 `application-dev.yml` 配置，否则 AI 请求失败会走兜底。
+
+## 全局悬浮 AI 客服（2026-10-24）
+
+### 1. 结构
+- `components/floating-chat/floating-chat.vue`：右侧中间悬浮球 + 底部聊天面板；头像 `/static/zongjie.webp`；面板内复用消息气泡、AI 标识、人工客服/意见反馈按钮。
+- `store/ai-chat.js`：Pinia 全局会话（messages/sessionId/sending/visible），悬浮球和「专属客服」页共用，切页面不丢消息；`reset()` 开新会话。
+- `main.js` 全局注册 `FloatingChat`；`<FloatingChat />` 注入 pages.json 注册的 29 个页面（`pages/my/customer-service` 除外，那里是全屏客服页）。
+
+### 2. uni-app 全局悬浮的落地方式
+- uni-app 小程序没有 App 级全局组件；App.vue 不渲染模板。做法是全局注册组件 + 在每个页面模板 `<template>` 后插入 `<FloatingChat />`。
+- 注入脚本按 `pages.json` 的 `"path"` 列表处理，跳过 `pages/my/customer-service`；**以后新增页面要手动加 `<FloatingChat />`**，否则新页面没有悬浮球。
+- 组件根节点是页面根节点的兄弟（Vue 3 多根节点），固定定位不受页面根容器 `overflow` 影响。
+- 悬浮球 `position: fixed`，默认右侧中间（`z-index: 9997`，面板遮罩 9998）；支持 touchstart/move/end 拖动，松手吸附到左右边缘，位置存 Pinia `ballLeft/ballTop`，切页面保持；轻点（位移 ≤4px）打开面板。
+
+### 3. 交互细节
+- 点击遮罩关闭；面板内 `@click.stop` 防误关。
+- 键盘弹起时用 `uni.onKeyboardHeightChange` 获取高度，遮罩加 padding-bottom、面板缩短，避免输入框被挡。
+- 消息区用 `scroll-top` 递增持续贴底；流式 chunk 更新时 deep watch 触发。
+- 「新对话」换 sessionId 并清空消息；sessionId 复用后端 Redis 多轮历史。
+
+### 4. 注意
+- 悬浮球在登录页/404 也会出现；如果某些页面不需要，在该页面模板删掉 `<FloatingChat />` 即可。
+- 悬浮球固定在右侧中间，可能和部分页面右侧的固定按钮重叠，按需调整 `right/top`。
+- 专属客服页跳过注入，但共用同一个 Pinia store，所以两处对话是连续的。
+
+## 接口防抖/防重（2026-10-24）
+
+- **搜索**：`pages/search/search.vue` 和订单列表搜索都是 `@confirm` / 按钮触发，不是输入即搜，不需要 debounce（加了反而多等）。
+- **滚动**：全项目没有 `@scroll`/`scrolltolower`/`onReachBottom` 触发请求，不需要 throttle。
+- **分类切换**：`category.vue` 的 `loadProducts` 加 `loadSeq` 请求序号，只应用最后一次点击的响应，避免快速切分类时旧响应覆盖新分类。
+- **提交防重**：订单列表/待付款页的付款、取消、确认收货、删除、再来一单加 `operating` 标志；仅退款/退货退款/换货/回填物流加 `submitting` 标志；成功跳走前不重置，失败才允许重试。
+- 下单确认页原本已有 `paying` 标志，覆盖下单 + 支付，无需重复加。
+- 列表商品图统一加小程序原生 `lazy-load`（22 个文件、28 处）；轮播/头像/飞入动画不加。
+
+## 地址/购物车归属校验补齐（2026-10-24）
+
+- 用户决定不再走多租户沙箱方案，直接修掉两个遗留越权点。
+- **地址**：`AddressMapper.findById/update/deleteById` 全部加 `user_id` 条件；`AddressServiceImpl.update/remove` 传当前 `UserContext.getUserId()`。原来只按 `id + shop_id` 定位，任何登录用户可改/删他人地址。
+- **购物车**：`CartMapper.update` 的 WHERE 从 `id + shop_id` 改为 `id + user_id + shop_id`；`CartServiceImpl` 两处 `update` 的实体都来自 `findByUserAndProduct`，本身带 userId，调用方式不变。
+- `order-service` 编译通过。
+
+## 小程序分包 + 图片后端化（2026-10-24）
+
+- **`static/image` 15M 全部删除**：商品图回退改为后端 `/image/upload/{id}.webp`；前端 `static` 从 15M 降到 181K。
+- **轮播/分享图移到后端**：`upload/image/swiper/1~4.webp`、`upload/image/share/share-3c.jpg`；上线时必须把整个 `e-commerce-boot/upload/` 上传到服务器 `/www/java/upload/`，否则图片 404。
+- **pages.json 分包**：
+  - 主包 12 页：4 个 tabBar 页（首页/分类/购物车/我的）+ 我的子页（personal-info/address/address-edit/favorites/about-us/feedback/logistics/customer-service）。
+  - 分包 4 个：`pages/goods`（detail）、`pages/search`（search）、`pages/order`（8 页）、`pages/after-sales`（8 页）。
+  - `root` 用现有物理目录，`path` 相对 root；完整路由不变（如 `/pages/order/list`），`navigateTo` 无需改。
+- **主包不能依赖分包组件**：`OrderCard` 从 `pages/order/` 移到 `components/order-card/`，`AfterSaleCard` 从 `pages/after-sales/` 移到 `components/after-sale-card/`；`pages/my/logistics`、`pages/order/list`、`pages/order/pending-pay` 的 import 已更新。
+- 如果构建后主包仍超限，下一步可把「我的」子页物理移到独立分包目录（需改路由），或检查 uview-plus/uni-ui 体积。
+
+## 生产部署落地（2026-10-24 ~ 10-25）
+
+### 1. 服务器与编排
+- 腾讯云 8G；Docker Compose；Nacos **3.1.1**（不是 2.3.2）+ 9 个 Spring Boot 服务；MySQL/Redis 在宝塔宿主机，容器用 `host.docker.internal` 访问；gateway 只绑 `127.0.0.1:8080`；Nacos 控制台绑 `127.0.0.1:18080`，不对公网。
+- 部署文件：`deploy/`（compose/Dockerfile/.env.example/nginx-api.conf/README）+ 根目录 `nginx`（`www.jiemids.com` 后台站点配置）。
+- `.env` 关键：`NACOS_ADDR=nacos:8848`、`DB_*`、`JWT_SECRET`、`WECHAT_*`、`SILICONFLOW_API_KEY`、`REDIS_HOST`；`SPRING_PROFILES_ACTIVE=prod`；JDK 17 + `Asia/Shanghai`。
+- 图片：把本地 `e-commerce-boot/upload/` 整目录传到 `/www/java/upload/`；product/user 都挂 `./upload:/app/upload`。
+
+### 2. 域名与 Nginx
+- 小程序 API：`api.jiemids.com` → Cloudflare → Nginx → gateway 8080；`/api`、`/image`、`/upload`；AI SSE 关 `proxy_buffering`。
+- 后台前端：`www.jiemids.com` → Cloudflare → Nginx 静态 `dist`；`/api`、`/image`、`/upload`、`/ws` 全部反代到 8080；`client_max_body_size 20m`；SPA `try_files`；`.env`/`.git` 等返回 404。
+- 后台 WebSocket：`wss://www.jiemids.com/ws/order`，Nginx `/ws/` 必须带 `Upgrade`/`Connection "upgrade"`；已实测 101，来单提醒连接成功。
+
+### 3. 踩坑
+- 后台登录页「登录」按钮是 `v-if="isDev"`，生产只显示「一键体验」；模板店不能给所有访客 admin 直登，否则环境互相污染，生产必须走沙箱。
+- 沙箱 500 一开始是 Nginx `/api` 还指向旧 Node 3000，旧 Node 的 `shopController.js` 正好返回「体验店铺开通失败」；切到 8080 后走 Spring shop-service，沙箱 token（shopId 12/admin_s12）签发成功。
+- 微信 `wxlogin` 400：微信 IP 白名单没放行；服务器出口 IP `193.112.176.228` 要加；本地调试的公网 IP 会变，不要长期写死。
+- Cloudflare：自签名 → 边缘证书；Full strict 报 526（源站证书没装好）→ 先切 Full；WebSockets 要开；Bot Fight/Under Attack 要关；`cf-ray AMS` 说明绕欧洲，国内慢，正式可改 DNS-only + Let's Encrypt。
+- Nacos 8848/9848 不需要公网；控制台 18080 绑 `127.0.0.1`，用 SSH 隧道。
+- 小程序：`static/image` 15M 删除 + 分包后主包 ~1.5M；`lazyCodeLoading: requiredComponents` 要放在 `mp-weixin` 根节点（放 `optimization` 下不会生成）。
+- 后台前端 `src/utils/file.js` 的 `fs/path` 是未使用的 Node 专用代码，已删；`align-item` 拼写已修正。
+- 网站根目录不能放 `.env`；删掉，Nginx 也要 deny。
+
+### 4. 待办
+- 微信审核：模拟支付、隐私政策/用户协议、AI/UGC 内容安全、VIP/优惠券占位。
+- 生产安全：安全组关闭 8848/9848/9849/18080/9001~9008；停旧 Node 3000；删网站根 `.env`。
+- 沙箱：过期回收、`templateGuard`。
+- Cloudflare AMS 延迟；正式考虑 DNS-only + Let's Encrypt。

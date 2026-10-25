@@ -87,7 +87,7 @@ public class AddressServiceImpl implements AddressService {
     public void update(Long id, UpdateAddressDTO dto) {
         validate(dto.getConsignee(), dto.getPhone(), dto.getRegion(), dto.getDetailAddress());
         Long userId = currentUserId();
-        Address existing = addressMapper.findById(id, currentShopId());
+        Address existing = addressMapper.findById(id, userId, currentShopId());
         if (existing == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "地址不存在");
         }
@@ -120,11 +120,11 @@ public class AddressServiceImpl implements AddressService {
     @Transactional
     public void remove(Long id) {
         Long userId = currentUserId();
-        Address existing = addressMapper.findById(id, currentShopId());
+        Address existing = addressMapper.findById(id, userId, currentShopId());
         if (existing == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "地址不存在");
         }
-        addressMapper.deleteById(id, currentShopId());
+        addressMapper.deleteById(id, userId, currentShopId());
         // 删的是默认地址：自动把最新一条设为默认（无剩余地址时该语句 no-op）
         if (existing.getIsDefault() != null && existing.getIsDefault() == 1) {
             addressMapper.setDefaultToLatest(userId, currentShopId());

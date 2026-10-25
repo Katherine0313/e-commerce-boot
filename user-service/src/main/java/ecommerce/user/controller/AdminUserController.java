@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
@@ -24,9 +25,9 @@ public class AdminUserController {
         this.userService = userService;
     }
 
-    @Operation(summary = "用户增长统计（近 12 月新增用户）")
+    @Operation(summary = "用户增长统计（period：yesterday/week/month，默认近 12 月）")
     @GetMapping("/statistics")
-    public Result<UserStatisticsVO> statistics() {
-        return Result.success(userService.getUserStatistics());
+    public Result<UserStatisticsVO> statistics(@RequestParam(defaultValue = "year") String period) {
+        return Result.success(userService.getUserStatistics(period));
     }
 }

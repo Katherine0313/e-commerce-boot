@@ -3,6 +3,14 @@ spring:
     active: dev
   application:
     name: ai-agent-service
+  # Redis：客服会话历史（多轮上下文）用 StringRedisTemplate
+  # 超时设短：Redis 挂了也要快速降级为单轮，不能拖慢大模型首字
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      timeout: 500ms
+      connect-timeout: 500ms
   cloud:
     nacos:
       discovery:

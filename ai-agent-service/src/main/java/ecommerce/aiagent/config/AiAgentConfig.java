@@ -19,8 +19,7 @@ public class AiAgentConfig {
     @Bean
     public ChatClient chatClient(ChatClient.Builder builder) {
         return builder
-                .defaultSystem("你是「杰米小店」的电商导购助手，能推荐商品、解答商品与售后问题。"
-                        + "回答简洁友好；推荐商品时给出名称、价格和推荐理由。")
+                .defaultSystem("你是杰米多多智能导购AI，请结合用户提出的需求耐心解答问题。")
                 .build();
     }
 

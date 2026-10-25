@@ -34,8 +34,8 @@ public interface UserService {
     void deactivate(Long userId);
 
     /**
-     * 用户增长统计：近 12 个月每月新增用户数（后台工作台用）
+     * 用户增长统计：按 period（yesterday/week/month/year）返回对应时间桶的新增用户数（后台工作台用）
      */
-    UserStatisticsVO getUserStatistics();
+    UserStatisticsVO getUserStatistics(String period);
 
 }

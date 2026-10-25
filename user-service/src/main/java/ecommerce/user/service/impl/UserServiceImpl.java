@@ -16,6 +16,7 @@ import ecommerce.properties.WeChatProperties;
 import ecommerce.utils.HttpClientUtil;
 import ecommerce.utils.JwtUtil;
 import ecommerce.utils.UserContext;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,12 +25,14 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.File;
 import java.io.IOException;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 
+@Slf4j
 @Service
 public class UserServiceImpl implements UserService {
     private final WeChatProperties weChatProperties;
@@ -72,8 +75,12 @@ public class UserServiceImpl implements UserService {
         map.put("grant_type", "authorization_code");
         String respBody = httpClientUtil.doGet("https://api.weixin.qq.com/sns/jscode2session", map);
         // 2. 解析微信返回的 openid，code 无效时微信会返回 errcode 而没有 openid
-        JsonNode openidNode = objectMapper.readTree(respBody).get("openid");
+        JsonNode respNode = objectMapper.readTree(respBody);
+        JsonNode openidNode = respNode.get("openid");
         if (openidNode == null) {
+            // 只记录微信错误码/文案，不记录 openid/session_key
+            log.warn("微信 jscode2session 失败 errcode={} errmsg={}",
+                    respNode.path("errcode").asText(""), respNode.path("errmsg").asText(""));
             throw new BusinessException(HttpStatus.BAD_REQUEST, "登录凭证 code 无效或已过期");
         }
         String openid = openidNode.stringValue();
@@ -289,30 +296,80 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public UserStatisticsVO getUserStatistics() {
+    public UserStatisticsVO getUserStatistics(String period) {
         Long shopId = UserContext.getShopId();
         if (shopId == null) {
             shopId = 1L; // 模板店默认
         }
-        // 近 12 个月（含本月）起始日期：往前推 11 个月的 1 号
-        String startDate = LocalDate.now().minusMonths(11).withDayOfMonth(1).toString();
-        List<Map<String, Object>> rows = userMapper.countMonthlyNewUsers(shopId, startDate);
+        LocalDate today = LocalDate.now();
+        // 时间窗口与 order-service 的营业额报表保持一致：昨日 / 近7天 / 本月 / 近12月
+        String p = (period == null || period.isBlank()) ? "year" : period;
+        String bucketType;
+        String format;
+        LocalDate begin;
+        LocalDate end;
+        switch (p) {
+            case "yesterday" -> {
+                bucketType = "hour";
+                format = "%H";
+                begin = today.minusDays(1);
+                end = begin;
+            }
+            case "week" -> {
+                bucketType = "day";
+                format = "%Y-%m-%d";
+                begin = today.minusDays(6);
+                end = today;
+            }
+            case "month" -> {
+                bucketType = "day";
+                format = "%Y-%m-%d";
+                begin = today.withDayOfMonth(1);
+                end = today;
+            }
+            case "year" -> {
+                bucketType = "month";
+                format = "%Y-%m";
+                begin = today.minusMonths(11).withDayOfMonth(1);
+                end = today;
+            }
+            default -> throw new BusinessException(HttpStatus.BAD_REQUEST, "非法的统计维度");
+        }
 
-        // 行转 map（month -> cnt），缺失月份补 0
+        // 查询区间 [begin 0点, end 次日 0点)，JVM 本地时区与 create_time 同基准
+        List<Map<String, Object>> rows = userMapper.countNewUsersByBucket(
+                shopId, begin.atStartOfDay(), end.plusDays(1).atStartOfDay(), format);
+        // 行转 map（bucket -> cnt），缺失桶补 0
         Map<String, Long> cntMap = new HashMap<>();
         for (Map<String, Object> row : rows) {
-            cntMap.put(String.valueOf(row.get("month")), ((Number) row.get("cnt")).longValue());
+            cntMap.put(String.valueOf(row.get("bucket")), ((Number) row.get("cnt")).longValue());
         }
-        LocalDate firstMonth = LocalDate.now().minusMonths(11).withDayOfMonth(1);
-        List<String> months = new ArrayList<>();
+
+        List<String> buckets = new ArrayList<>();
         List<Long> newUsers = new ArrayList<>();
-        for (int i = 0; i < 12; i++) {
-            String month = firstMonth.plusMonths(i).toString().substring(0, 7);
-            months.add(month);
-            newUsers.add(cntMap.getOrDefault(month, 0L));
+        if ("hour".equals(bucketType)) {
+            for (int h = 0; h < 24; h++) {
+                String key = String.format("%02d", h);
+                buckets.add(key + ":00");
+                newUsers.add(cntMap.getOrDefault(key, 0L));
+            }
+        } else if ("day".equals(bucketType)) {
+            for (LocalDate d = begin; !d.isAfter(end); d = d.plusDays(1)) {
+                String key = d.toString();
+                buckets.add(key);
+                newUsers.add(cntMap.getOrDefault(key, 0L));
+            }
+        } else {
+            for (int i = 0; i < 12; i++) {
+                String key = begin.plusMonths(i).toString().substring(0, 7);
+                buckets.add(key);
+                newUsers.add(cntMap.getOrDefault(key, 0L));
+            }
         }
+
         return UserStatisticsVO.builder()
-                .months(months)
+                .bucketType(bucketType)
+                .buckets(buckets)
                 .newUsers(newUsers)
                 .totalUsers(userMapper.countTotalUsers(shopId))
                 .build();

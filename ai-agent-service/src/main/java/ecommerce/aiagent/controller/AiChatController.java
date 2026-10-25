@@ -7,6 +7,7 @@ import ecommerce.common.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.MediaType;
+import org.springframework.http.codec.ServerSentEvent;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -30,12 +31,14 @@ public class AiChatController {
     @Operation(summary = "AI 对话（非流式）")
     @PostMapping("/chat")
     public Result<ChatReplyVO> chat(@RequestBody ChatRequestDTO dto) {
-        return Result.success(aiChatService.chat(dto.getMessage()));
+        return Result.success(aiChatService.chat(dto.getMessage(), dto.getSessionId(), dto.getScene()));
     }
 
-    @Operation(summary = "AI 对话（SSE 流式）")
+    @Operation(summary = "AI 对话（SSE 流式，首字即推送）")
     @PostMapping(value = "/chat/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public Flux<String> chatStream(@RequestBody ChatRequestDTO dto) {
-        return aiChatService.chatStream(dto.getMessage());
+    public Flux<ServerSentEvent<String>> chatStream(@RequestBody ChatRequestDTO dto) {
+        return aiChatService.chatStream(dto.getMessage(), dto.getSessionId(), dto.getScene())
+                // 用 ServerSentEvent 包装，回复里的换行会按 SSE 规范编码，不会破坏事件边界
+                .map(data -> ServerSentEvent.builder(data).build());
     }
 }

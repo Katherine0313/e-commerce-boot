@@ -2,9 +2,11 @@ package ecommerce.order.service.impl;
 
 import ecommerce.exception.BusinessException;
 import ecommerce.order.enums.OrderStatusEnum;
+import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.service.ReportService;
 import ecommerce.order.vo.DashboardStatsVO;
+import ecommerce.order.vo.SalesRankingItemVO;
 import ecommerce.order.vo.TurnoverReportVO;
 import ecommerce.order.vo.TurnoverVO;
 import ecommerce.utils.UserContext;
@@ -30,9 +32,11 @@ import java.util.Map;
 public class ReportServiceImpl implements ReportService {
 
     private final OrderMapper orderMapper;
+    private final OrderItemMapper orderItemMapper;
 
-    public ReportServiceImpl(OrderMapper orderMapper) {
+    public ReportServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper) {
         this.orderMapper = orderMapper;
+        this.orderItemMapper = orderItemMapper;
     }
 
     private Long requireShopId() {
@@ -82,6 +86,17 @@ public class ReportServiceImpl implements ReportService {
                 .dateList(dateList)
                 .turnoverList(turnoverList)
                 .build();
+    }
+
+    @Override
+    public List<SalesRankingItemVO> getSalesRanking(String period, int limit) {
+        Long shopId = requireShopId();
+        PeriodRange range = resolvePeriod(period);
+        // 限制返回条数，避免前端传大值拖垮查询
+        int safeLimit = Math.min(Math.max(limit, 1), 20);
+        LocalDateTime start = range.begin().atStartOfDay();
+        LocalDateTime end = range.end().plusDays(1).atStartOfDay();
+        return orderItemMapper.sumSalesRanking(shopId, start, end, safeLimit);
     }
 
     @Override

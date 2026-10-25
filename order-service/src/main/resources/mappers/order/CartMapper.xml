@@ -31,7 +31,7 @@
                 #{description}, #{insuranceDetail}, #{insuranceFee}, NOW())
     </insert>
 
-    <!-- 按 id 更新数量 + 快照字段 + 更新时间 -->
+    <!-- 按 id + userId + shopId 更新数量 + 快照字段 + 更新时间 -->
     <update id="update">
         UPDATE cart
         SET quantity = #{quantity},
@@ -42,7 +42,7 @@
             insurance_detail = #{insuranceDetail},
             insurance_fee = #{insuranceFee},
             updated_at = NOW()
-        WHERE id = #{id} AND shop_id = #{shopId}
+        WHERE id = #{id} AND user_id = #{userId} AND shop_id = #{shopId}
     </update>
 
     <!-- 移除某个商品 -->

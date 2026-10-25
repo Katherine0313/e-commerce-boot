@@ -20,7 +20,7 @@ public interface CartMapper {
     // 新增购物车项
     int insert(Cart cart);
 
-    // 按 id 更新（数量 + 快照字段 + 更新时间）
+    // 按 id + userId + shopId 更新（数量 + 快照字段 + 更新时间）
     int update(Cart cart);
 
     // 移除某个商品

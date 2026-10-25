@@ -3,6 +3,7 @@ package ecommerce.order.controller;
 import ecommerce.common.Result;
 import ecommerce.order.service.ReportService;
 import ecommerce.order.vo.DashboardStatsVO;
+import ecommerce.order.vo.SalesRankingItemVO;
 import ecommerce.order.vo.TurnoverReportVO;
 import ecommerce.order.vo.TurnoverVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -13,10 +14,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 /**
  * 后台报表统计接口（/api/admin/report）。
  * <p>
- * 专门承载统计报表（营业额卡片 + 折线，后续订单统计、销量 Top10 等），
+ * 专门承载统计报表（营业额卡片 + 折线、销量排名等），
  * 与订单业务解耦，走 admin 身份（拦截器按 /api/admin 分流）。
  */
 @Tag(name = "后台报表统计", description = "营业额卡片/折线等统计（管理员）")
@@ -43,6 +46,13 @@ public class ReportController {
         TurnoverReportVO vo = reportService.getTurnoverReport(period);
         log.info("dateList:{}, turnoverList:{}",vo.getDateList(),vo.getTurnoverList());
         return Result.success(vo);
+    }
+
+    @Operation(summary = "销量排名（period：yesterday/week/month，limit 默认 8）")
+    @GetMapping("/sales-ranking")
+    public Result<List<SalesRankingItemVO>> salesRanking(@RequestParam String period,
+                                                         @RequestParam(defaultValue = "8") int limit) {
+        return Result.success(reportService.getSalesRanking(period, limit));
     }
 
     @Operation(summary = "工作台统计卡（今日/昨日营业额与订单量、待发货数）")

@@ -24,4 +24,26 @@
         WHERE order_id = #{orderId} AND shop_id = #{shopId} AND is_deleted = 0
     </select>
 
+    <!-- 销量排名：某区间已支付订单按商品汇总销量
+         口径：pay_at 落在区间，排除待付款(1)/已取消(6)；退款暂不扣减
+         商品名/图取快照，同一商品改名后可能出现多条快照，用 MAX 取其中一条 -->
+    <select id="sumSalesRanking" resultType="ecommerce.order.vo.SalesRankingItemVO">
+        SELECT oi.product_id,
+               MAX(oi.product_name) AS product_name,
+               MAX(oi.image) AS image,
+               SUM(oi.quantity) AS sales_quantity
+        FROM order_items oi
+                 JOIN orders o ON o.id = oi.order_id
+        WHERE oi.shop_id = #{shopId}
+          AND oi.is_deleted = 0
+          AND o.is_deleted = 0
+          AND o.shop_id = #{shopId}
+          AND o.order_status NOT IN (1, 6)
+          AND o.pay_at IS NOT NULL
+          AND o.pay_at &gt;= #{start} AND o.pay_at &lt; #{end}
+        GROUP BY oi.product_id
+        ORDER BY sales_quantity DESC, oi.product_id
+        LIMIT #{limit}
+    </select>
+
 </mapper>
