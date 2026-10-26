@@ -516,22 +516,22 @@ public class OrderServiceImpl implements OrderService {
         List<LogisticsTraceVO> traces = new ArrayList<>();
         LocalDateTime shipTime = order.getShipAt();
         LocalDateTime finishTime = order.getFinishAt();
+        LocalDateTime now = LocalDateTime.now();
         String[] courierStaff = {"张伟", "李强", "王磊", "刘洋", "陈明"};
 
         if (OrderStatusEnum.SHIPPED.getCode().equals(order.getOrderStatus())) {
-            traces.add(trace(shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心"));
-            traces.add(trace(plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity));
-            traces.add(trace(plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity));
-            traces.add(trace(plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心"));
-            traces.add(trace(null, "运输中", "【" + destCity + "分拣中心】快件正在分拣，即将安排派送"));
+            addTraceIfPast(traces, now, shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
+            addTraceIfPast(traces, now, plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity);
+            addTraceIfPast(traces, now, plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity);
+            addTraceIfPast(traces, now, plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心");
         } else if (OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())) {
-            traces.add(trace(shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心"));
-            traces.add(trace(plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity));
-            traces.add(trace(plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity));
-            traces.add(trace(plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心"));
-            traces.add(trace(plusHours(shipTime, 22, seed), "运输中", "【" + destCity + "分拣中心】快件正在分拣，即将安排派送"));
-            traces.add(trace(plusHours(shipTime, 24, seed), "派送中", "【" + destCity + "】" + courierShort + "快递员" + courierStaff[seed % courierStaff.length] + "正在为您派送，请保持电话畅通"));
-            traces.add(trace(finishTime, "已签收", "快件已由本人签收，感谢使用"));
+            addTraceIfPast(traces, now, shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
+            addTraceIfPast(traces, now, plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity);
+            addTraceIfPast(traces, now, plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity);
+            addTraceIfPast(traces, now, plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心");
+            addTraceIfPast(traces, now, plusHours(shipTime, 22, seed), "运输中", "【" + destCity + "分拣中心】快件正在分拣，即将安排派送");
+            addTraceIfPast(traces, now, plusHours(shipTime, 24, seed), "派送中", "【" + destCity + "】" + courierShort + "快递员" + courierStaff[seed % courierStaff.length] + "正在为您派送，请保持电话畅通");
+            addTraceIfPast(traces, now, finishTime, "已签收", "快件已由本人签收，感谢使用");
         }
 
         return LogisticsVO.builder()
@@ -539,6 +539,17 @@ public class OrderServiceImpl implements OrderService {
                 .trackingNumber(trackingNumber)
                 .traces(traces)
                 .build();
+    }
+
+    /**
+     * 只添加已经发生（时间不晚于当前）的轨迹。
+     * 假数据按发货时间往后推小时数，不加这层过滤会把明天的轨迹也返回给前端。
+     */
+    private void addTraceIfPast(List<LogisticsTraceVO> traces, LocalDateTime now,
+                                LocalDateTime time, String status, String desc) {
+        if (time == null || !time.isAfter(now)) {
+            traces.add(trace(time, status, desc));
+        }
     }
 
     /** 组装单条轨迹（时间空则给空串） */
