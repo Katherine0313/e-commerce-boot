@@ -359,7 +359,7 @@ ecommerce
 - 小程序 `OrderCard` 放 `pages/order/` 局部注册，不进全局 `components/`。
 
 ### 物流与 admin
-- 物流轨迹目前是假数据（`CourierEnum` + 按订单 id 生成）；真实微信物流助手未接。
+- 物流轨迹目前是假数据（`CourierEnum` + 按订单 id 生成）；2026-10-26 起只返回当前时间之前已发生的轨迹（`addTraceIfPast`），不再出现未来时间；真实微信物流助手未接。
 - `admin` 表种子 `admin/admin123`，密码明文，生产需换 BCrypt。
 - `GET /api/admin/info` 走 admin 分流，避免 admin token 调 `/api/user/info` 403。
 
@@ -556,6 +556,57 @@ ecommerce
 - RAG 知识库、商品卡片渲染（前端目前只渲染纯文本，需前后端一起改）。
 - `SILICONFLOW_API_KEY` 配在 `recommender-python/.env`（本地）或部署 `.env`（生产），缺失时 AI 请求失败会走前端本地兜底。
 
+## 2026-10-26 生产部署与线上问题
+
+### AI 迁移上线
+- Python `ai-service` 容器上线（FastAPI + LangGraph）；网关 `/api/agent/**` 静态转发，Docker 里由 compose 的 `AI_SERVICE_URL` 覆盖为 `http://ai-service:8000`，本地默认 `127.0.0.1:8000`。
+- 对话接口强制 JWT（与 Java 共用 `JWT_SECRET`）+ 每用户限流 + 全局并发 + 首字/总时长超时 + `max_tokens` 上限。
+- 线上验证：`/api/home` 200、`/api/cart/count` 401（需登录）、`/api/agent/chat` 401（网关已到 Python，鉴权生效）。
+
+### 公网延迟定位（分类页慢）
+- 服务器本机：`/api/categories` 10ms、`/api/home` 46ms、`/api/products?categoryId` 15ms。
+- 公网：0.8～2s；Redis INFO 命中率约 85%、事件循环 <1ms，排除 Redis。
+- 瓶颈是 Cloudflare 跨境代理；分类页串行两个请求（先分类、再商品），体感更慢。待决定是否灰云直连。
+- 分类数据可做小程序本地缓存（10～30 分钟）或 CF Cache Rule，降低重复访问延迟。
+
+### 分类图 webp 与 Docker bind mount
+- 生产库 `categories.image` 已是 `.webp`；文件上传到 `/www/java/upload/image/category/` 后，容器内仍是旧 png。
+- 原因：整个 `upload` 目录被替换，容器 bind mount 还钉在旧 inode。
+- 处理：`docker compose up -d --force-recreate product-service user-service` + 清 Cloudflare `/image/category/*`。
+- 结论：以后替换整个挂载目录后，凡挂载它的服务都要重建。
+
+### 物流轨迹未来时间
+- `buildLogistics` 按发货时间 + 2/6/18/22/24 小时（再叠加 id 偏移）生成假轨迹，未判断是否已发生，今天发货会显示明天轨迹。
+- 修复：`addTraceIfPast`，只保留时间不晚于 `LocalDateTime.now()` 的轨迹；后台和小程序共用同一接口，一起生效。
+
+### 部署注意
+- 生产用 `deploy/docker-compose.yml`（8 个 Java 服务 + `ai-service` + Redis），不要传根目录的开发 compose（只有 Nacos + MySQL）。
+- jar 是打进镜像的：上传 jar 后必须 `docker compose build <service>` 再 `up -d`，只 `up -d` 仍用旧镜像。
+
+## 运营数据报表导出（2026-10-26）
+
+### 1. 工作台顶部累计指标
+- `GET /api/admin/report/headline` → `{totalPaid, totalRefund, netAmount, totalOrders}`，全时段聚合，不再由前端累加前 1000 条订单。
+- 累计销售额 = `pay_at` 非空的 `pay_amount` 合计 − 退款（按原订单 pay_at 归属）。
+- 累计订单量 = 全时段、未删除、排除已取消（`order_status <> 6`）。
+
+### 2. 近 30 天运营报表
+- `GET /api/admin/report/export` → xlsx 流，POI 生成，单 sheet。
+- 统计窗口：今天往前 30 天（含今天）。
+- 两套订单数口径，不能混用：
+  - **有效支付订单**（展示、客单价分母）：当日 `pay_at`、未取消、累计退款 `< pay_amount`。
+  - **转化率分子**（不展示）：当日 `created_at` 且 `pay_at IS NOT NULL`，同批口径，后续退款不扣。
+- 退款按原订单 `pay_at` 归属；新增用户按 `user.create_time`。
+- 概览由 30 天明细累加；平均客单价 = 总销售额 ÷ 有效支付订单总数。
+- 前端工作台右上角「数据导出」按钮，axios `responseType: blob` + `<a download>`；顶部标签由「本年度累计销售额」改为「累计销售额」（后端是全时段口径）。
+- 报表底部带口径说明；Excel 生成器有结构测试（`OperationReportExcelWriterTest`）。
+
+### 3. 验证
+- `order-service` 编译通过；`OperationReportExcelWriterTest` 校验大标题、概览/明细板块、表头、4 个合并区域和金额/百分比数值。
+- 5 条按天聚合 SQL 在本地 MySQL 跑通；样本文件生成在 `order-service/target/operation-report-sample.xlsx`。
+- 后台前端 `npm run build` 通过（`dist` 已重新生成）。
+- **待部署**：新版 order-service jar + 新 `dist`，上线后在工作台点「数据导出」做真实验证。
+
 ## 全局悬浮 AI 客服（2026-10-24）
 
 ### 1. 结构
@@ -660,8 +711,10 @@ ecommerce
 - 转成 `static/zongjie.jpg`（512×477，42KB），4 处引用同步替换；旧 webp 可删。
 
 ### 5. 公网延迟
-- 服务器本机 product/category 接口 8～20ms；公网约 0.9～1.6s，瓶颈是 Cloudflare HKG 跨境 + DevTools 本地代理（127.0.0.1:10809）。
-- 待定：Cloudflare 改 DNS-only（灰云）直连源站，国内预计降到 100～300ms。
+- 服务器本机接口 10～46ms（categories 10ms / home 46ms / products 15ms）；公网 0.8～2s。
+- Redis 排查：命中率约 85%、事件循环 <1ms、无淘汰，**不是 Redis 瓶颈**。
+- 瓶颈是 Cloudflare 跨境（HKG）+ 分类页串行两个请求（先分类、再商品）。
+- 待定：Cloudflare 改 DNS-only（灰云）直连源站，国内预计降到 100～300ms；备选是小程序本地缓存分类 + CF Cache Rule。
 
 ## 订单未支付订阅消息（2026-10-25）
 

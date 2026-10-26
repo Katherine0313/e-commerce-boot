@@ -74,6 +74,17 @@ public interface OrderMapper {
     // 营业额统计：某区间退款合计（退款跟着原订单 pay_at 归属，status=refunded，含取消订单退款）
     BigDecimal sumRefundAmount(@Param("shopId") Long shopId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
 
+    // 工作台顶部累计销售额：全时段实收合计（口径同 sumPaidAmount，不加时间条件）
+    BigDecimal sumPaidAmountAll(@Param("shopId") Long shopId);
+
+    // 工作台顶部累计销售额：全时段退款合计（口径同 sumRefundAmount，不加时间条件）
+    BigDecimal sumRefundAmountAll(@Param("shopId") Long shopId);
+
+    // 工作台顶部累计订单量：全时段、排除已取消（与前端原口径一致）
+    @Select("SELECT COUNT(*) FROM orders WHERE shop_id = #{shopId} AND is_deleted = 0 " +
+            "AND order_status <> 6")
+    long countAllCounted(@Param("shopId") Long shopId);
+
     // 营业额折线：某区间实收按天分组，返回 [{date_key, amount}]（date_key 形如 2026-10-01）
     List<Map<String, Object>> sumPaidAmountByDay(@Param("shopId") Long shopId,
                                                  @Param("start") LocalDateTime start,
@@ -95,4 +106,31 @@ public interface OrderMapper {
     @Select("SELECT COUNT(*) FROM orders WHERE shop_id = #{shopId} AND is_deleted = 0 " +
             "AND order_status = #{status}")
     long countByStatus(@Param("shopId") Long shopId, @Param("status") Integer status);
+
+    // ==================== 运营数据报表（近 30 天导出） ====================
+
+    // 当日有效支付订单数：当日 pay_at、未取消、累计退款 < 实付金额
+    List<Map<String, Object>> countEffectivePaidByDay(@Param("shopId") Long shopId,
+                                                      @Param("start") LocalDateTime start,
+                                                      @Param("end") LocalDateTime end);
+
+    // 当日提交订单数（created_at，含已取消）
+    List<Map<String, Object>> countCreatedByDay(@Param("shopId") Long shopId,
+                                                @Param("start") LocalDateTime start,
+                                                @Param("end") LocalDateTime end);
+
+    // 当日提交且支付成功过的订单数（同批口径，pay_at 非空；后续退款不扣）
+    List<Map<String, Object>> countCreatedPaidByDay(@Param("shopId") Long shopId,
+                                                    @Param("start") LocalDateTime start,
+                                                    @Param("end") LocalDateTime end);
+
+    // 区间退款订单数（去重，退款按原订单 pay_at 归属）
+    long countRefundOrders(@Param("shopId") Long shopId,
+                           @Param("start") LocalDateTime start,
+                           @Param("end") LocalDateTime end);
+
+    // 当日新增用户数（user 表；与订单同库，直接查询）
+    List<Map<String, Object>> countNewUsersByDay(@Param("shopId") Long shopId,
+                                                 @Param("start") LocalDateTime start,
+                                                 @Param("end") LocalDateTime end);
 }

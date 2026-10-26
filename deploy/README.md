@@ -90,6 +90,21 @@ MySQL 仍在宝塔宿主机，容器通过 `host.docker.internal` 访问，所�
 > 只在 `my-net` 内网暴露、不映射宿主机端口，密码取 `.env` 的
 > `SPRING_DATA_REDIS_PASSWORD`。宿主机不需要再装宝塔 Redis。
 
+进入 Redis 命令行（密码从 `.env` 读取，不在文档里写明文）：
+
+```bash
+cd /www/java
+docker exec -it redis redis-cli -a "$(grep '^SPRING_DATA_REDIS_PASSWORD=' .env | cut -d= -f2-)"
+```
+
+进去后常用命令：
+
+```text
+INFO                 # 运行状态、命中率、内存
+TTL category:parent:ids   # 分类缓存剩余时间
+KEYS category:*      # 分类缓存 key（生产数据多时慎用 KEYS）
+```
+
 ## 4. 启动顺序
 
 ```bash

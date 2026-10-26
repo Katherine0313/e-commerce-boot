@@ -1,6 +1,8 @@
 package ecommerce.order.service;
 
 import ecommerce.order.vo.DashboardStatsVO;
+import ecommerce.order.vo.HeadlineVO;
+import ecommerce.order.vo.OperationReportVO;
 import ecommerce.order.vo.SalesRankingItemVO;
 import ecommerce.order.vo.TurnoverReportVO;
 import ecommerce.order.vo.TurnoverVO;
@@ -25,4 +27,10 @@ public interface ReportService {
 
     /** 工作台统计卡：今日/昨日营业额、今日/昨日订单量、待发货数（一次取齐，供四张卡） */
     DashboardStatsVO getDashboardStats();
+
+    /** 工作台顶部累计销售额：全时段实收 − 退款 */
+    HeadlineVO getHeadline();
+
+    /** 运营数据报表（固定近 30 天）：概览 + 每日明细，供 Excel 导出 */
+    OperationReportVO getOperationReport();
 }

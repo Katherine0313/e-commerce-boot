@@ -5,14 +5,14 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-26 AI 迁移完成：删除 Java `ai-agent-service` 与 Spring AI BOM，新增 Python `recommender-python`（FastAPI + LangGraph）作为导购机器人，网关 `/api/agent/**` 静态转发 `http://ai-service:8000`；第一阶段能力为多轮对话 + 商品问答（直连 MySQL 只读），前端契约不变。旧 Python 客户分群/推荐内容已清空。本地 Python 服务已跑通（SSE 首字约 600ms），待生产部署。
-  2026-10-25 线上问题修复完成：小程序审核白屏（上传了 `dist/dev`，接口地址 127.0.0.1 → 改传 `dist/build`）、Redis 改为 Docker 容器 + 分类接口降级（本机 8～12ms）、用户头像 `http→https`（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg；**订单未支付一次性订阅消息代码已完成，待生产库 ALTER 后部署**。生产：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）、宝塔 MySQL、Cloudflare + Nginx（`api.jiemids.com` 小程序 API / `www.jiemids.com` 后台前端）；部署文件在 `deploy/` 和根目录 `nginx`。微信审核风险和 Nacos/旧 Node 清理见「未完成事项」。
+  2026-10-26 AI 迁移与生产部署完成：删除 Java `ai-agent-service` 与 Spring AI BOM，新增 Python `recommender-python`（FastAPI + LangGraph）导购机器人，生产容器 `ai-service` 已上线；网关 `/api/agent/**` 静态转发（本地默认 `127.0.0.1:8000`，Docker 由 `AI_SERVICE_URL` 覆盖）。第一阶段能力为多轮对话 + 商品问答（直连 MySQL 只读），并加 JWT 登录校验 + 每用户限流 + 并发/超时保护。线上验证：`/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）。物流轨迹已过滤未来时间；分类图 webp 已上传并改库，待重建 product/user 容器 + 清 CF 缓存。工作台顶部累计销售额/订单量已改为后端聚合（`/api/admin/report/headline`），近 30 天运营数据报表 Excel 导出已实现（`/api/admin/report/export`），Excel 结构测试和后台前端构建均通过，待部署 order-service + 上传新 dist 验证。
+  2026-10-25 线上问题修复完成：小程序审核白屏（上传了 `dist/dev`，接口地址 127.0.0.1 → 改传 `dist/build`）、Redis 改为 Docker 容器 + 分类接口降级（本机 8～12ms）、用户头像 `http→https`（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg；**订单未支付一次性订阅消息代码已完成，2026-10-26 已部署 order/user，生产库 ALTER 待确认**。生产：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）、宝塔 MySQL、Cloudflare + Nginx（`api.jiemids.com` 小程序 API / `www.jiemids.com` 后台前端）；部署文件在 `deploy/` 和根目录 `nginx`。微信审核风险和 Nacos/旧 Node 清理见「未完成事项」。
   2026-10-24：小程序全局悬浮 AI 客服（右侧中间悬浮球 + 底部聊天面板，头像 `static/zongjie.jpg`；Pinia `ai-chat` 共享会话，注入 29 个页面，专属客服页除外）+ 小程序专属客服（AI 流式优先 + 微信原生客服会话 + 规则失败兜底：`/api/agent/chat/stream` SSE 首字推送、`sessionId` Redis 多轮历史、`scene=customer-service` 固定 prompt；「人工客服」本地拦截）+ 工作台全局时间选择器（昨日/近7天/本月统一控制营业额、订单统计、用户增长、销量排名；订单统计改按小时/天前端聚合，用户统计接口加 `period` 返回时间桶）+ 订单记录卡换销量排名（`/api/admin/report/sales-ranking`，按件数、pay_at 口径、排除待付款/已取消）。生产部署已完成（见上）。
   2026-10-23：意见反馈、C 端商品收藏、换货子表 namespace/退货方式修复、全局 LocalDateTime 格式化、营业额报表重构（`PeriodRange` + 按天 SQL 修正）。
   2026-10-22：营业额统计接口 + 取消订单自动退款 + 工作台统计卡/营业额面板 + WebSocket 心跳重连加固。
 
 - **我要去哪里？**
-  1. 订阅消息上线：生产库 ALTER `orders` → 部署 order-service/user-service → 小程序发行（顺序不能反）
+  1. 订阅消息：确认生产库 `orders` ALTER 已执行（order-service/user-service 已部署），小程序发行后验证推送
   2. 微信二次提审：`dist/build` 包 + 完整录屏 + request/uploadFile/downloadFile 三个域名
   3. 微信审核：模拟支付、隐私政策/用户协议、AI/UGC 内容安全、VIP/优惠券占位
   4. 生产安全收尾：安全组关闭 8848/9848/9849/18080/9001~9007，停旧 Node 3000，删网站根 `.env`
@@ -33,12 +33,16 @@
   - `GROUP BY` 大小写不敏感会合并枚举值，查 pay_type 用 `BINARY`
   - 凭据统一走环境变量，缺了启动直接失败
   - 新增网关路由要同步改 `gateway/application.yml`，否则落到兜底服务 404
+  - 公网慢先对比服务器本机耗时：本机 10～46ms、公网 1～2s，问题在 Cloudflare 跨境，不是 Redis/DB
+  - 替换整个 Docker bind mount 目录后容器仍指向旧 inode，挂载它的服务要 `--force-recreate`
+  - jar 打进镜像，上传 jar 后必须 `docker compose build` 再 `up -d`，只重启不重建仍是旧代码
   - 新增小程序页面要手动加 `<FloatingChat />`，否则新页面没有悬浮 AI 客服（uni-app 无 App 级全局组件）
   - 小程序提审必须传 `unpackage/dist/build/mp-weixin`；`dist/dev` 的 BASE_URL 是 `127.0.0.1`，审核必白屏
   - 微信 iOS 对包内本地 webp 解码不稳定，本地图片统一用 jpg/png（`webp="true"` 只对网络图生效）
   - Spring Cloud Gateway 5.x 默认移除 `X-Forwarded-*`，绝对 URL 的协议不能依赖它；对外 https 场景在 `UrlUtil` 兜底
 
 - **我做了什么？（近期）**
+  - 2026-10-26：AI 迁移到 Python 并上线（FastAPI + LangGraph + JWT/限流 + 并发/超时）、删除 Spring AI 与 Java AI 模块；物流轨迹过滤未来时间；生产全量重建（8 个 Java 服务 + `ai-service`）；分类图 webp 上传与生产库更新；工作台累计销售额/订单量改后端聚合，新增近 30 天运营数据报表 Excel 导出
   - 2026-10-25：小程序首页加载优化（分类/商品/详情图批量压缩到 `upload/image/opt/`，`WebMvcConfig` 优先读 opt、缺失回落原图；首页接口聚合为 `/api/home`；推荐结果 Redis 缓存 60s + Python 超时降至 500ms；登录/购物车角标延后到首屏后 + 本地缓存；新增 `/api/cart/count` 轻量角标接口；分类面板骨架屏）
   - 2026-10-25：线上问题修复（小程序改传 `dist/build`、Redis 容器化 + 分类降级、用户头像 https、机器人头像 jpg）+ 订单未支付一次性订阅消息（提交订单授权、下单后第 20 分钟推送、点击 `pending-pay?orderNo`、access_token Redis 共享）
   - 2026-10-24~25：生产部署（腾讯云 8G + Docker Compose + Nacos 3.1.1 + Redis 容器 + 9 服务、宝塔 MySQL、Cloudflare + Nginx 双站点、后台沙箱/图片/来单 WS、小程序发行）
@@ -49,19 +53,20 @@
 
 ## 未完成事项（速查）
 
-- [ ] 首页优化上线：上传 `upload/image/opt/` → 重启 product/order/gateway → 生产库 `categories.image` 改 `.webp` → 清 Cloudflare 缓存（分类图 webp 此前的 404 最长缓存 4 小时）
-- [ ] 订阅消息上线：生产库 ALTER `orders`（`is_subscribe_unpaid` / `unpaid_notify_sent` + `idx_orders_unpaid_notify`）→ 部署 order-service/user-service → 小程序发行；**顺序反了订单接口会 500**
+- [ ] 首页优化收尾：`opt/` 图与分类 webp 已上传、生产库 `categories.image` 已是 `.webp`；还差 `--force-recreate product-service user-service`（bind mount 仍指向旧目录）+ 清 Cloudflare `/image/category/*`
+- [ ] 订阅消息：`order-service` / `user-service` 已部署；确认生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已 ALTER，小程序发行后验证推送
+- [ ] 运营数据导出上线：部署新版 `order-service`（`headline` + `export` 接口）→ 上传新 `e-commerce/dist` → 清缓存 → 工作台点「数据导出」验证 xlsx
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + request/uploadFile/downloadFile 域名
 - [ ] 微信审核：模拟支付、隐私政策/用户协议、AI/UGC 内容安全、VIP/优惠券占位
 - [ ] 生产安全：安全组关闭 8848/9848/9849/18080/9001~9008；停旧 Node 3000；删网站根 `.env`；Nacos 控制台保持 127.0.0.1
-- [ ] Cloudflare 当前 HKG 节点，公网约 0.9s；待定是否改 DNS-only 直连源站（国内预计 100～300ms）
+- [ ] 公网延迟：本机接口 10～46ms，公网 0.8～2s；Redis 命中率 85%、事件循环 <1ms，瓶颈在 Cloudflare 跨境。待定是否改 DNS-only 直连源站（国内预计 100～300ms）
 - [ ] 购物车：加购校验上架状态；5 接口端到端验证
 - [ ] 商品：`parameters` 参数表、`business_onsale` 促销
 - [ ] 售后：退货入库单（仓库核验）
 - [ ] file-service：CDN/通用文件 + `uploads` 表
 - [ ] 沙箱：过期回收、`templateGuard`、扫码进店
 - [ ] WebSocket：Redis pub/sub 跨实例、发货/新售后事件
-- [ ] 导购机器人：生产部署 `ai-service`；后续再做下单、RAG、商品卡片渲染（当前多轮对话 + 商品问答）
+- [ ] 导购机器人后续能力：下单、RAG、商品卡片渲染（当前多轮对话 + 商品问答，已上线并加登录/限流）
 - [ ] 微信支付接入（阶段 12）
 - [ ] 全链路端到端验证
 - [ ] `user.id_number` DB 空列待手动 DROP（代码已不引用，不阻塞）
@@ -71,6 +76,8 @@
 | 时间 | 错误 | 解决 |
 |------|------|------|
 | 2026-10-26 | 物流轨迹出现未来时间（今天发货显示明天轨迹） | 假轨迹按发货时间 + 2/6/18/22/24 小时生成，未过滤未来项；新增 `addTraceIfPast`，只返回当前时间之前已发生的轨迹 |
+| 2026-10-26 | 上传分类 webp 后容器内仍只有旧 png，接口 404 | 整个 `upload` 目录被替换，bind mount 钉在旧 inode；`docker compose up -d --force-recreate product-service user-service` 重新挂载 + 清 CF 缓存 |
+| 2026-10-26 | 小程序发行提示 `utils/subscribe.js` 主包未使用 | 文件只被订单分包使用；移到 `pages/order/subscribe.js` 并改引用 |
 | 2026-10-25 | 小程序审核白屏、商品全空 | 提审传了 `dist/dev`（BASE_URL=127.0.0.1）；改传 `dist/build/mp-weixin` |
 | 2026-10-25 | `/api/categories` 500，耗时约 10s | 生产未装 Redis；Docker Redis + 密码 + `REDIS_HOST=redis`，代码加降级和 2s 超时 |
 | 2026-10-25 | 用户头像真机不显示 | 后端返回 `http://` 头像 URL；SCG 5 移除 X-Forwarded-*，`UrlUtil` 对非本机强制 https |

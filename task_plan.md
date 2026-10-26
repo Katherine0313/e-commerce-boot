@@ -93,7 +93,10 @@
 - [✓] 商品评价、取消订单自动生成退款售后单
 - [✓] 报表：`/dashboard`、`/turnover`、`/turnover-report`、`/sales-ranking`（2026-10-24）
 - [✓] 订单未支付一次性订阅消息（2026-10-25）：提交订单时授权 → 下单写入 `is_subscribe_unpaid` → 第 20 分钟推送 → 点击跳 `pending-pay?orderNo`；access_token 改为 Redis 全局共享
-- [ ] 订阅消息上线：**先 ALTER 生产库 `orders` 两列+索引** → 部署 order-service/user-service → 小程序发行（顺序不能反，否则订单接口报 Unknown column）
+- [✓] 物流轨迹过滤未来时间（2026-10-26）：`buildLogistics` 只返回当前时间之前已发生的轨迹（`addTraceIfPast`）
+- [✓] 工作台累计销售额/订单量改后端聚合（`/api/admin/report/headline`），新增近 30 天运营数据报表 Excel 导出（`/api/admin/report/export`，2026-10-26）
+- [ ] 运营数据导出上线：部署新版 order-service + 上传新后台 `dist` + 清缓存，验证 xlsx 下载
+- [ ] 订阅消息上线：order-service / user-service 已部署；确认生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已 ALTER，小程序发行后验证推送
 - [ ] 购物车加购校验上架状态（`ProductMapper.findById` 无 `listing_status` 过滤）
 - [ ] 购物车 5 接口端到端验证
 - [✓] 地址/购物车归属校验补齐：`AddressMapper.findById/update/deleteById`、`CartMapper.update` 全部加 `user_id` 条件（2026-10-24，用户不再走沙箱方案）
@@ -117,8 +120,11 @@
 ### 阶段 7：前端对接联调
 - [✓] baseURL→网关、登录对齐、小程序下单/订单列表 6 Tab/详情/搜索/地址
 - [✓] 后台工作台：四张统计卡、营业额面板、全局时间选择器、销量排名（2026-10-24）
+- [✓] 工作台顶部累计销售额/订单量走后端聚合 + 「数据导出」按钮（近 30 天运营报表，2026-10-26）
 - [✓] 小程序分包 + 图片后端化（2026-10-24）：主包保留 4 个 tabBar 页 + 我的子页（12 页），商品/搜索/订单/售后拆 4 个分包；`OrderCard`/`AfterSaleCard` 移到 `components`；删除 15M 的 `static/image`，商品图/轮播/分享图全部走后端
-- [✓] 生产部署（2026-10-24~25）：腾讯云 8G + Docker Compose（Nacos 3.1.1 + **Redis 容器** + 9 服务）+ 宝塔 MySQL；`api.jiemids.com` / `www.jiemids.com` 经 Cloudflare + Nginx；后台沙箱/图片/来单 WebSocket、小程序发行已通；部署文件见 `deploy/` 与根目录 `nginx`
+- [✓] 生产部署（2026-10-24~26）：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）+ 宝塔 MySQL；`api.jiemids.com` / `www.jiemids.com` 经 Cloudflare + Nginx；后台沙箱/图片/来单 WebSocket、小程序发行已通；部署文件见 `deploy/`
+- [✓] AI 迁移上线（2026-10-26）：网关 `/api/agent/**` → `http://ai-service:8000`；线上 `/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）
+- [ ] 分类图收尾：webp 已上传、生产库已改 `.webp`；待重建 product/user 容器 + 清 CF 缓存
 - [✓] 线上问题修复（2026-10-25）：小程序审核白屏（上传了 `dist/dev`，接口地址是 127.0.0.1 → 改传 `dist/build`）、分类接口 Redis 降级 + Redis 容器化、用户头像 http→https（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg（iOS 兼容）
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + 后台三个域名（request/uploadFile/downloadFile）
 - [ ] 微信审核：模拟支付、隐私政策/用户协议、AI/UGC 内容安全、VIP/优惠券占位
@@ -129,8 +135,10 @@
 - [✓] 小程序客服 AI 流式对话（2026-10-24）：`/api/agent/chat/stream` SSE 首字推送 + `sessionId` Redis 多轮历史（2h TTL）；前端 AI 流式优先、人工客服本地拦截、规则失败兜底
 - [✓] 全局悬浮 AI 客服（2026-10-24）：`components/floating-chat` 右侧中间悬浮球 + 底部聊天面板，头像 `static/zongjie.jpg`（2026-10-25 由本地 webp 转 jpg，修 iOS 不显示）；Pinia `store/ai-chat` 共享会话，已注入 pages.json 注册的 29 个页面（专属客服页除外）
   - ⚠️ **约定：以后新增小程序页面，必须在模板 `<template>` 后手动加 `<FloatingChat />`，否则新页面没有悬浮球。**（uni-app 小程序没有 App 级全局组件，悬浮球靠逐页注入）
-- [✓] 迁移到 Python（2026-10-26）：新增 FastAPI + LangGraph 服务 `recommender-python`，多轮对话 + 商品问答（直连 MySQL 只读）；网关 `/api/agent/**` 静态转发 `http://ai-service:8000`；前端契约不变
+- [✓] 迁移到 Python（2026-10-26）：新增 FastAPI + LangGraph 服务 `recommender-python`，多轮对话 + 商品问答（直连 MySQL 只读）；网关 `/api/agent/**` 静态转发；前端契约不变
 - [✓] 删除 Java `ai-agent-service` 与 Spring AI BOM（2026-10-26）
+- [✓] 生产部署 `ai-service` + 网关切换（2026-10-26），旧 `ai-agent-service` 容器已移除
+- [✓] 防滥用（2026-10-26）：对话接口强制 JWT（共用 `JWT_SECRET`）、每用户 10 分钟 20 次 / 每天 100 次、全局并发 10、消息 500 字、`max_tokens=600`、首字 12s / 总时长 55s 超时
 - [ ] AI 下单闭环（写操作需二次确认，当前不做）
 - [ ] RAG / 商品卡片渲染（前端只渲染纯文本，需前后端一起改）
 - **状态：** in_progress
@@ -138,8 +146,9 @@
 ### 阶段 10：安全加固（DDoS 防护）
 
 **应用/网关层（自己落地）：**
+- [✓] AI 接口鉴权与限流（2026-10-26，Python 侧）：强制 JWT + 每用户 10 分钟 20 次 / 每天 100 次 + 全局并发 10 + 单次 token 上限
 - [ ] 网关限流（`RequestRateLimiter` Redis 令牌桶 + 按 IP 的 `KeyResolver`）
-- [ ] 分接口差异化限流（AI 调用单独极低配额；免登录浏览/上传收紧）
+- [ ] 分接口差异化限流（免登录浏览/上传收紧）
 - [ ] 兜底硬限制（请求体大小、网关 connect/response timeout、连接数/线程上限）
 - [ ] IP 黑名单 + 滑动窗口计数（Redis + Lua）
 

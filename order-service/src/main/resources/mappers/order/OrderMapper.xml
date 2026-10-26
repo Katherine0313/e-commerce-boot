@@ -198,6 +198,25 @@
           AND o.pay_at &gt;= #{start} AND o.pay_at &lt; #{end}
     </select>
 
+    <!-- 工作台顶部累计销售额：全时段实收（口径同 sumPaidAmount，不加时间条件） -->
+    <select id="sumPaidAmountAll" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(pay_amount), 0)
+        FROM orders
+        WHERE shop_id = #{shopId} AND is_deleted = 0
+          AND pay_at IS NOT NULL
+    </select>
+
+    <!-- 工作台顶部累计销售额：全时段退款（口径同 sumRefundAmount，不加时间条件） -->
+    <select id="sumRefundAmountAll" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(asi.refund_amount), 0)
+        FROM after_sale_items asi
+                 JOIN after_sales a ON a.id = asi.after_sale_id AND a.shop_id = #{shopId} AND a.is_deleted = 0
+                 JOIN orders o ON o.id = a.order_id AND o.shop_id = #{shopId} AND o.is_deleted = 0
+        WHERE a.status = 'refunded'
+          AND asi.is_deleted = 0
+          AND o.pay_at IS NOT NULL
+    </select>
+
     <!-- 营业额折线：某区间实收按天分组（date_key 形如 2026-10-01） -->
     <select id="sumPaidAmountByDay" resultType="map">
         SELECT DATE_FORMAT(pay_at, '%Y-%m-%d') AS date_key, COALESCE(SUM(pay_amount), 0) AS amount
@@ -220,6 +239,74 @@
           AND o.pay_at IS NOT NULL
           AND o.pay_at &gt;= #{start} AND o.pay_at &lt; #{end}
         GROUP BY DATE_FORMAT(o.pay_at, '%Y-%m-%d')
+        ORDER BY date_key
+    </select>
+
+    <!-- 运营报表：当日有效支付订单数（pay_at、未取消、累计退款 < 实付） -->
+    <select id="countEffectivePaidByDay" resultType="map">
+        SELECT DATE_FORMAT(o.pay_at, '%Y-%m-%d') AS date_key, COUNT(*) AS cnt
+        FROM orders o
+                 LEFT JOIN (
+            SELECT a.order_id, SUM(asi.refund_amount) AS refund_sum
+            FROM after_sales a
+                     JOIN after_sale_items asi ON asi.after_sale_id = a.id AND asi.is_deleted = 0
+            WHERE a.shop_id = #{shopId}
+              AND a.is_deleted = 0
+              AND a.status = 'refunded'
+            GROUP BY a.order_id
+        ) r ON r.order_id = o.id
+        WHERE o.shop_id = #{shopId}
+          AND o.is_deleted = 0
+          AND o.pay_at &gt;= #{start} AND o.pay_at &lt; #{end}
+          AND o.order_status &lt;&gt; 6
+          AND COALESCE(r.refund_sum, 0) &lt; o.pay_amount
+        GROUP BY DATE_FORMAT(o.pay_at, '%Y-%m-%d')
+        ORDER BY date_key
+    </select>
+
+    <!-- 运营报表：当日提交订单数（created_at，含已取消） -->
+    <select id="countCreatedByDay" resultType="map">
+        SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date_key, COUNT(*) AS cnt
+        FROM orders
+        WHERE shop_id = #{shopId}
+          AND is_deleted = 0
+          AND created_at &gt;= #{start} AND created_at &lt; #{end}
+        GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
+        ORDER BY date_key
+    </select>
+
+    <!-- 运营报表：当日提交且支付成功过的订单数（同批口径，后续退款不扣） -->
+    <select id="countCreatedPaidByDay" resultType="map">
+        SELECT DATE_FORMAT(created_at, '%Y-%m-%d') AS date_key, COUNT(*) AS cnt
+        FROM orders
+        WHERE shop_id = #{shopId}
+          AND is_deleted = 0
+          AND created_at &gt;= #{start} AND created_at &lt; #{end}
+          AND pay_at IS NOT NULL
+        GROUP BY DATE_FORMAT(created_at, '%Y-%m-%d')
+        ORDER BY date_key
+    </select>
+
+    <!-- 运营报表：区间退款订单数（去重，退款按原订单 pay_at 归属） -->
+    <select id="countRefundOrders" resultType="long">
+        SELECT COUNT(DISTINCT o.id)
+        FROM after_sale_items asi
+                 JOIN after_sales a ON a.id = asi.after_sale_id AND a.shop_id = #{shopId} AND a.is_deleted = 0
+                 JOIN orders o ON o.id = a.order_id AND o.shop_id = #{shopId} AND o.is_deleted = 0
+        WHERE a.status = 'refunded'
+          AND asi.is_deleted = 0
+          AND o.pay_at IS NOT NULL
+          AND o.pay_at &gt;= #{start} AND o.pay_at &lt; #{end}
+    </select>
+
+    <!-- 运营报表：当日新增用户数（user 表与订单同库，直接查） -->
+    <select id="countNewUsersByDay" resultType="map">
+        SELECT DATE_FORMAT(create_time, '%Y-%m-%d') AS date_key, COUNT(*) AS cnt
+        FROM `user`
+        WHERE shop_id = #{shopId}
+          AND is_deleted = 0
+          AND create_time &gt;= #{start} AND create_time &lt; #{end}
+        GROUP BY DATE_FORMAT(create_time, '%Y-%m-%d')
         ORDER BY date_key
     </select>
 
