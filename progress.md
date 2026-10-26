@@ -5,7 +5,8 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-25 线上问题修复完成：小程序审核白屏（上传了 `dist/dev`，接口地址 127.0.0.1 → 改传 `dist/build`）、Redis 改为 Docker 容器 + 分类接口降级（本机 8～12ms）、用户头像 `http→https`（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg；**订单未支付一次性订阅消息代码已完成，待生产库 ALTER 后部署**。生产：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 9 服务）、宝塔 MySQL、Cloudflare + Nginx（`api.jiemids.com` 小程序 API / `www.jiemids.com` 后台前端）；部署文件在 `deploy/` 和根目录 `nginx`。微信审核风险和 Nacos/旧 Node 清理见「未完成事项」。
+  2026-10-26 AI 迁移完成：删除 Java `ai-agent-service` 与 Spring AI BOM，新增 Python `recommender-python`（FastAPI + LangGraph）作为导购机器人，网关 `/api/agent/**` 静态转发 `http://ai-service:8000`；第一阶段能力为多轮对话 + 商品问答（直连 MySQL 只读），前端契约不变。旧 Python 客户分群/推荐内容已清空。本地 Python 服务已跑通（SSE 首字约 600ms），待生产部署。
+  2026-10-25 线上问题修复完成：小程序审核白屏（上传了 `dist/dev`，接口地址 127.0.0.1 → 改传 `dist/build`）、Redis 改为 Docker 容器 + 分类接口降级（本机 8～12ms）、用户头像 `http→https`（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg；**订单未支付一次性订阅消息代码已完成，待生产库 ALTER 后部署**。生产：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）、宝塔 MySQL、Cloudflare + Nginx（`api.jiemids.com` 小程序 API / `www.jiemids.com` 后台前端）；部署文件在 `deploy/` 和根目录 `nginx`。微信审核风险和 Nacos/旧 Node 清理见「未完成事项」。
   2026-10-24：小程序全局悬浮 AI 客服（右侧中间悬浮球 + 底部聊天面板，头像 `static/zongjie.jpg`；Pinia `ai-chat` 共享会话，注入 29 个页面，专属客服页除外）+ 小程序专属客服（AI 流式优先 + 微信原生客服会话 + 规则失败兜底：`/api/agent/chat/stream` SSE 首字推送、`sessionId` Redis 多轮历史、`scene=customer-service` 固定 prompt；「人工客服」本地拦截）+ 工作台全局时间选择器（昨日/近7天/本月统一控制营业额、订单统计、用户增长、销量排名；订单统计改按小时/天前端聚合，用户统计接口加 `period` 返回时间桶）+ 订单记录卡换销量排名（`/api/admin/report/sales-ranking`，按件数、pay_at 口径、排除待付款/已取消）。生产部署已完成（见上）。
   2026-10-23：意见反馈、C 端商品收藏、换货子表 namespace/退货方式修复、全局 LocalDateTime 格式化、营业额报表重构（`PeriodRange` + 按天 SQL 修正）。
   2026-10-22：营业额统计接口 + 取消订单自动退款 + 工作台统计卡/营业额面板 + WebSocket 心跳重连加固。
@@ -14,7 +15,7 @@
   1. 订阅消息上线：生产库 ALTER `orders` → 部署 order-service/user-service → 小程序发行（顺序不能反）
   2. 微信二次提审：`dist/build` 包 + 完整录屏 + request/uploadFile/downloadFile 三个域名
   3. 微信审核：模拟支付、隐私政策/用户协议、AI/UGC 内容安全、VIP/优惠券占位
-  4. 生产安全收尾：安全组关闭 8848/9848/9849/18080/9001~9008，停旧 Node 3000，删网站根 `.env`
+  4. 生产安全收尾：安全组关闭 8848/9848/9849/18080/9001~9007，停旧 Node 3000，删网站根 `.env`
   5. 参数/促销表（`parameters` + `business_onsale`，含活动定时下架）
   6. 购物车 2 个缺口 + 商品/订单/售后端到端验证
   7. file-service（CDN/通用文件）
@@ -60,7 +61,7 @@
 - [ ] file-service：CDN/通用文件 + `uploads` 表
 - [ ] 沙箱：过期回收、`templateGuard`、扫码进店
 - [ ] WebSocket：Redis pub/sub 跨实例、发货/新售后事件
-- [ ] AI 客服：function calling / RAG（当前 customer-service 场景先跳过）
+- [ ] 导购机器人：生产部署 `ai-service`；后续再做下单、RAG、商品卡片渲染（当前多轮对话 + 商品问答）
 - [ ] 微信支付接入（阶段 12）
 - [ ] 全链路端到端验证
 - [ ] `user.id_number` DB 空列待手动 DROP（代码已不引用，不阻塞）

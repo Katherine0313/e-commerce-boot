@@ -83,8 +83,7 @@ curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 
 | aftersale-service | 9005 | `AftersaleServiceApplication` | **是**（DB） |
 | user-service | 9006 | `UserServiceApplication` | **是**（DB/微信） |
 | file-service | 9007 | `FileServiceApplication` | 否（DB） |
-| ai-agent-service | 9008 | `AiAgentServiceApplication` | **是**（AI key/Redis） |
-| recommender-python | 9009 | `uvicorn main:app --port 9009` | 否 |
+| ai-service（Python） | 8000 | `uvicorn app.main:app --port 8000` | **是**（DB 只读/Redis/AI key） |
 | Nacos | 8848 / 9848 / 9849 | — | — |
 | Nacos 控制台 | 18080（容器内 8080） | — | — |
 | MySQL | 3306（本机 MySQL80） | — | — |
@@ -530,18 +529,20 @@ ecommerce
 - `ReportServiceImpl` 复用 `resolvePeriod`，limit 限制在 1~20。
 - 前端 `OrderHistory.vue`（最近订单时间轴）删除，换 `SalesRanking.vue`；`useWorkplaceData` 移除 `recentOrders`、订单状态字典请求、`orderStatusClass` 等无用逻辑。
 
-## AI 客服流式对话 + Redis 会话（2026-10-24）
+## AI 导购流式对话 + Redis 会话（2026-10-24，2026-10-26 迁移到 Python）
 
-### 1. 后端契约（ai-agent-service）
+> 2026-10-26 起 AI 能力由 `recommender-python`（FastAPI + LangGraph）提供，Java `ai-agent-service` 与 Spring AI 已删除；下面保留前端契约与历史约定，后端实现以 Python 仓库为准。
+
+### 1. 后端契约（Python ai-service；路径与前端约定不变）
 - `POST /api/agent/chat/stream`（SSE）与 `POST /api/agent/chat`（非流式）均接收 `{ message, sessionId, scene }`。
-- `scene=customer-service` 时走固定 system prompt「你是杰米多多智能导购AI，请结合用户提出的需求耐心解答问题。」，**主动跳过 IntentRouter / Tool / RAG**；不传 scene 仍走原导购 Agent。
-- 流式返回 `Flux<ServerSentEvent<String>>`，每块单独 `data:`，首字即推送；换行由 SSE 编码，避免破坏事件边界。
-- `AiAgentConfig` 的默认 system prompt 同步改为同一句，避免品牌/口吻漂移。
+- 第一阶段统一走导购 prompt（多轮对话 + 商品问答），`scene` 接收但暂不区分场景。
+- 流式每块输出纯文本 `data: <增量>`，LF 行尾、无 `[DONE]`/JSON/心跳；换行拆成多条 `data:` 行。
+- 商品数据由 Python 直连 MySQL 只读（`products` / `categories`），上架商品内存缓存 60 秒；检索不到时如实说明，不编造。
 
 ### 2. Redis 会话历史
-- key `agent:chat:history:{sessionId}`，list 存 `user:xxx` / `assistant:xxx`，保留最近 12 条（约 6 轮），TTL 2h。
-- 每次请求把历史拼成「用户：…/助手：…」文本 + 本轮消息，作为单条 user prompt 发给模型（暂未用 ChatClient 的 messages 列表）。
-- Redis 超时设 500ms，且所有读写 try/catch；Redis 挂了自动降级为单轮，不拖慢首字。
+- key `agent:chat:history:{sessionId}`，list 存 `user:xxx` / `assistant:xxx`，保留最近 12 条（约 6 轮），TTL 2h（Python 沿用同一 key 与格式，切换时旧会话可继续用）。
+- Python 把历史转成 OpenAI messages 列表，和本轮消息一起交给模型；Redis 读写全部 try/catch，挂了自动降级为单轮。
+- Redis 超时设 500ms（`protocol=2`，兼容本地老版本 Redis），不拖慢首字。
 
 ### 3. 小程序端
 - `api/agent.js`：`wx.request({ enableChunked: true })` + `onChunkReceived` 收 SSE 分片；基础库 < 2.20 或非 MP-WEIXIN 自动降级为非流式 `/chat`。
@@ -551,9 +552,9 @@ ecommerce
 - `sessionId` 每次进入页面重新生成（`cs-时间戳-随机`），同一页面内多轮共享；离开页面再进是新会话。
 
 ### 4. 待办
-- 客服场景接 function calling / RAG（当前刻意跳过）。
-- 多轮历史目前是文本拼接，后续可换 ChatClient messages 列表或 Spring AI ChatMemory。
-- `SILICONFLOW_API_KEY` 需在 IDEA 环境变量或 `application-dev.yml` 配置，否则 AI 请求失败会走兜底。
+- AI 下单/加购（写操作，需用户二次确认）。
+- RAG 知识库、商品卡片渲染（前端目前只渲染纯文本，需前后端一起改）。
+- `SILICONFLOW_API_KEY` 配在 `recommender-python/.env`（本地）或部署 `.env`（生产），缺失时 AI 请求失败会走前端本地兜底。
 
 ## 全局悬浮 AI 客服（2026-10-24）
 

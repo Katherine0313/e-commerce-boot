@@ -29,7 +29,7 @@
 | `aftersale-service` | 售后（仅退款/退货退款/换货） | after_sales 及子表 | 9005 |
 | `user-service` | 会员/小程序登录 | user（地址在 order-service） | 9006 |
 | `file-service` | 图片上传/静态托管（暂由 product-service 承担上传） | uploads | 9007 |
-| `ai-agent-service` | AI 导购 Agent | 无（Feign 调 product/order） | 9008 |
+| `ai-service`（Python） | 导购机器人：多轮对话 + 商品问答 | products/categories（只读）+ Redis | 8000 |
 
 **跨服务调用（Feign）：**
 - `order-service` 下单 → `product-service` 查商品价格库存；支付/取消 → 回写库存
@@ -48,7 +48,7 @@
 | Nacos | 3.1.1 | 注册 + 配置中心 |
 | Gateway | Spring Cloud Gateway | WebFlux |
 | 服务调用 | OpenFeign | |
-| AI 框架 | Spring AI 2.0.1 | LLM 走硅基流动 DeepSeek-V4-Flash |
+| AI 框架 | Python FastAPI + LangGraph | 独立服务 `ai-service`，LLM 走硅基流动 DeepSeek-V4-Flash |
 | 数据库 | MySQL 8.0 / 本机 3306 | 远程 `193.112.176.228:3306/baota_ecommerce` 已连、勿动；本地每晚 22:00 备份 |
 | ORM | MyBatis + XML | 保持已有约定 |
 | Redis | 5.0.14（本机 Windows） | 分类树缓存 + 下单幂等，StringRedisTemplate + 纯 JSON |
@@ -125,20 +125,14 @@
 - [ ] 端到端跑通商品/订单/售后全链路（含商家确认收款/发货）
 - **状态：** in_progress
 
-### 阶段 8：ai-agent-service（AI 导购 Agent）
-- [✓] 骨架（Spring AI 2.0.1 + DeepSeek + OpenFeign + MCP + SimpleVectorStore）+ 对话/SSE/意图路由/商品 Tool
-- [✓] 小程序客服 AI 流式对话（2026-10-24）：`/api/agent/chat/stream` SSE 首字推送 + `sessionId` Redis 多轮历史（2h TTL）+ `scene=customer-service` 固定 system prompt；前端 AI 流式优先、人工客服本地拦截、规则失败兜底
+### 阶段 8：导购机器人（Python ai-service）
+- [✓] 小程序客服 AI 流式对话（2026-10-24）：`/api/agent/chat/stream` SSE 首字推送 + `sessionId` Redis 多轮历史（2h TTL）；前端 AI 流式优先、人工客服本地拦截、规则失败兜底
 - [✓] 全局悬浮 AI 客服（2026-10-24）：`components/floating-chat` 右侧中间悬浮球 + 底部聊天面板，头像 `static/zongjie.jpg`（2026-10-25 由本地 webp 转 jpg，修 iOS 不显示）；Pinia `store/ai-chat` 共享会话，已注入 pages.json 注册的 29 个页面（专属客服页除外）
   - ⚠️ **约定：以后新增小程序页面，必须在模板 `<template>` 后手动加 `<FloatingChat />`，否则新页面没有悬浮球。**（uni-app 小程序没有 App 级全局组件，悬浮球靠逐页注入）
-- [ ] 客服场景接入 function calling / RAG（当前 customer-service 场景主动跳过 Tool/RAG）
-- [ ] 真实商品推荐端到端验证（下游服务就绪后重测）
-- [ ] AI 下单闭环：OrderTool 接 Feign + HITL
-- [ ] RAG 生产化：SimpleVectorStore → Milvus/PgVector
-- **状态：** in_progress
-
-### 阶段 9：推荐服务（Python）
-- [✓] FastAPI 骨架 + RFM/KMeans/热销推荐 + Java 桥接 + 小程序「猜你喜欢」
-- [ ] Python 数据源切 MySQL（当前仍读原 SQLite）
+- [✓] 迁移到 Python（2026-10-26）：新增 FastAPI + LangGraph 服务 `recommender-python`，多轮对话 + 商品问答（直连 MySQL 只读）；网关 `/api/agent/**` 静态转发 `http://ai-service:8000`；前端契约不变
+- [✓] 删除 Java `ai-agent-service` 与 Spring AI BOM（2026-10-26）
+- [ ] AI 下单闭环（写操作需二次确认，当前不做）
+- [ ] RAG / 商品卡片渲染（前端只渲染纯文本，需前后端一起改）
 - **状态：** in_progress
 
 ### 阶段 10：安全加固（DDoS 防护）

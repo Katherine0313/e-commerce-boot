@@ -21,7 +21,6 @@ order-service/target/order-service-0.0.1-SNAPSHOT.jar      -> /www/java/order-se
 aftersale-service/target/aftersale-service-*.jar           -> /www/java/aftersale-service/aftersale-service.jar
 user-service/target/user-service-0.0.1-SNAPSHOT.jar        -> /www/java/user-service/user-service.jar
 file-service/target/file-service-0.0.1-SNAPSHOT.jar        -> /www/java/file-service/file-service.jar
-ai-agent-service/target/ai-agent-service-*.jar             -> /www/java/ai-agent-service/ai-agent-service.jar
 gateway/target/gateway-0.0.1-SNAPSHOT.jar                  -> /www/java/gateway/gateway.jar
 ```
 
@@ -55,7 +54,7 @@ deploy/README.md          -> /www/java/README.md（可选）
 ├── aftersale-service/
 ├── user-service/
 ├── file-service/
-├── ai-agent-service/
+├── ai-service/             # Python 导购机器人（源码来自 recommender-python）
 └── gateway/
 ```
 
@@ -66,7 +65,7 @@ cd /www/java
 mkdir -p upload
 cp .env.example .env
 # 编辑 .env 填真实值
-for d in auth-service shop-service product-service order-service aftersale-service user-service file-service ai-agent-service gateway; do
+for d in auth-service shop-service product-service order-service aftersale-service user-service file-service gateway; do
   cp Dockerfile "$d/Dockerfile"
 done
 ```
@@ -74,6 +73,10 @@ done
 > ⚠️ 把本地 `e-commerce-boot/upload/` **整个目录**上传到 `/www/java/upload/`。
 > 里面包含商品图 `image/upload/`、详情图 `image/body/`、分类图 `image/category/`、
 > 轮播图 `image/swiper/`、分享图 `image/share/`、二维码/店铺 logo 等；缺了小程序图片会 404。
+
+> ⚠️ Python 导购机器人：把 `recommender-python/` 下的 `app/`、`requirements.txt`、`Dockerfile`、
+> `.dockerignore` 上传到 `/www/java/ai-service/`（不要传 `.venv/` 和 `.env`）。
+> 它使用自己的 Dockerfile，不要用上面那个通用 Java Dockerfile 覆盖。
 
 ## 3. 宝塔 MySQL 准备
 
@@ -108,7 +111,7 @@ free -h
 docker stats --no-stream
 ```
 
-如果内存紧张，先 `docker compose stop ai-agent-service`，客服会退化为本地规则 + 人工，不影响小程序主链路。
+如果内存紧张，先 `docker compose stop ai-service`，客服会退化为本地规则 + 人工，不影响小程序主链路。
 
 ## 5. 验证
 
@@ -116,11 +119,16 @@ docker stats --no-stream
 # 网关直连
 curl http://127.0.0.1:8080/api/products/1
 
+# Python 导购机器人（经网关；能吐 data: 行即正常）
+curl -N http://127.0.0.1:8080/api/agent/chat/stream \
+  -H 'Content-Type: application/json' \
+  -d '{"message":"你好","sessionId":"deploy-check"}'
+
 # Nacos 控制台（只建议内网/限制 IP 访问）
 # http://服务器IP:18080
 ```
 
-Nacos 控制台里应该能看到 9 个服务实例。
+Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注册 Nacos，由网关按容器名直连）。
 
 ## 6. Nginx + HTTPS
 
@@ -143,7 +151,7 @@ Nacos 控制台里应该能看到 9 个服务实例。
   - request 合法域名：`https://api.jiemids.com`
   - uploadFile：`https://api.jiemids.com`
   - downloadFile：`https://api.jiemids.com`
-- 真机测试登录、商品、下单、支付、AI 客服
+- 真机测试登录、商品、下单、支付、AI 导购
 
 ## 8. 后台管理端（过几天）
 
@@ -163,7 +171,9 @@ Nacos 控制台里应该能看到 9 个服务实例。
 ## 10. 必查清单
 
 - [ ] `JWT_SECRET` 所有服务一致
-- [ ] `SILICONFLOW_API_KEY` 是真实 key（本地那份含 `xxx` 占位）
+- [ ] `SILICONFLOW_API_KEY` 是真实 key（Python `ai-service` 使用）
+- [ ] `.env` 有 `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `SHOP_ID`，`ai-service` 能读到商品
+- [ ] `docker logs ai-service` 无报错；网关 `/api/agent/chat/stream` 能逐块返回
 - [ ] `WECHAT_SECRET` 正确
 - [ ] `DB_URL` 指向正确的库，且库里有表和数据
 - [ ] `/www/java/upload` 存在且可写，且已上传现有图片（`image/upload`、`body`、`category`、`swiper`、`share`、`QRcode.webp`、`store-logo.webp` 等）

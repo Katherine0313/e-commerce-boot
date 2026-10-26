@@ -131,17 +131,14 @@ services:
     networks:
       - my-net
 
-  ai-agent-service:
-    build: ./ai-agent-service
-    container_name: ai-agent-service
+  # 导购机器人：Python FastAPI + LangGraph，网关按静态地址转发
+  ai-service:
+    build: ./ai-service
+    container_name: ai-service
     restart: always
-    depends_on:
-      - nacos
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    environment:
-      JAVA_OPTS: "-Xms128m -Xmx384m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -Xss256k -XX:+UseSerialGC -Duser.timezone=Asia/Shanghai"
     networks:
       - my-net
 
@@ -158,7 +155,7 @@ services:
       - aftersale-service
       - user-service
       - file-service
-      - ai-agent-service
+      - ai-service
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -167,6 +164,8 @@ services:
       - "127.0.0.1:8080:8080"
     environment:
       JAVA_OPTS: "-Xms128m -Xmx384m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -Xss256k -XX:+UseSerialGC -Duser.timezone=Asia/Shanghai"
+      # Python 导购服务在 Docker 内网的名字，覆盖本地默认的 127.0.0.1
+      AI_SERVICE_URL: "http://ai-service:8000"
     networks:
       - my-net
 

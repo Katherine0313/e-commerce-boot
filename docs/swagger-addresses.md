@@ -34,7 +34,6 @@
 | 售后 aftersale-service | `http://localhost:8080/aftersale-service/v3/api-docs` |
 | 店铺 shop-service | `http://localhost:8080/shop-service/v3/api-docs` |
 | 文件 file-service | `http://localhost:8080/file-service/v3/api-docs` |
-| AI 助手 ai-agent-service | `http://localhost:8080/ai-agent-service/v3/api-docs` |
 
 **导入方式**
 

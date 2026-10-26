@@ -55,12 +55,6 @@ spring:
                 - Path=/file-service/v3/api-docs
               filters:
                 - RewritePath=/file-service/(?<segment>.*), /$\{segment}
-            - id: ai-agent-service-api-docs
-              uri: lb://ai-agent-service
-              predicates:
-                - Path=/ai-agent-service/v3/api-docs
-              filters:
-                - RewritePath=/ai-agent-service/(?<segment>.*), /$\{segment}
             # 登录/登出/用户信息 → auth-service（放在最前，优先匹配）
             - id: auth-service
               uri: lb://auth-service
@@ -89,9 +83,11 @@ spring:
               uri: lb://aftersale-service
               predicates:
                 - Path=/api/after-sales,/api/after-sales/**,/api/admin/after-sales,/api/admin/after-sales/**
-            # AI 导购助手 → ai-agent-service；同样放在 /api/** 通配之前
-            - id: ai-agent-service
-              uri: lb://ai-agent-service
+            # AI 导购机器人 → Python ai-service；放在 /api/** 通配之前。
+            # 走静态地址而不是 Nacos：Python 端不需要引入服务注册客户端。
+            # 默认给本地开发用；Docker 里由 compose 的 AI_SERVICE_URL 覆盖成 http://ai-service:8000。
+            - id: ai-service
+              uri: ${AI_SERVICE_URL:http://127.0.0.1:8000}
               predicates:
                 - Path=/api/agent,/api/agent/**
             # 后台来单提醒 WebSocket → order-service（前端 ws://网关/ws/order?token=xxx，握手鉴权在 order-service）
@@ -139,5 +135,3 @@ springdoc:
         url: /user-service/v3/api-docs
       - name: 文件 file-service
         url: /file-service/v3/api-docs
-      - name: AI 助手 ai-agent-service
-        url: /ai-agent-service/v3/api-docs
