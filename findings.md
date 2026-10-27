@@ -293,6 +293,8 @@ ecommerce
 - **user 不能跳过克隆（2026-10-27）**：`orders.user_id` / `address.user_id` / `cart.user_id` 都有外键指向 `user.id`（orders 是 RESTRICT），不复制 user 会导致克隆订单插入失败；只能克隆行、脱敏字段。
 - **克隆脱敏（2026-10-27）**：openid → `sb_{shopId}_{id}`（列宽 varchar(45) 够用）、name → `体验用户{id}`、phone/avatar → NULL，sex 保留。避免生产库出现真实用户 PII 副本。
 - **过期回收（2026-10-27）**：shop-service 加 `@EnableScheduling`，`cleanExpiredSandboxes()` 每小时（fixedDelay 1h，启动即跑一次）取 `is_template=0 AND expires_at < now`（阈值用 Java 时间传入，MySQL 服务器是 UTC 不能用 NOW()），每批 20 个。删除顺序按外键：售后子表 → after_sales → order_items → orders → cart → feedback/product_favorites/product_reviews（不克隆但带 shop_id，顺手清）→ address → user → admin → stock → products → tags → categories（自引用 CASCADE）→ shops。整批一个事务，失败回滚下次重试。
+- **沙箱 token 与店铺同寿命（2026-10-27）**：`JwtUtil.generateAdminToken` 加 `expireSeconds` 重载（原 4 参方法仍用 `jwt.expire` 7 天，账号密码登录不受影响）；`createSandbox` 用 `Duration.between(now, shop.expiresAt)` 算 TTL（≈24h，克隆耗时已扣掉，兜底 60s）。店过期后所有 `/api/admin/**` 返回 401，前端拦截器清 token 回登录页，不再出现「店已删、token 还能用、页面停在空数据」的空窗。
+- **前台到期强制登出（2026-10-27）**：`utils/shop.js` 拉完店铺信息按 `expiresAt` 挂 `setTimeout`（字符串显式按 `+08:00` 解析），到点清 token、断来单 WS、带提示跳登录页（定时器负责空闲页面，后端 401 是兜底）；`router/permission.js` 导航前解 JWT `exp`，过期直接回登录页，避免刷新时闪后台。
 
 ## 后台来单提醒 WebSocket（2026-10-20）
 

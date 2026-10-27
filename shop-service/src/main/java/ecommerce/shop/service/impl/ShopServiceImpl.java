@@ -16,6 +16,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -78,7 +79,12 @@ public class ShopServiceImpl implements ShopService {
         if (admin == null) {
             throw new BusinessException("沙箱管理员克隆失败");
         }
-        String token = jwtUtil.generateAdminToken(admin.getId(), admin.getUsername(), admin.getRole(), shopId);
+        // 令牌有效期跟店铺走：沙箱 24h 到期后接口返回 401，前台自动清 token 回登录页。
+        // 克隆耗时已从剩余时间里扣掉，兜底至少 60 秒（防止极端情况下签出已过期的 token）
+        long ttlSeconds = Math.max(60,
+                Duration.between(LocalDateTime.now(), shop.getExpiresAt()).getSeconds());
+        String token = jwtUtil.generateAdminToken(
+                admin.getId(), admin.getUsername(), admin.getRole(), shopId, ttlSeconds);
 
         return SandboxVO.builder()
                 .token(token)

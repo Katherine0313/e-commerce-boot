@@ -53,19 +53,34 @@ public class JwtUtil {
      * 所以这几个字段必须写进 payload，不能只塞 subject。shopId 是多租户隔离键，也要一并签进去。
      */
     public String generateAdminToken(Long adminId, String username, String role, Long shopId) {
+        return generateAdminToken(adminId, username, role, shopId, jwtProperties.getExpire());
+    }
+
+    /**
+     * 签发指定有效期的后台管理员令牌。
+     * <p>
+     * 沙箱店 24 小时后数据会被回收，令牌有效期随店铺走（不活得比店铺久），
+     * 到期后接口返回 401，前台会自动清 token 回登录页。
+     */
+    public String generateAdminToken(Long adminId, String username, String role, Long shopId,
+                                     long expireSeconds) {
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("id", adminId);
         extraClaims.put("username", username);
         extraClaims.put("role", role);
         extraClaims.put("shopId", shopId);
-        return buildToken(adminId, TYPE_ADMIN, extraClaims);
+        return buildToken(adminId, TYPE_ADMIN, extraClaims, expireSeconds);
+    }
+
+    private String buildToken(Long id, String type, Map<String, Object> extraClaims) {
+        return buildToken(id, type, extraClaims, jwtProperties.getExpire());
     }
 
     /**
      **真正组装、签名、生成 JWT 字符串的核心方法**。
      */
-    private String buildToken(Long id, String type, Map<String, Object>
-                              extraClaims){
+    private String buildToken(Long id, String type, Map<String, Object> extraClaims,
+                              long expireSeconds) {
         long now = System.currentTimeMillis();
         return Jwts.builder()
                 .subject(String.valueOf(id))
@@ -73,7 +88,7 @@ public class JwtUtil {
                 .claims(extraClaims)
                 .issuedAt(new Date(now))
                 // expire时间换算，秒换成毫秒
-                .expiration(new Date(now + jwtProperties.getExpire() * 1000))
+                .expiration(new Date(now + expireSeconds * 1000))
                 // 不指定算法，jjwt按密钥长度自动选
                 .signWith(secretKey)
                 .compact();
