@@ -59,7 +59,7 @@ spring:
             - id: auth-service
               uri: lb://auth-service
               predicates:
-                - Path=/api/login,/api/logout,/api/admin/info
+                - Path=/api/login,/api/logout,/api/admin/info,/api/auth/sms-code,/api/auth/phone-login
             # 店铺 → shop-service（开沙箱/当前店铺；/api/shops/sandbox 免登录）
             - id: shop-service
               uri: lb://shop-service

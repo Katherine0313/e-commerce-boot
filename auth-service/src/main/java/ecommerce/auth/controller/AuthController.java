@@ -1,9 +1,12 @@
 package ecommerce.auth.controller;
 
 import ecommerce.auth.dto.AdminLoginDTO;
+import ecommerce.auth.dto.PhoneLoginDTO;
+import ecommerce.auth.dto.SendSmsCodeDTO;
 import ecommerce.auth.service.AuthService;
 import ecommerce.auth.vo.AdminLoginVO;
 import ecommerce.auth.vo.AdminUserVO;
+import ecommerce.auth.vo.SmsCodeVO;
 import ecommerce.common.Result;
 import ecommerce.utils.UserContext;
 import io.swagger.v3.oas.annotations.Operation;
@@ -29,6 +32,18 @@ public class AuthController {
     @PostMapping("/login")
     public Result<AdminLoginVO> login(@RequestBody AdminLoginDTO dto) {
         return Result.success(authService.login(dto));
+    }
+
+    @Operation(summary = "发送手机登录验证码")
+    @PostMapping("/auth/sms-code")
+    public Result<SmsCodeVO> sendSmsCode(@RequestBody SendSmsCodeDTO dto) {
+        return Result.success(authService.sendSmsCode(dto));
+    }
+
+    @Operation(summary = "手机号验证码登录")
+    @PostMapping("/auth/phone-login")
+    public Result<AdminLoginVO> phoneLogin(@RequestBody PhoneLoginDTO dto) {
+        return Result.success(authService.loginByPhone(dto));
     }
 
     @Operation(summary = "当前登录管理员信息")

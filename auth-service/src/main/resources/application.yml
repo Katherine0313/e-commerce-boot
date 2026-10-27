@@ -22,6 +22,11 @@ spring:
       maximum-pool-size: 10
       minimum-idle: 2
       pool-name: AuthHikariCP
+  data:
+    redis:
+      # 手机验证码存 Redis；密码不写进 yml，生产用 SPRING_DATA_REDIS_PASSWORD 注入
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
 
 server:
   port: 9001
@@ -37,6 +42,19 @@ jwt:
   secret: ${JWT_SECRET}
   #token有效期，单位：秒（7天）
   expire: 604800
+
+# 手机号验证码登录
+# 开发期不发真实短信：dev-mode=true 时验证码只写服务端日志并回传前端，方便本机联调；
+# 接入阿里云/腾讯云短信后把 dev-mode 置 false（或设环境变量 SMS_DEV_MODE=false），并在 AuthServiceImpl 中补发短信 SDK 调用
+sms:
+  dev-mode: ${SMS_DEV_MODE:true}
+  # 演示手机号：该号码发码接口会直接回传验证码且不限发送频率，任何人可用它体验后台；
+  # 留空（生产设置 SMS_TEST_PHONE=）即可关闭这个演示入口
+  test-phone: ${SMS_TEST_PHONE:13800138000}
+  # 验证码有效期（秒）
+  code-expire: 300
+  # 同一手机号两次发送的最小间隔（秒）
+  code-interval: 60
 
 # 接口文档：安全兜底默认关闭，避免生产环境暴露
 springdoc:

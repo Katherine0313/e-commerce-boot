@@ -66,10 +66,10 @@ public class ReportController {
     }
 
     /**
-     * 导出运营数据报表（近 30 天 Excel）
+     * 导出运营数据报表（本月 Excel）
      * @param response 原生响应对象，用来输出 Excel 流给浏览器
      */
-    @Operation(summary = "导出运营数据报表(近30天Excel)")
+    @Operation(summary = "导出运营数据报表(本月Excel)")
     @GetMapping("/export")
     public void exportOperationReport(HttpServletResponse response){
         reportService.exportOperationReportByTemplate(response);

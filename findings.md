@@ -596,19 +596,19 @@ ecommerce
 - 累计销售额 = `pay_at` 非空的 `pay_amount` 合计 − 退款（按原订单 pay_at 归属）。
 - 累计订单量 = 全时段、未删除、排除已取消（`order_status <> 6`）。
 
-### 2. 近 30 天运营报表
-- `GET /api/admin/report/export` → xlsx 流，POI 生成，单 sheet。
-- 统计窗口：今天往前 30 天（含今天）。
+### 2. 本月运营报表
+- `GET /api/admin/report/export` → xlsx 流，读取 `template/运营报表模板.xlsx` 填数，单 sheet。
+- 统计窗口：当月 1 日至今天（含），2026-10-27 由「近 30 天」改为「本月」。
 - 两套订单数口径，不能混用：
   - **有效支付订单**（展示、客单价分母）：当日 `pay_at`、未取消、累计退款 `< pay_amount`。
   - **转化率分子**（不展示）：当日 `created_at` 且 `pay_at IS NOT NULL`，同批口径，后续退款不扣。
 - 退款按原订单 `pay_at` 归属；新增用户按 `user.create_time`。
-- 概览由 30 天明细累加；平均客单价 = 总销售额 ÷ 有效支付订单总数。
+- 概览由本月明细累加；平均客单价 = 总销售额 ÷ 有效支付订单总数。
 - 前端工作台右上角「数据导出」按钮，axios `responseType: blob` + `<a download>`；顶部标签由「本年度累计销售额」改为「累计销售额」（后端是全时段口径）。
-- 报表底部带口径说明；Excel 生成器有结构测试（`OperationReportExcelWriterTest`）。
+- 报表底部带口径说明；模板预置 31 行明细样式（覆盖 31 天的月份），本月未过完时导出自动隐藏剩余空行。
 
 ### 3. 验证
-- `order-service` 编译通过；`OperationReportExcelWriterTest` 校验大标题、概览/明细板块、表头、4 个合并区域和金额/百分比数值。
+- `order-service` 编译通过；模板结构校验（38 行、4 个合并区域、31 行明细样式齐全）。
 - 5 条按天聚合 SQL 在本地 MySQL 跑通；样本文件生成在 `order-service/target/operation-report-sample.xlsx`。
 - 后台前端 `npm run build` 通过（`dist` 已重新生成）。
 - **待部署**：新版 order-service jar + 新 `dist`，上线后在工作台点「数据导出」做真实验证。

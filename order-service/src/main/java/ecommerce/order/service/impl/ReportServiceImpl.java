@@ -40,8 +40,8 @@ import java.util.Map;
 @Service
 public class ReportServiceImpl implements ReportService {
 
-    /** 运营数据报表固定统计近 30 天（含今天） */
-    private static final int OPERATION_REPORT_DAYS = 30;
+    /** 运营数据报表模板预置的明细行数（一个月最多 31 天） */
+    private static final int OPERATION_REPORT_MAX_ROWS = 31;
 
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
@@ -152,7 +152,8 @@ public class ReportServiceImpl implements ReportService {
     public OperationReportVO getOperationReport() {
         Long shopId = requireShopId();
         LocalDate end = LocalDate.now();
-        LocalDate begin = end.minusDays(OPERATION_REPORT_DAYS - 1);
+        // 本月：月初至今天（含）
+        LocalDate begin = end.withDayOfMonth(1);
         LocalDateTime start = begin.atStartOfDay();
         LocalDateTime endExclusive = end.plusDays(1).atStartOfDay();
 
@@ -171,7 +172,7 @@ public class ReportServiceImpl implements ReportService {
                 orderMapper.countNewUsersByDay(shopId, start, endExclusive));
         long totalRefundOrders = orderMapper.countRefundOrders(shopId, start, endExclusive);
 
-        List<OperationReportRowVO> rows = new ArrayList<>(OPERATION_REPORT_DAYS);
+        List<OperationReportRowVO> rows = new ArrayList<>(end.getDayOfMonth());
         BigDecimal totalSales = BigDecimal.ZERO;
         long totalEffectivePaid = 0;
         long totalCreated = 0;
@@ -243,7 +244,7 @@ public class ReportServiceImpl implements ReportService {
                 overview2.getCell(3).setCellValue(report.getAverageOrderValue().doubleValue());
                 overview2.getCell(5).setCellValue(report.getTotalRefundOrders());
 
-                // 明细区：模板第 7 行起（下标 6）预置了 30 行带样式的空行，
+                // 明细区：模板第 7 行起（下标 6）预置了 31 行带样式的空行，
                 // 用 getRow 取行再填值，样式不会丢
                 int rowIndex = 6;
                 for (OperationReportRowVO item : report.getRows()) {
@@ -254,6 +255,13 @@ public class ReportServiceImpl implements ReportService {
                     row.getCell(3).setCellValue(item.getPaymentConversionRate());
                     row.getCell(4).setCellValue(item.getAverageOrderValue().doubleValue());
                     row.getCell(5).setCellValue(item.getNewUsers());
+                }
+                // 本月未过完时，隐藏模板中剩余的空行，报表只展示到今天的明细
+                for (int i = rowIndex; i < 6 + OPERATION_REPORT_MAX_ROWS; i++) {
+                    Row emptyRow = sheet.getRow(i);
+                    if (emptyRow != null) {
+                        emptyRow.setZeroHeight(true);
+                    }
                 }
 
                 // 下载头：中文文件名按 RFC 5987 编码，避免浏览器乱码

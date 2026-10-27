@@ -107,7 +107,7 @@ public interface OrderMapper {
             "AND order_status = #{status}")
     long countByStatus(@Param("shopId") Long shopId, @Param("status") Integer status);
 
-    // ==================== 运营数据报表（近 30 天导出） ====================
+    // ==================== 运营数据报表（本月导出） ====================
 
     // 当日有效支付订单数：当日 pay_at、未取消、累计退款 < 实付金额
     List<Map<String, Object>> countEffectivePaidByDay(@Param("shopId") Long shopId,

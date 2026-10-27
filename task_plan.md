@@ -94,7 +94,7 @@
 - [✓] 报表：`/dashboard`、`/turnover`、`/turnover-report`、`/sales-ranking`（2026-10-24）
 - [✓] 订单未支付一次性订阅消息（2026-10-25）：提交订单时授权 → 下单写入 `is_subscribe_unpaid` → 第 20 分钟推送 → 点击跳 `pending-pay?orderNo`；access_token 改为 Redis 全局共享
 - [✓] 物流轨迹过滤未来时间（2026-10-26）：`buildLogistics` 只返回当前时间之前已发生的轨迹（`addTraceIfPast`）
-- [✓] 工作台累计销售额/订单量改后端聚合（`/api/admin/report/headline`），新增近 30 天运营数据报表 Excel 导出（`/api/admin/report/export`，2026-10-26）
+- [✓] 工作台累计销售额/订单量改后端聚合（`/api/admin/report/headline`），新增本月运营数据报表 Excel 导出（`/api/admin/report/export`，2026-10-26，2026-10-27 由近 30 天改为本月）
 - [ ] 运营数据导出上线：部署新版 order-service + 上传新后台 `dist` + 清缓存，验证 xlsx 下载
 - [ ] 订阅消息上线：order-service / user-service 已部署；确认生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已 ALTER，小程序发行后验证推送
 - [ ] 购物车加购校验上架状态（`ProductMapper.findById` 无 `listing_status` 过滤）
@@ -120,7 +120,7 @@
 ### 阶段 7：前端对接联调
 - [✓] baseURL→网关、登录对齐、小程序下单/订单列表 6 Tab/详情/搜索/地址
 - [✓] 后台工作台：四张统计卡、营业额面板、全局时间选择器、销量排名（2026-10-24）
-- [✓] 工作台顶部累计销售额/订单量走后端聚合 + 「数据导出」按钮（近 30 天运营报表，2026-10-26）
+- [✓] 工作台顶部累计销售额/订单量走后端聚合 + 「数据导出」按钮（本月运营报表，2026-10-26；2026-10-27 改为本月口径）
 - [✓] 小程序分包 + 图片后端化（2026-10-24）：主包保留 4 个 tabBar 页 + 我的子页（12 页），商品/搜索/订单/售后拆 4 个分包；`OrderCard`/`AfterSaleCard` 移到 `components`；删除 15M 的 `static/image`，商品图/轮播/分享图全部走后端
 - [✓] 生产部署（2026-10-24~26）：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）+ 宝塔 MySQL；`api.jiemids.com` / `www.jiemids.com` 经 Cloudflare + Nginx；后台沙箱/图片/来单 WebSocket、小程序发行已通；部署文件见 `deploy/`
 - [✓] AI 迁移上线（2026-10-26）：网关 `/api/agent/**` → `http://ai-service:8000`；线上 `/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）
