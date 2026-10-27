@@ -10,11 +10,14 @@ import ecommerce.shop.vo.SandboxVO;
 import ecommerce.shop.vo.ShopVO;
 import ecommerce.utils.JwtUtil;
 import ecommerce.utils.UserContext;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 店铺 Service 实现。
@@ -22,6 +25,7 @@ import java.time.LocalDateTime;
  * 开沙箱照旧 Node：shops 插一行 → 15 张业务表按「id + offset」克隆模板店数据 →
  * 签发克隆出来的沙箱 admin 令牌。全程一个事务，失败回滚。
  */
+@Slf4j
 @Service
 public class ShopServiceImpl implements ShopService {
 
@@ -86,6 +90,43 @@ public class ShopServiceImpl implements ShopService {
                         .build())
                 .shop(toVO(shop))
                 .build();
+    }
+
+    /**
+     * 过期沙箱回收：每小时删一批（最多 20 个）到期的沙箱店。
+     * <p>
+     * 删除顺序按外键依赖：先删售后/订单明细/购物车/地址等子表，再删 orders、user、products
+     * 等被引用表，最后删 shops。阈值用 Java 时间传入（MySQL 服务器时区是 UTC，不能用 NOW()）。
+     */
+    @Scheduled(fixedDelay = 3600_000)
+    @Transactional
+    public void cleanExpiredSandboxes() {
+        List<Long> expiredIds = shopMapper.findExpiredSandboxIds(LocalDateTime.now());
+        if (expiredIds.isEmpty()) {
+            return;
+        }
+        for (Long shopId : expiredIds) {
+            shopMapper.deleteAfterSaleExchangeReturns(shopId);
+            shopMapper.deleteAfterSaleOnlyRefunds(shopId);
+            shopMapper.deleteAfterSaleReturns(shopId);
+            shopMapper.deleteAfterSaleItems(shopId);
+            shopMapper.deleteAfterSales(shopId);
+            shopMapper.deleteOrderItems(shopId);
+            shopMapper.deleteOrders(shopId);
+            shopMapper.deleteCart(shopId);
+            shopMapper.deleteFeedback(shopId);
+            shopMapper.deleteProductFavorites(shopId);
+            shopMapper.deleteProductReviews(shopId);
+            shopMapper.deleteAddress(shopId);
+            shopMapper.deleteUser(shopId);
+            shopMapper.deleteAdmin(shopId);
+            shopMapper.deleteStock(shopId);
+            shopMapper.deleteProducts(shopId);
+            shopMapper.deleteTags(shopId);
+            shopMapper.deleteCategories(shopId);
+            shopMapper.deleteShop(shopId);
+        }
+        log.info("过期沙箱回收 {} 个：{}", expiredIds.size(), expiredIds);
     }
 
     @Override

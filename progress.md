@@ -5,6 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
+  2026-10-27 运营报表导出改为模板式（黑马风格：Controller 3 行 + Service 读 `template/运营报表模板.xlsx` 写 response，删除旧 `OperationReportExcelWriter`）；沙箱治理：user 克隆脱敏（假 openid、name 脱敏、phone/avatar 置 NULL）+ shop-service 每小时回收过期沙箱店。
   2026-10-26 AI 迁移与生产部署完成：删除 Java `ai-agent-service` 与 Spring AI BOM，新增 Python `recommender-python`（FastAPI + LangGraph）导购机器人，生产容器 `ai-service` 已上线；网关 `/api/agent/**` 静态转发（本地默认 `127.0.0.1:8000`，Docker 由 `AI_SERVICE_URL` 覆盖）。第一阶段能力为多轮对话 + 商品问答（直连 MySQL 只读），并加 JWT 登录校验 + 每用户限流 + 并发/超时保护。线上验证：`/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）。物流轨迹已过滤未来时间；分类图 webp 已上传并改库，待重建 product/user 容器 + 清 CF 缓存。工作台顶部累计销售额/订单量已改为后端聚合（`/api/admin/report/headline`），近 30 天运营数据报表 Excel 导出已实现（`/api/admin/report/export`），Excel 结构测试和后台前端构建均通过，待部署 order-service + 上传新 dist 验证。
   2026-10-25 线上问题修复完成：小程序审核白屏（上传了 `dist/dev`，接口地址 127.0.0.1 → 改传 `dist/build`）、Redis 改为 Docker 容器 + 分类接口降级（本机 8～12ms）、用户头像 `http→https`（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg；**订单未支付一次性订阅消息代码已完成，2026-10-26 已部署 order/user，生产库 ALTER 待确认**。生产：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）、宝塔 MySQL、Cloudflare + Nginx（`api.jiemids.com` 小程序 API / `www.jiemids.com` 后台前端）；部署文件在 `deploy/` 和根目录 `nginx`。微信审核风险和 Nacos/旧 Node 清理见「未完成事项」。
   2026-10-24：小程序全局悬浮 AI 客服（右侧中间悬浮球 + 底部聊天面板，头像 `static/zongjie.jpg`；Pinia `ai-chat` 共享会话，注入 29 个页面，专属客服页除外）+ 小程序专属客服（AI 流式优先 + 微信原生客服会话 + 规则失败兜底：`/api/agent/chat/stream` SSE 首字推送、`sessionId` Redis 多轮历史、`scene=customer-service` 固定 prompt；「人工客服」本地拦截）+ 工作台全局时间选择器（昨日/近7天/本月统一控制营业额、订单统计、用户增长、销量排名；订单统计改按小时/天前端聚合，用户统计接口加 `period` 返回时间桶）+ 订单记录卡换销量排名（`/api/admin/report/sales-ranking`，按件数、pay_at 口径、排除待付款/已取消）。生产部署已完成（见上）。
@@ -19,7 +20,7 @@
   5. 参数/促销表（`parameters` + `business_onsale`，含活动定时下架）
   6. 购物车 2 个缺口 + 商品/订单/售后端到端验证
   7. file-service（CDN/通用文件）
-  8. 沙箱过期回收 + `templateGuard` + 扫码进店
+  8. 沙箱 `templateGuard` + 扫码进店（过期回收已完成 2026-10-27）
   9. 阶段 11 WebSocket：Redis pub/sub 跨实例广播 + 发货/新售后事件
   10. 阶段 12 微信支付接入（回调 + 查单 + 对账）
 
@@ -42,6 +43,7 @@
   - Spring Cloud Gateway 5.x 默认移除 `X-Forwarded-*`，绝对 URL 的协议不能依赖它；对外 https 场景在 `UrlUtil` 兜底
 
 - **我做了什么？（近期）**
+  - 2026-10-27：运营报表导出改模板式（openpyxl 生成 `template/运营报表模板.xlsx`，预置 30 行样式）+ 沙箱治理（克隆 user 脱敏、过期回收定时任务、19 张表按外键顺序清理）
   - 2026-10-26：AI 迁移到 Python 并上线（FastAPI + LangGraph + JWT/限流 + 并发/超时）、删除 Spring AI 与 Java AI 模块；物流轨迹过滤未来时间；生产全量重建（8 个 Java 服务 + `ai-service`）；分类图 webp 上传与生产库更新；工作台累计销售额/订单量改后端聚合，新增近 30 天运营数据报表 Excel 导出
   - 2026-10-25：小程序首页加载优化（分类/商品/详情图批量压缩到 `upload/image/opt/`，`WebMvcConfig` 优先读 opt、缺失回落原图；首页接口聚合为 `/api/home`；推荐结果 Redis 缓存 60s + Python 超时降至 500ms；登录/购物车角标延后到首屏后 + 本地缓存；新增 `/api/cart/count` 轻量角标接口；分类面板骨架屏）
   - 2026-10-25：线上问题修复（小程序改传 `dist/build`、Redis 容器化 + 分类降级、用户头像 https、机器人头像 jpg）+ 订单未支付一次性订阅消息（提交订单授权、下单后第 20 分钟推送、点击 `pending-pay?orderNo`、access_token Redis 共享）
@@ -64,7 +66,8 @@
 - [ ] 商品：`parameters` 参数表、`business_onsale` 促销
 - [ ] 售后：退货入库单（仓库核验）
 - [ ] file-service：CDN/通用文件 + `uploads` 表
-- [ ] 沙箱：过期回收、`templateGuard`、扫码进店
+- [x] 沙箱过期回收 + user 克隆脱敏（2026-10-27，shop-service 每小时清到期店）
+- [ ] 沙箱：`templateGuard`、扫码进店
 - [ ] WebSocket：Redis pub/sub 跨实例、发货/新售后事件
 - [ ] 导购机器人后续能力：下单、RAG、商品卡片渲染（当前多轮对话 + 商品问答，已上线并加登录/限流）
 - [ ] 微信支付接入（阶段 12）

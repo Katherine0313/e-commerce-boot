@@ -1,11 +1,7 @@
 package ecommerce.order.service;
 
-import ecommerce.order.vo.DashboardStatsVO;
-import ecommerce.order.vo.HeadlineVO;
-import ecommerce.order.vo.OperationReportVO;
-import ecommerce.order.vo.SalesRankingItemVO;
-import ecommerce.order.vo.TurnoverReportVO;
-import ecommerce.order.vo.TurnoverVO;
+import ecommerce.order.vo.*;
+import jakarta.servlet.http.HttpServletResponse;
 
 import java.util.List;
 
@@ -31,6 +27,10 @@ public interface ReportService {
     /** 工作台顶部累计销售额：全时段实收 − 退款 */
     HeadlineVO getHeadline();
 
-    /** 运营数据报表（固定近 30 天）：概览 + 每日明细，供 Excel 导出 */
+    /** 运营数据报表（固定近 30 天）：概览 + 每日明细 */
     OperationReportVO getOperationReport();
+
+    /** 运营数据报表导出：读取模板写入近 30 天数据，Excel 流直接写给浏览器下载 */
+    void exportOperationReportByTemplate(HttpServletResponse response);
+
 }

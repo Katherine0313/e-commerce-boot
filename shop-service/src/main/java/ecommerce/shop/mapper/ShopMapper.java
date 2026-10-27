@@ -4,6 +4,9 @@ import ecommerce.shop.entity.Admin;
 import ecommerce.shop.entity.Shop;
 import org.apache.ibatis.annotations.Param;
 
+import java.time.LocalDateTime;
+import java.util.List;
+
 /**
  * 店铺 Mapper（shops 表 + 15 张业务表克隆）。
  */
@@ -34,4 +37,27 @@ public interface ShopMapper {
 
     // 查沙箱店管理员（克隆出来的 admin，取最小 id）
     Admin findSandboxAdmin(@Param("shopId") Long shopId);
+
+    // ===== 过期沙箱回收：查到期店铺，再按外键顺序逐表删除 =====
+    List<Long> findExpiredSandboxIds(@Param("now") LocalDateTime now);
+
+    void deleteAfterSaleExchangeReturns(@Param("shopId") Long shopId);
+    void deleteAfterSaleOnlyRefunds(@Param("shopId") Long shopId);
+    void deleteAfterSaleReturns(@Param("shopId") Long shopId);
+    void deleteAfterSaleItems(@Param("shopId") Long shopId);
+    void deleteAfterSales(@Param("shopId") Long shopId);
+    void deleteOrderItems(@Param("shopId") Long shopId);
+    void deleteOrders(@Param("shopId") Long shopId);
+    void deleteCart(@Param("shopId") Long shopId);
+    void deleteFeedback(@Param("shopId") Long shopId);
+    void deleteProductFavorites(@Param("shopId") Long shopId);
+    void deleteProductReviews(@Param("shopId") Long shopId);
+    void deleteAddress(@Param("shopId") Long shopId);
+    void deleteUser(@Param("shopId") Long shopId);
+    void deleteAdmin(@Param("shopId") Long shopId);
+    void deleteStock(@Param("shopId") Long shopId);
+    void deleteProducts(@Param("shopId") Long shopId);
+    void deleteTags(@Param("shopId") Long shopId);
+    void deleteCategories(@Param("shopId") Long shopId);
+    void deleteShop(@Param("shopId") Long shopId);
 }

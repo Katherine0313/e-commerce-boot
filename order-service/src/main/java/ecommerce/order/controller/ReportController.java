@@ -1,29 +1,17 @@
 package ecommerce.order.controller;
 
 import ecommerce.common.Result;
-import ecommerce.order.excel.OperationReportExcelWriter;
 import ecommerce.order.service.ReportService;
-import ecommerce.order.vo.DashboardStatsVO;
-import ecommerce.order.vo.HeadlineVO;
-import ecommerce.order.vo.OperationReportVO;
-import ecommerce.order.vo.SalesRankingItemVO;
-import ecommerce.order.vo.TurnoverReportVO;
-import ecommerce.order.vo.TurnoverVO;
+import ecommerce.order.vo.*;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpHeaders;
-import org.springframework.http.MediaType;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
-import java.time.LocalDate;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 
 /**
@@ -77,21 +65,14 @@ public class ReportController {
         return Result.success(reportService.getHeadline());
     }
 
-    @Operation(summary = "导出运营数据报表（近 30 天 Excel）")
+    /**
+     * 导出运营数据报表（近 30 天 Excel）
+     * @param response 原生响应对象，用来输出 Excel 流给浏览器
+     */
+    @Operation(summary = "导出运营数据报表(近30天Excel)")
     @GetMapping("/export")
-    public ResponseEntity<byte[]> exportOperationReport() {
-        OperationReportVO report = reportService.getOperationReport();
-        byte[] data = OperationReportExcelWriter.write(report);
-
-        // RFC 5987：中文文件名用 UTF-8 百分号编码，避免浏览器乱码
-        String filename = "运营数据报表_" + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + ".xlsx";
-        String encoded = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");
-
-        return ResponseEntity.ok()
-                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
-                .header(HttpHeaders.CACHE_CONTROL, "no-store")
-                .contentType(MediaType.parseMediaType(
-                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
-                .body(data);
+    public void exportOperationReport(HttpServletResponse response){
+        reportService.exportOperationReportByTemplate(response);
     }
+
 }

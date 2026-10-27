@@ -67,9 +67,16 @@
         FROM admin WHERE shop_id = 1
     </insert>
 
+    <!-- 用户必须克隆：orders.user_id / address.user_id / cart.user_id 外键指向 user.id。
+         但真实 openid、手机号、头像不复制：openid 换成沙箱专属假值，name 脱敏，phone/avatar 置 NULL，
+         避免生产库出现真实用户 PII 副本，也避免沙箱数据被微信接口当真（如订阅消息） -->
     <insert id="cloneUser">
         INSERT INTO `user` (id, shop_id, openid, name, phone, sex, avatar, is_deleted, create_time, update_time)
-        SELECT id + #{offset}, #{shopId}, openid, name, phone, sex, avatar, is_deleted, create_time, update_time
+        SELECT id + #{offset}, #{shopId},
+               CONCAT('sb_', #{shopId}, '_', id),
+               CONCAT('体验用户', id),
+               NULL, sex, NULL,
+               is_deleted, create_time, update_time
         FROM `user` WHERE shop_id = 1
     </insert>
 
@@ -140,5 +147,97 @@
         SELECT id + #{offset}, after_sale_id + #{offset}, review_at, rejected_at, refund_at, refunded_at, created_at, updated_at, is_deleted, #{shopId}
         FROM after_sale_only_refunds WHERE shop_id = 1
     </insert>
+
+    <!-- ==================== 过期沙箱回收 ==================== -->
+
+    <!-- 到期沙箱店（模板店 is_template=1 且 expires_at 为 NULL，天然排除）；每批最多 20 个，避免长事务 -->
+    <select id="findExpiredSandboxIds" resultType="long">
+        SELECT id
+        FROM shops
+        WHERE is_template = 0
+          AND expires_at IS NOT NULL
+          AND expires_at &lt; #{now}
+        ORDER BY id ASC
+        LIMIT 20
+    </select>
+
+    <!-- 删除顺序按外键依赖：先删引用方（子表），再删被引用方（主表） -->
+
+    <delete id="deleteAfterSaleExchangeReturns">
+        DELETE FROM after_sale_exchange_returns WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteAfterSaleOnlyRefunds">
+        DELETE FROM after_sale_only_refunds WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteAfterSaleReturns">
+        DELETE FROM after_sale_returns WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteAfterSaleItems">
+        DELETE FROM after_sale_items WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteAfterSales">
+        DELETE FROM after_sales WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteOrderItems">
+        DELETE FROM order_items WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteOrders">
+        DELETE FROM orders WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteCart">
+        DELETE FROM cart WHERE shop_id = #{shopId}
+    </delete>
+
+    <!-- 以下三张表不参与克隆，但同样带 shop_id，顺手清掉避免未来产生孤儿数据 -->
+    <delete id="deleteFeedback">
+        DELETE FROM feedback WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteProductFavorites">
+        DELETE FROM product_favorites WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteProductReviews">
+        DELETE FROM product_reviews WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteAddress">
+        DELETE FROM address WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteUser">
+        DELETE FROM `user` WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteAdmin">
+        DELETE FROM admin WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteStock">
+        DELETE FROM stock WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteProducts">
+        DELETE FROM products WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteTags">
+        DELETE FROM tags WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteCategories">
+        DELETE FROM categories WHERE shop_id = #{shopId}
+    </delete>
+
+    <delete id="deleteShop">
+        DELETE FROM shops WHERE id = #{shopId} AND is_template = 0
+    </delete>
 
 </mapper>

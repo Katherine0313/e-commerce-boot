@@ -5,19 +5,23 @@ import ecommerce.order.enums.OrderStatusEnum;
 import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.service.ReportService;
-import ecommerce.order.vo.DashboardStatsVO;
-import ecommerce.order.vo.HeadlineVO;
-import ecommerce.order.vo.OperationReportRowVO;
-import ecommerce.order.vo.OperationReportVO;
-import ecommerce.order.vo.SalesRankingItemVO;
-import ecommerce.order.vo.TurnoverReportVO;
-import ecommerce.order.vo.TurnoverVO;
+import ecommerce.order.vo.*;
 import ecommerce.utils.UserContext;
+import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.xssf.usermodel.XSSFSheet;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.io.InputStream;
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -32,6 +36,7 @@ import java.util.Map;
  * 口径：营业额 = 实收（pay_at 区间 pay_amount 合计）− 退款（refunded 售后单 refund_amount），
  * 实收/退款都含取消订单，退款跟着原订单 pay_at 归属，历史数字随退款动态变动。
  */
+@Slf4j
 @Service
 public class ReportServiceImpl implements ReportService {
 
@@ -211,6 +216,61 @@ public class ReportServiceImpl implements ReportService {
                 .totalRefundOrders(totalRefundOrders)
                 .rows(rows)
                 .build();
+    }
+
+    @Override
+    public void exportOperationReportByTemplate(HttpServletResponse response) {
+        // 统计数据与页面展示共用同一份聚合结果
+        OperationReportVO report = getOperationReport();
+
+        // 模板放在 resources/template 下，打包后仍能从 classpath 读取
+        try (InputStream is = this.getClass().getClassLoader()
+                .getResourceAsStream("template/运营报表模板.xlsx")) {
+            if (is == null) {
+                throw new BusinessException("报表模板不存在");
+            }
+            try (XSSFWorkbook excel = new XSSFWorkbook(is)) {
+                XSSFSheet sheet = excel.getSheetAt(0);
+
+                // 概览区：Excel 第 3 行（POI 下标 2）和第 4 行（下标 3）
+                Row overview1 = sheet.getRow(2);
+                overview1.getCell(1).setCellValue(report.getTotalSales().doubleValue());
+                overview1.getCell(3).setCellValue(report.getPaymentConversionRate());
+                overview1.getCell(5).setCellValue(report.getTotalNewUsers());
+
+                Row overview2 = sheet.getRow(3);
+                overview2.getCell(1).setCellValue(report.getTotalEffectivePaidOrders());
+                overview2.getCell(3).setCellValue(report.getAverageOrderValue().doubleValue());
+                overview2.getCell(5).setCellValue(report.getTotalRefundOrders());
+
+                // 明细区：模板第 7 行起（下标 6）预置了 30 行带样式的空行，
+                // 用 getRow 取行再填值，样式不会丢
+                int rowIndex = 6;
+                for (OperationReportRowVO item : report.getRows()) {
+                    Row row = sheet.getRow(rowIndex++);
+                    row.getCell(0).setCellValue(item.getDate().toString());
+                    row.getCell(1).setCellValue(item.getSales().doubleValue());
+                    row.getCell(2).setCellValue(item.getEffectivePaidOrders());
+                    row.getCell(3).setCellValue(item.getPaymentConversionRate());
+                    row.getCell(4).setCellValue(item.getAverageOrderValue().doubleValue());
+                    row.getCell(5).setCellValue(item.getNewUsers());
+                }
+
+                // 下载头：中文文件名按 RFC 5987 编码，避免浏览器乱码
+                String filename = "运营数据报表_"
+                        + LocalDate.now().format(DateTimeFormatter.BASIC_ISO_DATE) + ".xlsx";
+                String encoded = URLEncoder.encode(filename, StandardCharsets.UTF_8).replace("+", "%20");
+                response.setHeader(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded);
+                response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
+                response.setContentType(
+                        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+                excel.write(response.getOutputStream());
+            }
+        } catch (IOException e) {
+            log.error("运营数据报表导出失败", e);
+            throw new BusinessException("导出报表异常");
+        }
     }
 
     /** 比率：分母为 0 时返回 0，避免除零 */

@@ -289,6 +289,10 @@ ecommerce
 - **克隆唯一键冲突（2026-10-20 修复）**：`orders` 表有 `uk_orders_order_no` 唯一键，`cloneOrders`/`cloneAfterSales` 的 order_no/after_sale_no 原样复制会撞唯一键 → 开沙箱 500。改成 `CONCAT(order_no, '_s', shopId)` 后缀（与 cloneTags.code、cloneAdmin.username 同一套做法）。模板店一开始没订单时不暴露，有订单后才炸。
 - **C 端多租户**：`user` 表加 `shop_id`，唯一键 `uk_openid` → `uk_shop_openid (shop_id, openid)`；C 端 user 令牌签 shopId（`JwtUtil.generateUserToken(userId, shopId)`），`JwtInterceptor` 已通用解析 shopId 写入 `UserContext`（不用改）；order-service C 端下单/支付/购物车/地址从写死模板店改成 `UserContext.getShopId()`。
 - **小程序端**：`SHOP_ID` 常量（默认 1）登录传 shopId；扫码进店/分享链接暂不做。
+- **user 表重复用户（2026-10-27）**：`cloneUser` 每次开沙箱整表复制模板店 user（含真实 openid/手机号/头像），而「过期回收」一直没做 → `user` 表按店铺数叠加重复 openid。小程序 C 端固定 shopId=1，这些行不是小程序写入的，只是克隆数据。
+- **user 不能跳过克隆（2026-10-27）**：`orders.user_id` / `address.user_id` / `cart.user_id` 都有外键指向 `user.id`（orders 是 RESTRICT），不复制 user 会导致克隆订单插入失败；只能克隆行、脱敏字段。
+- **克隆脱敏（2026-10-27）**：openid → `sb_{shopId}_{id}`（列宽 varchar(45) 够用）、name → `体验用户{id}`、phone/avatar → NULL，sex 保留。避免生产库出现真实用户 PII 副本。
+- **过期回收（2026-10-27）**：shop-service 加 `@EnableScheduling`，`cleanExpiredSandboxes()` 每小时（fixedDelay 1h，启动即跑一次）取 `is_template=0 AND expires_at < now`（阈值用 Java 时间传入，MySQL 服务器是 UTC 不能用 NOW()），每批 20 个。删除顺序按外键：售后子表 → after_sales → order_items → orders → cart → feedback/product_favorites/product_reviews（不克隆但带 shop_id，顺手清）→ address → user → admin → stock → products → tags → categories（自引用 CASCADE）→ shops。整批一个事务，失败回滚下次重试。
 
 ## 后台来单提醒 WebSocket（2026-10-20）
 
