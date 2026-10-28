@@ -27,7 +27,7 @@ public class OrderVO {
     private Long userId;
     @Schema(description = "订单号")
     private String orderNo;
-    @Schema(description = "实付金额")
+    @Schema(description = "订单金额（下单时 = 商品小计 + 保险；支付后即实付金额）")
     private BigDecimal payAmount;
     @Schema(description = "支付方式")
     private String payType;

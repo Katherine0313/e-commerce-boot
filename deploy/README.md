@@ -11,7 +11,7 @@
 ./mvnw clean package -DskipTests
 ```
 
-把各模块 `target/` 下的可执行 jar 上传到服务器，并改成统一名字：
+把各模块 `target/` 下的可执行 jar 上传到服务器，并改成统一名字（如果使用镜像仓库，见第 11 节，可跳过手工上传）：
 
 ```text
 auth-service/target/auth-service-0.0.1-SNAPSHOT.jar        -> /www/java/auth-service/auth-service.jar
@@ -202,3 +202,77 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 - [ ] `https://api.jiemids.com/api/products/1` 能返回商品
 - [ ] `https://api.jiemids.com/api/home?limit=10` 一次返回 `categories` + `recommend`
 - [ ] `curl -o /dev/null -w "%{time_total}s\n" http://127.0.0.1:8080/api/categories` 在毫秒级（说明 Redis 命中，没走降级）
+
+## 11. 镜像仓库发布（可选：腾讯云 TCR 个人版）
+
+日常发布只用本地一条命令，服务器不再 build，并支持一键回滚。
+
+### 首次配置
+
+1. 腾讯云控制台 → 容器镜像服务 TCR → 个人版，创建命名空间（如 `jiemi-ecommerce`），为 8 个 Java 服务和 1 个 Python 服务各建一个仓库（共 9 个）：
+   `auth-service`、`shop-service`、`product-service`、`order-service`、`aftersale-service`、`user-service`、`file-service`、`gateway`、`ai-service`。
+2. TCR 控制台 → 访问凭证。个人版通常只有一个读写凭证；如果能单独创建只读凭证，服务器用只读的。
+3. 本地登录并首次发布（`docker login` 交互输入密码，不要写进脚本）：
+
+   ```bash
+   docker login ccr.ccs.tencentyun.com -u '<账号ID>'
+   export REGISTRY=ccr.ccs.tencentyun.com/jiemi-ecommerce
+   export DEPLOY_HOST=ecommerce   # ~/.ssh/config 里的别名
+   ./deploy/release.sh all
+   ```
+
+4. 服务器登录仓库（`docker login` 是按 Linux 用户保存的，执行部署的 SSH 用户必须登录过）：
+
+   ```bash
+   docker login ccr.ccs.tencentyun.com -u '<账号ID>'
+   ```
+
+5. 把新的 compose 同步到服务器（只需一次）：
+
+   ```bash
+   scp deploy/docker-compose.yml <用户>@<服务器>:/www/java/docker-compose.yml
+   ```
+
+6. 服务器 `.env` 补两行（手动执行 compose 时需要；`release.sh` 会自动通过环境变量传入）：
+
+   ```
+   REGISTRY=ccr.ccs.tencentyun.com/jiemi-ecommerce
+   TAG=20261028-abc1234
+   ```
+
+7. 首次切换到镜像方式（服务器）：
+
+   ```bash
+   cd /www/java
+   docker compose pull
+   docker compose up -d --no-build
+   ```
+
+### 日常发布
+
+```bash
+./deploy/release.sh order-service                 # 改了一个服务
+./deploy/release.sh order-service shop-service    # 改了多个
+./deploy/release.sh all                           # 全部（8 个 Java + ai-service）
+./deploy/release.sh --no-ai all                   # 不发布 Python ai-service
+./deploy/release.sh --no-deploy order-service     # 只构建推送，不部署
+./deploy/release.sh --dry-run all                 # 只看会执行什么
+```
+
+脚本流程：Maven 打包 → `docker build`（context 用 `<服务>/target`）→ `docker push` →
+SSH 到服务器 `docker compose pull` / `up -d --no-build` → 打印容器状态。
+
+### 回滚
+
+```bash
+./deploy/release.sh --rollback 20261027-abc1234 order-service
+```
+
+### 注意
+
+- compose 里每个服务同时有 `image:` 和 `build:`；服务器部署必须带 `--no-build`，否则可能触发本地构建。
+- 未配置 `REGISTRY` 时镜像名默认是 `local/...`，只适合服务器本地 `docker compose build`；走 TCR 必须配置 `REGISTRY`。
+- `ai-service` 是 Python 服务，`release.sh` 会用 `../recommender-python/Dockerfile` 构建；目录不同时设置 `AI_SERVICE_DIR`。
+- 镜像仓库不可用时，回退到第 1 节的 jar 上传方式。
+- 建议在 TCR 配置镜像保留策略；服务器定期执行 `docker image prune -f`。
+- 本机是 ARM 架构 Windows 时，构建 Linux/amd64 镜像需设置 `PLATFORM=linux/amd64`。

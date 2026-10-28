@@ -588,9 +588,47 @@ ecommerce
 - `buildLogistics` 按发货时间 + 2/6/18/22/24 小时（再叠加 id 偏移）生成假轨迹，未判断是否已发生，今天发货会显示明天轨迹。
 - 修复：`addTraceIfPast`，只保留时间不晚于 `LocalDateTime.now()` 的轨迹；后台和小程序共用同一接口，一起生效。
 
-### 部署注意
-- 生产用 `deploy/docker-compose.yml`（8 个 Java 服务 + `ai-service` + Redis），不要传根目录的开发 compose（只有 Nacos + MySQL）。
-- jar 是打进镜像的：上传 jar 后必须 `docker compose build <service>` 再 `up -d`，只 `up -d` 仍用旧镜像。
+### 部署注意（2026-10-26 手工 jar 流程，已被 2026-10-28 TCR 流程替代）
+- 生产用 `deploy/docker-compose.yml`（8 个 Java 服务 + `ai-service` + Redis/Nacos），不要传根目录的开发 compose（只有 Nacos + MySQL）。
+- 旧流程：jar 打进镜像，上传 jar 后必须 `docker compose build <service>` 再 `up -d`，只 `up -d` 仍用旧镜像。
+- 2026-10-28 起改走 TCR 镜像，服务器用 `--no-build` 拉取，详见下节。
+
+## 2026-10-28 发布切 TCR 镜像
+
+### 结论
+后端发布从「本地 `mvn package` → scp jar → 服务器 `docker compose build`」改为「本地构建镜像 → 推腾讯云 TCR → 服务器 `pull + up --no-build`」。线上 9 个业务容器已全部换成 TCR 镜像，网关 `:8080` 和公网 `https://api.jiemids.com/api/products/1` 均返回 200。
+
+### 固定信息
+- TCR：`ccr.ccs.tencentyun.com`，命名空间 `jiemi-ecommerce`，9 个仓库：8 个 Java 服务 + `ai-service`
+- 服务器：`/www/java`；SSH 别名 `ecommerce`（root@193.112.176.228，私钥 `~/.ssh/ecommerce.pem`；`~/.ssh/ecommerce_deploy` 作备用）
+- compose：每个服务同时有 `image: "${REGISTRY:-local}/<svc>:${TAG:-latest}"` 和 `build:`；服务器部署必须 `--no-build`
+- `.env`：本地 `deploy/.env` 与服务器 `/www/java/.env` 都有 `REGISTRY=ccr.ccs.tencentyun.com/jiemi-ecommerce`
+- 首次线上 tag：`20261028-3af36f5-dirty`（工作区有未提交改动，脚本自动加 `-dirty`）
+- 生产库已确认有 `shops.visitor_key`、`orders.is_subscribe_unpaid`、`orders.unpaid_notify_sent`、`idx_orders_unpaid_notify`
+
+### release.sh
+- 位置 `deploy/release.sh`；白名单 8 Java + `ai-service`，`common` 不能部署
+- 流程：Maven（只 Java）→ `docker build`（Java context=`<svc>/target`；ai context=`../recommender-python`）→ `docker push` → SSH `docker compose pull/up --no-build` → `docker inspect` 状态
+- 常用：
+  - `./deploy/release.sh all`
+  - `./deploy/release.sh shop-service`
+  - `--no-deploy` 只推送；`--no-build` 跳过 Maven；`--no-ai` 排除 Python；`--dry-run` 只打印
+  - `--rollback <tag> all` 跳过构建/推送，直接部署指定 tag
+- tag 默认 `日期-git短SHA`，工作区脏加 `-dirty`
+- 部署前预检：SSH 免密 + 服务器 compose 含 `REGISTRY`，不满足直接退出
+
+### nacos / redis / upload
+- `nacos`、`redis` 用官方镜像，不需要 TCR 仓库；服务器已缓存
+- `upload` 是宿主机目录 `/www/java/upload`，bind mount 到 product/user，不是镜像，需单独备份
+- 可选：把 nacos/redis `docker tag` 到 TCR，避免 Docker Hub 不稳定
+
+### 踩坑
+- `scp/ssh ecommerce` 报 `Could not resolve hostname`：本地 `~/.ssh/config` 没有别名；加 `Host ecommerce` 或直接用 `root@IP`
+- root 密码 SSH 失败：改用密钥，宝塔终端把公钥写进 `/root/.ssh/authorized_keys`（目录 700、文件 600）
+- 服务器 `docker pull` 401：`docker login` 是按 Linux 用户保存的，执行 compose 的 SSH 用户必须登录过 TCR
+- Windows 上传 compose 带 CRLF，和服务器 LF 文件 diff 会整文件变化：用 `diff --strip-trailing-cr` 或 `sed -i 's/\r$//'`
+- 服务器 compose 已备份：`/www/java/docker-compose.yml.bak.<时间戳>`
+- 后台管理端 `dist` 尚未随本次发布更新；沙箱复用的 `X-Sandbox-Visitor-Key` 和订单金额标签需要重新 `npm run build` 上传后才生效
 
 ## 运营数据报表导出（2026-10-26）
 

@@ -96,8 +96,9 @@
 - [✓] 订单未支付一次性订阅消息（2026-10-25）：提交订单时授权 → 下单写入 `is_subscribe_unpaid` → 第 20 分钟推送 → 点击跳 `pending-pay?orderNo`；access_token 改为 Redis 全局共享
 - [✓] 物流轨迹过滤未来时间（2026-10-26）：`buildLogistics` 只返回当前时间之前已发生的轨迹（`addTraceIfPast`）
 - [✓] 工作台累计销售额/订单量改后端聚合（`/api/admin/report/headline`），新增本月运营数据报表 Excel 导出（`/api/admin/report/export`，2026-10-26，2026-10-27 由近 30 天改为本月）
-- [ ] 运营数据导出上线：部署新版 order-service + 上传新后台 `dist` + 清缓存，验证 xlsx 下载
-- [ ] 订阅消息上线：order-service / user-service 已部署；确认生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已 ALTER，小程序发行后验证推送
+- [ ] 运营数据导出上线：新版 order-service 已随 TCR 镜像部署；待上传新后台 `dist` + 清缓存 + 验证 xlsx 下载
+- [ ] 订阅消息上线：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，order/user 已随 TCR 部署；待小程序发行后验证推送
+- [ ] 后台管理端 `dist` 重新构建上传（sandboxVisitor、订单金额标签），否则沙箱复用不生效
 - [ ] 购物车加购校验上架状态（`ProductMapper.findById` 无 `listing_status` 过滤）
 - [ ] 购物车 5 接口端到端验证
 - [✓] 地址/购物车归属校验补齐：`AddressMapper.findById/update/deleteById`、`CartMapper.update` 全部加 `user_id` 条件（2026-10-24，用户不再走沙箱方案）
@@ -125,6 +126,7 @@
 - [✓] 小程序分包 + 图片后端化（2026-10-24）：主包保留 4 个 tabBar 页 + 我的子页（12 页），商品/搜索/订单/售后拆 4 个分包；`OrderCard`/`AfterSaleCard` 移到 `components`；删除 15M 的 `static/image`，商品图/轮播/分享图全部走后端
 - [✓] 生产部署（2026-10-24~26）：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）+ 宝塔 MySQL；`api.jiemids.com` / `www.jiemids.com` 经 Cloudflare + Nginx；后台沙箱/图片/来单 WebSocket、小程序发行已通；部署文件见 `deploy/`
 - [✓] AI 迁移上线（2026-10-26）：网关 `/api/agent/**` → `http://ai-service:8000`；线上 `/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）
+- [✓] 发布切 TCR 镜像（2026-10-28）：9 个仓库（8 Java + ai-service）；compose 加 `image:`；`deploy/release.sh` 支持构建/推送/回滚；服务器已切 `image:` + `--no-build`；首次 tag `20261028-3af36f5-dirty`
 - [ ] 分类图收尾：webp 已上传、生产库已改 `.webp`；待重建 product/user 容器 + 清 CF 缓存
 - [✓] 线上问题修复（2026-10-25）：小程序审核白屏（上传了 `dist/dev`，接口地址是 127.0.0.1 → 改传 `dist/build`）、分类接口 Redis 降级 + Redis 容器化、用户头像 http→https（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg（iOS 兼容）
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + 后台三个域名（request/uploadFile/downloadFile）

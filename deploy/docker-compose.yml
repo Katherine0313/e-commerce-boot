@@ -38,6 +38,7 @@ services:
       - my-net
 
   auth-service:
+    image: "${REGISTRY:-local}/auth-service:${TAG:-latest}"
     build: ./auth-service
     container_name: auth-service
     restart: always
@@ -50,6 +51,7 @@ services:
       - my-net
 
   shop-service:
+    image: "${REGISTRY:-local}/shop-service:${TAG:-latest}"
     build: ./shop-service
     container_name: shop-service
     restart: always
@@ -62,6 +64,7 @@ services:
       - my-net
 
   product-service:
+    image: "${REGISTRY:-local}/product-service:${TAG:-latest}"
     build: ./product-service
     container_name: product-service
     restart: always
@@ -79,6 +82,7 @@ services:
       - my-net
 
   order-service:
+    image: "${REGISTRY:-local}/order-service:${TAG:-latest}"
     build: ./order-service
     container_name: order-service
     restart: always
@@ -93,6 +97,7 @@ services:
       - my-net
 
   aftersale-service:
+    image: "${REGISTRY:-local}/aftersale-service:${TAG:-latest}"
     build: ./aftersale-service
     container_name: aftersale-service
     restart: always
@@ -105,6 +110,7 @@ services:
       - my-net
 
   user-service:
+    image: "${REGISTRY:-local}/user-service:${TAG:-latest}"
     build: ./user-service
     container_name: user-service
     restart: always
@@ -120,6 +126,7 @@ services:
       - my-net
 
   file-service:
+    image: "${REGISTRY:-local}/file-service:${TAG:-latest}"
     build: ./file-service
     container_name: file-service
     restart: always
@@ -133,6 +140,7 @@ services:
 
   # 导购机器人：Python FastAPI + LangGraph，网关按静态地址转发
   ai-service:
+    image: "${REGISTRY:-local}/ai-service:${TAG:-latest}"
     build: ./ai-service
     container_name: ai-service
     restart: always
@@ -143,6 +151,7 @@ services:
       - my-net
 
   gateway:
+    image: "${REGISTRY:-local}/gateway:${TAG:-latest}"
     build: ./gateway
     container_name: gateway
     restart: always

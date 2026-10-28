@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS `orders` (
     `user_id`        BIGINT        NOT NULL                COMMENT '下单用户 ID',
     `order_no`       VARCHAR(64)   NOT NULL                COMMENT '订单号（业务唯一，ORD+时间戳）',
     `is_deleted`     TINYINT       NOT NULL DEFAULT 0      COMMENT '软删除：1 已删除 0 正常',
-    `pay_amount`     DECIMAL(10,2) DEFAULT NULL            COMMENT '实付金额',
+    `pay_amount`     DECIMAL(10,2) DEFAULT NULL            COMMENT '订单金额（下单时 = 商品小计 + 保险；支付后即实付金额）',
     `pay_type`       VARCHAR(32)   DEFAULT NULL            COMMENT '支付方式：WeChat/Alipay/BankCard',
     `order_status`   TINYINT       NOT NULL DEFAULT 1      COMMENT '订单状态：1待付款 2待确认 3待发货 4已发货 5已完成 6已取消',
     `remark`         VARCHAR(512)  DEFAULT NULL            COMMENT '买家备注',
