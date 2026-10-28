@@ -73,7 +73,8 @@
 - [✓] 开沙箱 `POST /api/shops/sandbox`（15 张业务表 id+offset 克隆 + 签发 admin 令牌）
 - [✓] C 端多租户：user 加 shop_id，下单/支付/购物车/地址/来单提醒按 shopId 隔离
 - [✓] 克隆唯一键冲突修复（order_no/after_sale_no 加 `_s{shopId}` 后缀）
-- [ ] 沙箱过期回收（定时扫 `shops.expires_at`，调各服务清数据）
+- [✓] 沙箱过期回收（`cleanExpiredSandboxes` 每小时最多 20 个，启动即跑）
+- [✓] 沙箱按浏览器复用（`shops.visitor_key` + 前端 UUID，同一浏览器 24h 内重进不新建）
 - [ ] `templateGuard` 等价逻辑（禁写模板店）
 - [ ] 扫码进店/分享链接
 - **状态：** in_progress

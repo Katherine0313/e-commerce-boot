@@ -18,12 +18,21 @@ public interface ShopMapper {
     // 按 id 查店铺
     Shop findById(@Param("id") Long id);
 
+    // ===== 沙箱复用：同一访客 24 小时内重进时复用原店，不再克隆 =====
+
+    // 按访客标识查沙箱店（唯一键，最多一条；是否可复用由 Service 判断过期时间）
+    Shop findSandboxByVisitorKey(@Param("visitorKey") String visitorKey);
+
+    // 解绑某个店上的访客标识（过期店/脏数据店，给新店让出唯一键）
+    int clearVisitorKeyByShopId(@Param("shopId") Long shopId);
+
     // ===== 克隆模板店（shop_id=1）数据到沙箱店：id 和外键列加 offset，shop_id 换新 =====
     void cloneCategories(@Param("shopId") Long shopId, @Param("offset") Long offset);
     void cloneTags(@Param("shopId") Long shopId, @Param("offset") Long offset);
     void cloneProducts(@Param("shopId") Long shopId, @Param("offset") Long offset);
     void cloneStock(@Param("shopId") Long shopId, @Param("offset") Long offset);
-    void cloneAdmin(@Param("shopId") Long shopId, @Param("offset") Long offset);
+    void cloneAdmin(@Param("shopId") Long shopId, @Param("offset") Long offset,
+                    @Param("now") LocalDateTime now);
     void cloneUser(@Param("shopId") Long shopId, @Param("offset") Long offset);
     void cloneAddress(@Param("shopId") Long shopId, @Param("offset") Long offset);
     void cloneOrders(@Param("shopId") Long shopId, @Param("offset") Long offset);

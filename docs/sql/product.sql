@@ -27,8 +27,11 @@ CREATE TABLE IF NOT EXISTS `shops` (
     `is_template` TINYINT      NOT NULL DEFAULT 0      COMMENT '是否模板店：1 是 0 否',
     `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `expires_at`  DATETIME     DEFAULT NULL            COMMENT '过期时间（模板店永不过期，为 NULL）',
-    PRIMARY KEY (`id`)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '店铺（多租户沙箱）';
+    `visitor_key` VARCHAR(64)  CHARACTER SET utf8mb4 COLLATE utf8mb4_general_ci
+                               DEFAULT NULL            COMMENT '访客标识（沙箱复用键；模板店为 NULL）',
+    PRIMARY KEY (`id`),
+    UNIQUE KEY `uk_shops_visitor_key` (`visitor_key`)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '店铺（多租户沙箱）';
 
 -- ==================== 商品分类（自引用 parent_id 构成分类树） ====================
 CREATE TABLE IF NOT EXISTS `categories` (

@@ -20,4 +20,6 @@ public class SandboxVO {
     private AdminBriefVO user;
     @Schema(description = "沙箱店信息")
     private ShopVO shop;
+    @Schema(description = "是否复用了该浏览器未过期的体验店铺：true=复用 false=新建")
+    private boolean restored;
 }

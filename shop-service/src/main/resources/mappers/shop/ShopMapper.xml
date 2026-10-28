@@ -4,10 +4,10 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="ecommerce.shop.mapper.ShopMapper">
 
-    <!-- 插入沙箱店（自增 id 回填） -->
+    <!-- 插入沙箱店（自增 id 回填；visitor_key 可为 NULL，兼容旧客户端） -->
     <insert id="insertShop" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO shops (name, is_template, create_time, expires_at)
-        VALUES (#{name}, #{isTemplate}, #{createTime}, #{expiresAt})
+        INSERT INTO shops (name, is_template, create_time, expires_at, visitor_key)
+        VALUES (#{name}, #{isTemplate}, #{createTime}, #{expiresAt}, #{visitorKey})
     </insert>
 
     <select id="findById" resultType="ecommerce.shop.entity.Shop">
@@ -15,6 +15,21 @@
         FROM shops
         WHERE id = #{id}
     </select>
+
+    <!-- 复用：按访客标识查沙箱店（唯一键最多一条；是否可复用由 Service 判断过期时间） -->
+    <select id="findSandboxByVisitorKey" resultType="ecommerce.shop.entity.Shop">
+        SELECT id, name, is_template, create_time, expires_at, visitor_key
+        FROM shops
+        WHERE visitor_key = #{visitorKey}
+          AND is_template = 0
+          AND expires_at IS NOT NULL
+        LIMIT 1
+    </select>
+
+    <!-- 解绑过期店/脏数据店上的访客标识，给新店让出唯一键 -->
+    <update id="clearVisitorKeyByShopId">
+        UPDATE shops SET visitor_key = NULL WHERE id = #{shopId} AND is_template = 0
+    </update>
 
     <!-- 沙箱管理员：克隆出来的 admin，按最小 id 取（模板店 admin 通常 id 最小） -->
     <select id="findSandboxAdmin" resultType="ecommerce.shop.entity.Admin">
@@ -61,9 +76,10 @@
         FROM stock WHERE shop_id = 1
     </insert>
 
+    <!-- 沙箱 admin 是本次新开的账号：时间用开店时刻，不能复制模板店管理员的 create_time -->
     <insert id="cloneAdmin">
         INSERT INTO admin (id, username, password, name, phone, role, shop_id, status, create_time, update_time)
-        SELECT id + #{offset}, CONCAT(username, '_s', #{shopId}), MD5(RAND()), name, phone, role, #{shopId}, status, create_time, update_time
+        SELECT id + #{offset}, CONCAT(username, '_', #{shopId}), MD5(RAND()), name, phone, role, #{shopId}, status, #{now}, #{now}
         FROM admin WHERE shop_id = 1
     </insert>
 

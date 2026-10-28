@@ -22,4 +22,6 @@ public class Shop {
     private LocalDateTime createTime;
     /** 过期时间（沙箱店 24 小时；模板店 NULL） */
     private LocalDateTime expiresAt;
+    /** 访客标识（前端 localStorage 的 UUID；仅沙箱店使用，模板店/历史店为 NULL） */
+    private String visitorKey;
 }
