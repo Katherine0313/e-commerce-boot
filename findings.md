@@ -285,7 +285,7 @@ ecommerce
 
 ## 多租户沙箱（2026-10-20）
 
-- **开沙箱**：`POST /api/shops/sandbox`（公开，免登录白名单），shops 插行 → 15 张业务表按「id + offset」克隆模板店数据（offset = shopId × 100 万，MySQL 全局自增显式指定 id 后 AUTO_INCREMENT 跳大，无害）→ 签发沙箱店 admin 令牌。admin 账号也克隆：username 加 `_{shopId}` 后缀（如 `admin_16`）、password 随机（一键体验直接签 token，不走密码登录）。
+- **开沙箱**：`POST /api/admin/shops/sandbox`（2026-10-28 起需 admin 令牌；前端先走后台账号「手机号 + 验证码」登录，再开沙箱；原 `/api/shops/sandbox` 已删除并移出免登录白名单），shops 插行 → 15 张业务表按「id + offset」克隆模板店数据（offset = shopId × 100 万，MySQL 全局自增显式指定 id 后 AUTO_INCREMENT 跳大，无害）→ 签发沙箱店 admin 令牌。admin 账号也克隆：username 加 `_{shopId}` 后缀（如 `admin_16`）、password 随机（一键体验直接签 token，不走密码登录）。
 - **克隆唯一键冲突（2026-10-20 修复）**：`orders` 表有 `uk_orders_order_no` 唯一键，`cloneOrders`/`cloneAfterSales` 的 order_no/after_sale_no 原样复制会撞唯一键 → 开沙箱 500。改成 `CONCAT(order_no, '_s', shopId)` 后缀（与 cloneTags.code、cloneAdmin.username 同一套做法）。模板店一开始没订单时不暴露，有订单后才炸。
 - **C 端多租户**：`user` 表加 `shop_id`，唯一键 `uk_openid` → `uk_shop_openid (shop_id, openid)`；C 端 user 令牌签 shopId（`JwtUtil.generateUserToken(userId, shopId)`），`JwtInterceptor` 已通用解析 shopId 写入 `UserContext`（不用改）；order-service C 端下单/支付/购物车/地址从写死模板店改成 `UserContext.getShopId()`。
 - **小程序端**：`SHOP_ID` 常量（默认 1）登录传 shopId；扫码进店/分享链接暂不做。
@@ -617,6 +617,14 @@ ecommerce
 - tag 默认 `日期-git短SHA`，工作区脏加 `-dirty`
 - 部署前预检：SSH 免密 + 服务器 compose 含 `REGISTRY`，不满足直接退出
 
+### release-web.sh（后台管理端前端）
+后台前端是静态站点，不走 TCR，单独用 `deploy/release-web.sh` 发布，与后端 `release.sh` 放在同一目录。
+- 流程：`../e-commerce` 执行 `npm run build` → `tar` 上传到服务器 `/tmp/admin-dist` → `rsync -a --delete` 到 `/www/wwwroot/jiemids.com`
+- 站点目录保留 `.env`、`.htaccess`、`.user.ini`、`.well-known`、`public`，只替换 `index.html` / `assets` / `image` / `region`
+- 发布前 `rsync --link-dest` 硬链接快照到 `jiemids.com.bak.<时间戳>`，默认保留 3 份；`.user.ini` 被宝塔 `chattr +i`，不能硬链接，需排除
+- 常用：`./deploy/release-web.sh`、`--no-build`、`--dry-run`、`--rollback`
+- 静态文件不需要 reload Nginx；`assets` 带 hash，若 `index.html` 被 Cloudflare 缓存需手动清一次
+
 ### nacos / redis / upload
 - `nacos`、`redis` 用官方镜像，不需要 TCR 仓库；服务器已缓存
 - `upload` 是宿主机目录 `/www/java/upload`，bind mount 到 product/user，不是镜像，需单独备份
@@ -628,7 +636,7 @@ ecommerce
 - 服务器 `docker pull` 401：`docker login` 是按 Linux 用户保存的，执行 compose 的 SSH 用户必须登录过 TCR
 - Windows 上传 compose 带 CRLF，和服务器 LF 文件 diff 会整文件变化：用 `diff --strip-trailing-cr` 或 `sed -i 's/\r$//'`
 - 服务器 compose 已备份：`/www/java/docker-compose.yml.bak.<时间戳>`
-- 后台管理端 `dist` 尚未随本次发布更新；沙箱复用的 `X-Sandbox-Visitor-Key` 和订单金额标签需要重新 `npm run build` 上传后才生效
+- 后台管理端 `dist` 不走 TCR，用 `deploy/release-web.sh` 单独发布；沙箱复用的 `X-Sandbox-Visitor-Key` 和订单金额标签需要重新 build 上传后才生效
 
 ## 运营数据报表导出（2026-10-26）
 

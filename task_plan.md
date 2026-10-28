@@ -71,7 +71,7 @@
 - **状态：** in_progress
 
 ### 阶段 2：shop-service（多租户基础设施）
-- [✓] 开沙箱 `POST /api/shops/sandbox`（15 张业务表 id+offset 克隆 + 签发 admin 令牌）
+- [✓] 开沙箱 `POST /api/admin/shops/sandbox`（2026-10-28 起需 admin 令牌：先后台账号手机号验证码登录；15 张业务表 id+offset 克隆 + 签发 admin 令牌）
 - [✓] C 端多租户：user 加 shop_id，下单/支付/购物车/地址/来单提醒按 shopId 隔离
 - [✓] 克隆唯一键冲突修复（order_no/after_sale_no 加 `_s{shopId}` 后缀）
 - [✓] 沙箱过期回收（`cleanExpiredSandboxes` 每小时最多 20 个，启动即跑）
@@ -128,6 +128,7 @@
 - [✓] 生产部署（2026-10-24~26）：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）+ 宝塔 MySQL；`api.jiemids.com` / `www.jiemids.com` 经 Cloudflare + Nginx；后台沙箱/图片/来单 WebSocket、小程序发行已通；部署文件见 `deploy/`
 - [✓] AI 迁移上线（2026-10-26）：网关 `/api/agent/**` → `http://ai-service:8000`；线上 `/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）
 - [✓] 发布切 TCR 镜像（2026-10-28）：9 个仓库（8 Java + ai-service）；compose 加 `image:`；`deploy/release.sh` 支持构建/推送/回滚；服务器已切 `image:` + `--no-build`；首次 tag `20261028-3af36f5-dirty`
+- [✓] 后台管理端一键发布（2026-10-28）：`deploy/release-web.sh` 构建 `../e-commerce` → rsync 到 `/www/wwwroot/jiemids.com`，保留运行时文件，支持 `--no-build` / `--dry-run` / `--rollback`
 - [ ] 分类图收尾：webp 已上传、生产库已改 `.webp`；待重建 product/user 容器 + 清 CF 缓存
 - [✓] 线上问题修复（2026-10-25）：小程序审核白屏（上传了 `dist/dev`，接口地址是 127.0.0.1 → 改传 `dist/build`）、分类接口 Redis 降级 + Redis 容器化、用户头像 http→https（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg（iOS 兼容）
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + 后台三个域名（request/uploadFile/downloadFile）

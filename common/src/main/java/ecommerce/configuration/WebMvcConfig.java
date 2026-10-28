@@ -37,8 +37,6 @@ public class WebMvcConfig implements WebMvcConfigurer {
             // 首页聚合（分类 + 猜你喜欢），只读免登录
             "/api/home",
             "/api/tags", "/api/tags/**",
-            // 一键体验开沙箱（公开接口，游客无需登录即可开体验店）
-            "/api/shops/sandbox",
             // 售后状态/原因/类型字典（公共只读，后台与 C 端共用，免登录）
             "/api/after-sales/status-constants"
     );

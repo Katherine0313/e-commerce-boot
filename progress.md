@@ -5,7 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-28 沙箱按浏览器复用（`shops.visitor_key` + 前端 UUID + 唯一索引，退出登录/401 不清 key，24h 内复用原店）；admin 用户名改 `admin_{shopId}`、`create_time` 改开店时间；订单金额注释/标签统一；软著三件套（TEST、源程序文档、用户手册）完成；发布切腾讯云 TCR 镜像（`ccr.ccs.tencentyun.com/jiemi-ecommerce`，9 个仓库，`deploy/release.sh` 一键发布/回滚），服务器 compose 已切 `image:` + `--no-build`，线上 9 容器 Up，网关直连与公网接口均 200。同日小程序提审被拒（VIP 入口点击无响应），新增 `utils/features.js` 功能开关，隐藏 VIP/优惠券/积分与用户协议/隐私政策死链，「联系我们」改跳已有客服页。
+  2026-10-28 沙箱按浏览器复用（`shops.visitor_key` + 前端 UUID + 唯一索引，退出登录/401 不清 key，24h 内复用原店）；admin 用户名改 `admin_{shopId}`、`create_time` 改开店时间；订单金额注释/标签统一；软著三件套（TEST、源程序文档、用户手册）完成；发布切腾讯云 TCR 镜像（`ccr.ccs.tencentyun.com/jiemi-ecommerce`，9 个仓库，`deploy/release.sh` 一键发布/回滚），服务器 compose 已切 `image:` + `--no-build`，线上 9 容器 Up，网关直连与公网接口均 200。同日小程序提审被拒（VIP 入口点击无响应），新增 `utils/features.js` 功能开关，隐藏 VIP/优惠券/积分与用户协议/隐私政策死链，「联系我们」改跳已有客服页；新增 `deploy/release-web.sh`，后台管理端前端一条命令发布（npm build + rsync + 备份/回滚）。
   2026-10-27 运营报表导出改为模板式（黑马风格：Controller 3 行 + Service 读 `template/运营报表模板.xlsx` 写 response，删除旧 `OperationReportExcelWriter`）；同日运营报表统计口径由近 30 天改为本月（模板扩到 31 行，本月未过完时隐藏多余空行）；沙箱治理：user 克隆脱敏（假 openid、name 脱敏、phone/avatar 置 NULL）+ shop-service 每小时回收过期沙箱店 + 沙箱 token 24h 与店铺同寿命、前台到期强制登出。
   2026-10-26 AI 迁移与生产部署完成：删除 Java `ai-agent-service` 与 Spring AI BOM，新增 Python `recommender-python`（FastAPI + LangGraph）导购机器人，生产容器 `ai-service` 已上线；网关 `/api/agent/**` 静态转发（本地默认 `127.0.0.1:8000`，Docker 由 `AI_SERVICE_URL` 覆盖）。第一阶段能力为多轮对话 + 商品问答（直连 MySQL 只读），并加 JWT 登录校验 + 每用户限流 + 并发/超时保护。线上验证：`/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）。物流轨迹已过滤未来时间；分类图 webp 已上传并改库，待重建 product/user 容器 + 清 CF 缓存。工作台顶部累计销售额/订单量已改为后端聚合（`/api/admin/report/headline`），近 30 天运营数据报表 Excel 导出已实现（`/api/admin/report/export`），Excel 结构测试和后台前端构建均通过，待部署 order-service + 上传新 dist 验证。
   2026-10-25 线上问题修复完成：小程序审核白屏（上传了 `dist/dev`，接口地址 127.0.0.1 → 改传 `dist/build`）、Redis 改为 Docker 容器 + 分类接口降级（本机 8～12ms）、用户头像 `http→https`（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg；**订单未支付一次性订阅消息代码已完成，2026-10-26 已部署 order/user，生产库 ALTER 待确认**。生产：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）、宝塔 MySQL、Cloudflare + Nginx（`api.jiemids.com` 小程序 API / `www.jiemids.com` 后台前端）；部署文件在 `deploy/` 和根目录 `nginx`。微信审核风险和 Nacos/旧 Node 清理见「未完成事项」。
@@ -48,7 +48,7 @@
   - Spring Cloud Gateway 5.x 默认移除 `X-Forwarded-*`，绝对 URL 的协议不能依赖它；对外 https 场景在 `UrlUtil` 兜底
 
 - **我做了什么？（近期）**
-  - 2026-10-28：沙箱复用（visitor_key + 前端 UUID）、admin 用户名/时间修复、订单金额文案统一、软著材料、TCR 镜像发布（9 仓库 + release.sh，服务器已切 image + --no-build）、小程序提审驳回修复（未开通功能统一用 `utils/features.js` 开关隐藏）
+  - 2026-10-28：沙箱复用（visitor_key + 前端 UUID）、admin 用户名/时间修复、订单金额文案统一、软著材料、TCR 镜像发布（9 仓库 + release.sh，服务器已切 image + --no-build）、小程序提审驳回修复（未开通功能统一用 `utils/features.js` 开关隐藏）、后台前端一键发布 `release-web.sh`
   - 2026-10-27：沙箱过期强制登录（沙箱 token TTL 跟店铺 24h、前端按 `expiresAt` 定时踢人 + 路由守卫校验 JWT `exp`）；运营报表导出改模板式（openpyxl 生成 `template/运营报表模板.xlsx`，预置 30 行样式）+ 沙箱治理（克隆 user 脱敏、过期回收定时任务、19 张表按外键顺序清理）
   - 2026-10-26：AI 迁移到 Python 并上线（FastAPI + LangGraph + JWT/限流 + 并发/超时）、删除 Spring AI 与 Java AI 模块；物流轨迹过滤未来时间；生产全量重建（8 个 Java 服务 + `ai-service`）；分类图 webp 上传与生产库更新；工作台累计销售额/订单量改后端聚合，新增近 30 天运营数据报表 Excel 导出
   - 2026-10-25：小程序首页加载优化（分类/商品/详情图批量压缩到 `upload/image/opt/`，`WebMvcConfig` 优先读 opt、缺失回落原图；首页接口聚合为 `/api/home`；推荐结果 Redis 缓存 60s + Python 超时降至 500ms；登录/购物车角标延后到首屏后 + 本地缓存；新增 `/api/cart/count` 轻量角标接口；分类面板骨架屏）

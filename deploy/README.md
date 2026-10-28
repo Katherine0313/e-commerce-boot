@@ -276,3 +276,22 @@ SSH 到服务器 `docker compose pull` / `up -d --no-build` → 打印容器状�
 - 镜像仓库不可用时，回退到第 1 节的 jar 上传方式。
 - 建议在 TCR 配置镜像保留策略；服务器定期执行 `docker image prune -f`。
 - 本机是 ARM 架构 Windows 时，构建 Linux/amd64 镜像需设置 `PLATFORM=linux/amd64`。
+
+## 12. 后台管理端发布（www.jiemids.com）
+
+一条命令完成构建 + 上传 + 替换：
+
+```bash
+./deploy/release-web.sh
+```
+
+- 站点目录默认 `/www/wwwroot/jiemids.com`，SSH 别名默认 `ecommerce`；可用 `WEB_ROOT`、`DEPLOY_HOST` 覆盖
+- 前端目录默认 `../e-commerce`（可用 `WEB_DIR` 覆盖），脚本先执行 `npm run build`
+- 上传后在服务器用 `rsync -a --delete` 同步 `index.html` / `assets` / `image` / `region`，
+  保留 `.env`、`.htaccess`、`.user.ini`、`.well-known`、`public`
+- 每次发布前用 `rsync --link-dest` 做硬链接快照到 `jiemids.com.bak.<时间戳>`（排除不可变的 `.user.ini`），默认保留 3 份
+- 回滚：`./deploy/release-web.sh --rollback`（同步最近一份备份，不重新构建）
+- 跳过构建：`--no-build`；只打印命令：`--dry-run`
+- 静态文件不需要 reload Nginx；`assets` 文件名带 hash，不会命中旧缓存；若 `index.html` 被 Cloudflare 缓存，到控制台清一次缓存
+
+前置条件：本机能 `ssh ecommerce true` 免密登录，且 `../e-commerce/node_modules` 已安装。

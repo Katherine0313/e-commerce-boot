@@ -119,7 +119,7 @@ public interface OrderMapper {
                                                 @Param("start") LocalDateTime start,
                                                 @Param("end") LocalDateTime end);
 
-    // 当日提交且支付成功过的订单数（同批口径，pay_at 非空；后续退款不扣）
+    // 当日支付成功过的订单数（同批口径，pay_at 非空；后续退款不扣）
     List<Map<String, Object>> countCreatedPaidByDay(@Param("shopId") Long shopId,
                                                     @Param("start") LocalDateTime start,
                                                     @Param("end") LocalDateTime end);
