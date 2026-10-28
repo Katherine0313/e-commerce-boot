@@ -729,10 +729,10 @@ ecommerce
 - 网站根目录不能放 `.env`；删掉，Nginx 也要 deny。
 
 ### 4. 待办
-- 微信审核：模拟支付、隐私政策/用户协议、AI/UGC 内容安全、VIP/优惠券占位。
+- 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分/协议死链已于 2026-10-28 隐藏）。
 - 生产安全：安全组关闭 8848/9848/9849/18080/9001~9008；停旧 Node 3000；删网站根 `.env`。
-- 沙箱：过期回收、`templateGuard`。
-- Cloudflare AMS 延迟；正式考虑 DNS-only + Let's Encrypt。
+- 沙箱：`templateGuard`（过期回收 2026-10-27 已完成）。
+- Cloudflare 跨境延迟（HKG）；正式考虑 DNS-only + Let's Encrypt。
 
 ## 线上问题修复（2026-10-25）
 
@@ -785,3 +785,22 @@ ecommerce
 3. 小程序发行（confirm.vue / pending-pay.vue）
 - 测试可临时设 `WECHAT_NOTIFY_BEFORE_MINUTES=29`（下单后 1 分钟触发），验证完改回 10。
 - 一次性订阅每测一次都要重新授权；`amount7` 若报 47003，尝试加币种符号 `¥`。
+
+## 小程序提审驳回：未开通功能隐藏（2026-10-28）
+
+### 结论
+提审（2026-10-28 12:19:56）被拒，原因：「你的小程序服务【VIP】功能点击无响应，无法体验完整流程，请修复完善后再提交代码审核」。
+VIP/优惠券/积分/用户协议/隐私政策当时都是 UI 占位，点击只弹「功能开发中」，审核按「不可用功能」处理。
+处理原则：**未开通的功能不露出入口**，不是删代码，而是统一用开关隐藏；上线后改 `true` 即恢复。
+
+### 实现（`e-commerce-uniapp`）
+- 新增 `utils/features.js`：`vip / coupon / points / agreement / privacy` 五个开关，当前全部 `false`。
+- `pages/my/my.vue`：VIP 金卡加 `v-if="features.vip"`；优惠券/积分 `url` 为空，由 `visibleStats` 过滤，卡片里只剩专属客服。
+- `pages/my/about-us.vue`：用户协议/隐私政策按开关隐藏；「联系我们」改跳已有 `pages/my/customer-service`，不再弹「客服接入中」。
+- `pages/order/review.vue`：隐藏「晒单最多可得 1 元优惠券」提示（优惠券未开通）。
+- 已核对所有 `url: '/pages/...'` 跳转目标都在 `pages.json` 中，无空路由。
+
+### 注意
+- 占位 toast 不能替代隐藏：审核员看到入口就会点，点完没有完整流程即判「点击无响应」。
+- 协议只是隐藏死链，微信后台「用户隐私保护指引」仍需配置；正式上线前最好补真实的用户协议/隐私政策页面。
+- 恢复入口只改 `utils/features.js`，页面与样式代码都保留。

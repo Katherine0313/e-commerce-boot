@@ -21,7 +21,7 @@
 
 | 服务 | 职责 | 数据/表 | 端口 |
 |------|------|---------|------|
-| `gateway` | 路由、CORS、JWT 鉴权、`X-Shop-Id` 透传、限流 | 无 | 8080 |
+| `gateway` | 路由、CORS、静态资源与 Swagger 聚合；JWT 鉴权由下游 `JwtInterceptor` 承担 | 无 | 8080 |
 | `auth-service` | 管理员登录/登出、JWT 签发、RBAC | admin/role/permission | 9001 |
 | `shop-service` | 多租户沙箱：开沙箱、克隆模板店、过期回收 | shops + 模板店数据源 | 9002 |
 | `product-service` | 商品/分类/标签/参数/库存/促销 | products/categories/tags/parameters/stock/business_onsale | 9003 |
@@ -66,7 +66,8 @@
 - [✓] gateway CORS（WebFlux `CorsWebFilter` + 去重 `GlobalFilter`）
 - [✓] 后台管理端登录端到端跑通
 - [ ] RBAC 权限表（role/permission）
-- [ ] gateway JWT 校验过滤器、`X-Shop-Id` 透传、限流
+- [✓] JWT 鉴权由下游各服务 `JwtInterceptor` 从 token 解析（网关不做过滤器、不传 `X-Shop-Id`）
+- [ ] 网关限流（并入阶段 10）
 - **状态：** in_progress
 
 ### 阶段 2：shop-service（多租户基础设施）
@@ -130,7 +131,7 @@
 - [ ] 分类图收尾：webp 已上传、生产库已改 `.webp`；待重建 product/user 容器 + 清 CF 缓存
 - [✓] 线上问题修复（2026-10-25）：小程序审核白屏（上传了 `dist/dev`，接口地址是 127.0.0.1 → 改传 `dist/build`）、分类接口 Redis 降级 + Redis 容器化、用户头像 http→https（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg（iOS 兼容）
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + 后台三个域名（request/uploadFile/downloadFile）
-- [ ] 微信审核：模拟支付、隐私政策/用户协议、AI/UGC 内容安全、VIP/优惠券占位
+- [ ] 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分/协议死链已于 2026-10-28 用功能开关隐藏）
 - [ ] 端到端跑通商品/订单/售后全链路（含商家确认收款/发货）
 - **状态：** in_progress
 
@@ -185,7 +186,7 @@
 | 超时未支付订单自动取消（30min 恢复库存 + 改取消） | order-service | `fixedDelay=60000` | ✅ 已实现 |
 | 订单超时自动确认收货（发货满 7 天，`sign_status=auto`） | order-service | `fixedDelay=60000` | ✅ 已实现 |
 | 订单未支付提醒（失效前 10 分钟，一次性订阅消息） | order-service | `fixedDelay=60000` | ✅ 已实现（待上线） |
-| 沙箱过期回收（扫 `shops.expires_at`） | shop-service | 每小时 | ⏳ 待做（阶段 2） |
+| 沙箱过期回收（扫 `shops.expires_at`） | shop-service | 每小时 | ✅ 已实现（2026-10-27） |
 | 定时下架过期活动商品 | product-service | 每天 | ⏳ 待做（依赖 `business_onsale`） |
 
 ### 档 2：需先建表 / 接第三方
