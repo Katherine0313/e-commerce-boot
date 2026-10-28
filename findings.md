@@ -608,7 +608,7 @@ ecommerce
 
 ### release.sh
 - 位置 `deploy/release.sh`；白名单 8 Java + `ai-service`，`common` 不能部署
-- 流程：Maven（只 Java）→ `docker build`（Java context=`<svc>/target`；ai context=`../recommender-python`）→ `docker push` → SSH `docker compose pull/up --no-build` → `docker inspect` 状态
+- 流程：Maven（只 Java）→ `docker build`（Java context=`<svc>/target`；ai context=`../recommender-python`）→ `docker push` → SSH `docker pull <目标镜像>` → `docker compose -f docker-compose.yml up -d --no-build --no-deps <svc>` → `docker inspect` 状态 → 重新生成 `docker-compose.override.yml`
 - 常用：
   - `./deploy/release.sh all`
   - `./deploy/release.sh shop-service`
@@ -624,6 +624,14 @@ ecommerce
 - 发布前 `rsync --link-dest` 硬链接快照到 `jiemids.com.bak.<时间戳>`，默认保留 3 份；`.user.ini` 被宝塔 `chattr +i`，不能硬链接，需排除
 - 常用：`./deploy/release-web.sh`、`--no-build`、`--dry-run`、`--rollback`
 - 静态文件不需要 reload Nginx；`assets` 带 hash，若 `index.html` 被 Cloudflare 缓存需手动清一次
+
+### 多服务 tag 相互牵连（2026-10-28 修复）
+- 现象：单服务发布生成新 tag 后，执行全量 `docker compose up -d` 报 `No such image ... ai-service:<新tag>`。
+- 原因：compose 9 个服务共用 `${TAG}`，只有被发布的服务有新 tag，其它服务没发过。
+- 修复：
+  1. `docker-compose.override.yml` 由 `release.sh` 从运行中的容器自动生成，把每个服务固定到自己的镜像 tag；全量启动不带 `TAG`，直接 `docker compose up -d`。
+  2. 部署命令改为 `docker pull` 目标镜像 + `up --no-deps`：`gateway` 的 `depends_on` 包含所有服务，不带 `--no-deps` 会把依赖也按新 tag 去拉。
+  3. `TAG` 只内联传给单服务部署，不再常驻服务器 `.env`；override 每次发布后重新生成。
 
 ### nacos / redis / upload
 - `nacos`、`redis` 用官方镜像，不需要 TCR 仓库；服务器已缓存
@@ -812,3 +820,12 @@ VIP/优惠券/积分/用户协议/隐私政策当时都是 UI 占位，点击只
 - 占位 toast 不能替代隐藏：审核员看到入口就会点，点完没有完整流程即判「点击无响应」。
 - 协议只是隐藏死链，微信后台「用户隐私保护指引」仍需配置；正式上线前最好补真实的用户协议/隐私政策页面。
 - 恢复入口只改 `utils/features.js`，页面与样式代码都保留。
+
+## 一键体验改为手机号验证码鉴权（2026-10-28）
+
+- 原 `POST /api/shops/sandbox` 是公开接口（免登录白名单），游客不带凭证就能开沙箱店。
+- 改为 `POST /api/admin/shops/sandbox`，必须先通过后台账号「手机号 + 验证码」登录拿到 admin 令牌：
+  前端先调 `/api/auth/phone-login` 校验验证码，再带令牌开沙箱，成功后换成沙箱店令牌。
+- 后端：删除公开的 `ShopController`；方法移到 `AdminShopController`；`WebMvcConfig` 免登录白名单移除该路径；网关只保留 `/api/admin/shops/**` 路由。
+- 前端：`createSandbox` 改新路径；一键体验按钮改「一键体验（手机验证）」，未填手机号/验证码会提示并切到手机号 Tab；失败清理中间态 token。
+- 生产限制：短信未接真实通道（`SMS_DEV_MODE` 默认 true），只有演示号 `13800138000` 能收到/回显验证码；要真正对外需接阿里云/腾讯云短信，并设置 `SMS_TEST_PHONE=` 关掉演示号。

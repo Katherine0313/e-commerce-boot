@@ -76,6 +76,8 @@
 - [✓] 克隆唯一键冲突修复（order_no/after_sale_no 加 `_s{shopId}` 后缀）
 - [✓] 沙箱过期回收（`cleanExpiredSandboxes` 每小时最多 20 个，启动即跑）
 - [✓] 沙箱按浏览器复用（`shops.visitor_key` + 前端 UUID，同一浏览器 24h 内重进不新建）
+- [✓] 开沙箱改为 `POST /api/admin/shops/sandbox`（2026-10-28）：需 admin 令牌，前端先走后台账号手机号验证码登录；原公开接口已删除
+- [ ] 短信服务商：手机号登录 + 一键体验目前仅演示号能收码，待接阿里云/腾讯云短信并关闭 `SMS_TEST_PHONE`
 - [ ] `templateGuard` 等价逻辑（禁写模板店）
 - [ ] 扫码进店/分享链接
 - **状态：** in_progress

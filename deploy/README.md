@@ -233,20 +233,22 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
    scp deploy/docker-compose.yml <用户>@<服务器>:/www/java/docker-compose.yml
    ```
 
-6. 服务器 `.env` 补两行（手动执行 compose 时需要；`release.sh` 会自动通过环境变量传入）：
+6. 服务器 `.env` 补一行（`TAG` 由 `release.sh` 每次内联传入，不用常驻）：
 
    ```
    REGISTRY=ccr.ccs.tencentyun.com/jiemi-ecommerce
-   TAG=20261028-abc1234
    ```
 
-7. 首次切换到镜像方式（服务器）：
+7. 首次切换到镜像方式（服务器，9 个镜像用同一个 tag 时）：
 
    ```bash
    cd /www/java
-   docker compose pull
-   docker compose up -d --no-build
+   TAG=20261028-abc1234 docker compose pull
+   TAG=20261028-abc1234 docker compose up -d --no-build
    ```
+
+   之后跑一次 `./deploy/release.sh` 会生成 `docker-compose.override.yml`，把每个服务钉在当前运行的镜像上；
+   以后全量启动直接 `docker compose up -d` 即可，**不要带新的 TAG**。
 
 ### 日常发布
 
@@ -260,7 +262,11 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 ```
 
 脚本流程：Maven 打包 → `docker build`（context 用 `<服务>/target`）→ `docker push` →
-SSH 到服务器 `docker compose pull` / `up -d --no-build` → 打印容器状态。
+SSH 到服务器 `docker pull <目标镜像>` → `docker compose -f docker-compose.yml up -d --no-build --no-deps <服务>`
+→ 打印容器状态 → 重新生成 `docker-compose.override.yml`。
+
+`--no-deps` 是必需的：`gateway` 的 `depends_on` 包含所有服务，不带它会把依赖也按新 tag 去拉，
+而其它服务并没有发布这个 tag，就会报 `No such image`。
 
 ### 回滚
 
@@ -270,6 +276,8 @@ SSH 到服务器 `docker compose pull` / `up -d --no-build` → 打印容器状�
 
 ### 注意
 
+- **每个服务的镜像 tag 是独立固定的**，记录在服务器 `/www/java/docker-compose.override.yml`（由 `release.sh` 从运行中的容器自动生成）。单服务发布只更新自己的 tag，其它服务不受影响。
+- 全量启动用 `docker compose up -d`（不带 `TAG`），会按 override 里固定的 tag 启动。**不要用 `TAG=<新tag> docker compose up -d` 做全量操作**，那会要求所有服务都有这个 tag。
 - compose 里每个服务同时有 `image:` 和 `build:`；服务器部署必须带 `--no-build`，否则可能触发本地构建。
 - 未配置 `REGISTRY` 时镜像名默认是 `local/...`，只适合服务器本地 `docker compose build`；走 TCR 必须配置 `REGISTRY`。
 - `ai-service` 是 Python 服务，`release.sh` 会用 `../recommender-python/Dockerfile` 构建；目录不同时设置 `AI_SERVICE_DIR`。

@@ -151,6 +151,30 @@ run() {
   fi
 }
 
+# 把每个服务固定到当前运行的镜像 tag，写进服务器 docker-compose.override.yml。
+# 之后直接 docker compose up -d（不带 TAG）也会按各自镜像启动，不会拿全局 TAG 去拉没发布过的服务。
+sync_override() {
+  if [[ $DRY_RUN -eq 1 ]]; then
+    echo "[dry-run] ssh $SERVER '重新生成 $REMOTE_BASE/docker-compose.override.yml'"
+    return
+  fi
+  echo "==> 同步 docker-compose.override.yml（固定各服务当前镜像）"
+  ssh "$SERVER" "cd '$REMOTE_BASE' && bash -s" <<'REMOTE_SCRIPT'
+set -e
+{
+  echo '# 由 deploy/release.sh 自动生成：把每个服务固定到当前运行的镜像 tag'
+  echo '# 目的：单服务发布后，直接 docker compose up -d 不会拿全局 TAG 去拉其它服务'
+  echo 'services:'
+  for svc in auth-service shop-service product-service order-service aftersale-service user-service file-service ai-service gateway; do
+    img=$(docker inspect -f '{{.Config.Image}}' "$svc" 2>/dev/null || true)
+    if [ -n "$img" ]; then
+      printf '  %s:\n    image: %s\n' "$svc" "$img"
+    fi
+  done
+} > docker-compose.override.yml
+REMOTE_SCRIPT
+}
+
 MVN="mvn"
 if [[ -x "$ROOT/mvnw" ]]; then
   MVN="$ROOT/mvnw"
@@ -209,7 +233,9 @@ fi
 
 for svc in "${SERVICES[@]}"; do
   echo "==> 部署 $svc (TAG=$TAG)"
-  REMOTE_CMD="cd '$REMOTE_BASE' && REGISTRY='$REGISTRY' TAG='$TAG' docker compose pull '$svc' && REGISTRY='$REGISTRY' TAG='$TAG' docker compose up -d --no-build '$svc'"
+  # 只 pull 目标镜像；--no-deps 防止 gateway 的 depends_on 带着其它服务按新 tag 去拉
+  # -f docker-compose.yml：部署时只认 TAG，不吃 override 里固定的旧镜像
+  REMOTE_CMD="cd '$REMOTE_BASE' && docker pull '$REGISTRY/$svc:$TAG' && REGISTRY='$REGISTRY' TAG='$TAG' docker compose -f docker-compose.yml up -d --no-build --no-deps '$svc'"
   run ssh "$SERVER" "$REMOTE_CMD"
   if [[ $DRY_RUN -eq 0 ]]; then
     sleep 2
@@ -220,6 +246,8 @@ for svc in "${SERVICES[@]}"; do
       echo "    警告: 没查到 $svc 容器，请到服务器执行 docker logs $svc 查看" >&2
     fi
   fi
+  # 每部署成功一个就落一次 override：后续服务失败也不会让已发布的版本在下次全量 up 时回退
+  sync_override
 done
 
 echo "==> 完成"
