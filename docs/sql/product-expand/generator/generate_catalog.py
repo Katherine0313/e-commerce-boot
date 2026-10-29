@@ -157,11 +157,224 @@ LEAVES = {
 }
 
 
+TYPE_KEYWORDS = {
+    "5G手机": ["手机"], "游戏笔记本": ["笔记本", "电脑"], "商务笔记本": ["笔记本", "电脑"],
+    "轻薄笔记本": ["笔记本", "电脑"], "平板电脑": ["平板"], "头戴式耳机": ["耳机"],
+    "真无线蓝牙耳机": ["耳机"], "蓝牙音箱": ["音箱"], "智能手表": ["手表"], "运动手表": ["手表"],
+    "数码相机": ["相机"], "手机保护壳": ["壳"], "蓝牙键盘": ["键盘"], "机械键盘": ["键盘"],
+    "键盘": ["键盘"], "无线鼠标": ["鼠标"], "扩展坞": ["扩展坞"], "笔记本支架": ["支架"],
+    "HDMI视频线": ["线"], "视频线": ["线"], "鼠标垫": ["垫"], "电脑摄像头": ["摄像头"],
+    "存储卡": ["卡"], "U盘": ["U盘"], "移动固态硬盘": ["固态", "SSD", "硬盘"], "移动硬盘": ["硬盘"],
+    "读卡器": ["读卡器"], "充电器": ["充电器", "充电头", "氮化镓"], "移动电源": ["移动电源", "充电宝"],
+    "无线充电器": ["无线充电"], "数据线": ["线"], "智能音箱": ["音箱"], "智能摄像头": ["摄像头"],
+    "智能门铃": ["门铃", "猫眼"], "智能传感器": ["传感器"], "智能报警器": ["报警器"],
+    "护眼台灯": ["台灯"], "智能吸顶灯": ["吸顶灯", "筒灯", "射灯"], "智能灯带": ["灯带"],
+    "智能开关": ["开关"], "智能灯泡": ["灯泡", "Hue"], "扫地机器人": ["机器人"],
+}
+
+TYPE_SUBTITLE = {
+    "5G手机": "5G全网通，高清影像系统，长续航快充，正品保障，现货速发",
+    "游戏笔记本": "高性能处理器与独立显卡，高刷电竞屏，畅玩主流游戏",
+    "商务笔记本": "稳定办公性能，丰富接口，指纹/人脸安全登录，续航持久",
+    "轻薄笔记本": "轻薄便携机身，长续航，高清屏幕，适合通勤与移动办公",
+    "平板电脑": "高清大屏，轻薄机身，长续航，学习办公娱乐一机搞定",
+    "头戴式耳机": "主动降噪，长续航，佩戴舒适，通勤旅行皆适合",
+    "真无线蓝牙耳机": "主动降噪，低延迟连接，长续航，运动通勤皆适合",
+    "蓝牙音箱": "大功率输出，防水防尘，长续航，户外便携好声音",
+    "智能手表": "健康监测，长续航，多运动模式，消息提醒抬手即看",
+    "运动手表": "专业运动模式，GPS定位，长续航，防水耐造",
+    "数码相机": "高像素传感器，快速对焦，视频防抖，创作拍摄更轻松",
+    "手机保护壳": "精准开孔，防摔耐磨，亲肤手感，多机型可选",
+    "蓝牙键盘": "蓝牙/多模连接，静音按键，长续航，办公游戏两相宜",
+    "机械键盘": "机械轴体，手感扎实，RGB背光，办公游戏两相宜",
+    "键盘": "多模连接，静音按键，长续航，办公游戏两相宜",
+    "无线鼠标": "无线连接，高精度传感器，长续航，办公游戏皆适合",
+    "扩展坞": "多接口扩展，高速传输，即插即用，笔记本/平板通用",
+    "笔记本支架": "铝合金材质，多档调节，散热稳固，缓解颈椎疲劳",
+    "HDMI视频线": "高清视频传输，抗干扰屏蔽，接口镀金，连接稳定",
+    "视频线": "高清视频传输，抗干扰屏蔽，接口镀金，连接稳定",
+    "鼠标垫": "顺滑表面，底部防滑，加厚耐用，办公游戏皆适合",
+    "电脑摄像头": "高清画质，自动补光，内置麦克风，网课会议更清晰",
+    "存储卡": "高速读写，稳定耐用，兼容相机/手机/行车记录仪",
+    "U盘": "高速传输，小巧便携，金属机身，办公学习好帮手",
+    "移动固态硬盘": "高速读写，小巧便携，防震耐用，大文件秒传",
+    "移动硬盘": "大容量存储，USB高速传输，即插即用，数据备份安心",
+    "读卡器": "多卡直读，高速传输，即插即用，摄影办公必备",
+    "充电器": "快充协议兼容，多口输出，小巧便携，安全温控",
+    "移动电源": "大容量快充，多口输出，轻薄便携，出行不断电",
+    "无线充电器": "磁吸无线快充，随放随充，安全温控，桌面更整洁",
+    "数据线": "快充传输二合一，编织耐用，接口镀金，稳定不伤机",
+    "智能音箱": "语音控制，饱满音质，智能联动，家居生活更便捷",
+    "智能摄像头": "高清画质，夜视监控，手机远程查看，家庭安防",
+    "智能门铃": "高清可视，远程对讲，夜视监控，门前动态随时掌握",
+    "智能传感器": "小巧免打孔，智能联动，低功耗长续航，安防更省心",
+    "智能报警器": "高分贝报警，手机远程提醒，智能联动，守护家庭安全",
+    "护眼台灯": "无频闪护眼，色温可调，智能控制，学习办公更舒适",
+    "智能吸顶灯": "多档色温亮度，手机/语音控制，节能耐用，客厅卧室通用",
+    "智能灯带": "RGB全彩，手机调光调色，可裁剪安装，氛围感拉满",
+    "智能开关": "手机远程控制，定时开关，智能联动，安装简单",
+    "智能灯泡": "手机调光调色，定时开关，智能联动，即装即用",
+    "扫地机器人": "大吸力清扫，智能导航，扫拖一体，自动回充",
+}
+
+
+def kind_of(category_id, model):
+    if category_id in (101, 102): return "phone"
+    if category_id in (201, 202, 203): return "laptop"
+    if category_id in (301, 302): return "tablet"
+    if category_id == 401: return "headphone"
+    if category_id == 402: return "earbud"
+    if category_id == 403: return "speaker"
+    if category_id in (501, 502): return "watch"
+    if category_id == 601: return "camera"
+    if category_id == 701: return "case"
+    if category_id == 702:
+        if "键盘" in model: return "keyboard"
+        if "鼠标" in model and "垫" not in model: return "mouse"
+        if "扩展坞" in model or "Hub" in model: return "dock"
+        if "支架" in model: return "stand"
+        if "线" in model: return "cable"
+        if "垫" in model: return "pad"
+        if "摄像头" in model: return "webcam"
+    if category_id == 703:
+        if "SD卡" in model or "TF卡" in model or "内存卡" in model: return "card"
+        if "U盘" in model: return "usb"
+        if "固态" in model or "SSD" in model or "PSSD" in model: return "ssd"
+        if "硬盘" in model: return "hdd"
+        if "读卡器" in model: return "reader"
+    if category_id == 704:
+        if "线" in model: return "cable_charge"
+        if "电源" in model or "充电宝" in model: return "powerbank"
+        if "无线" in model or "磁吸" in model: return "wireless"
+        return "charger"
+    if category_id == 801: return "smart_speaker"
+    if category_id == 802:
+        if "门铃" in model or "猫眼" in model: return "doorbell"
+        if "传感器" in model: return "sensor"
+        if "报警器" in model: return "alarm"
+        return "ipcam"
+    if category_id == 803:
+        if "台灯" in model: return "desk_lamp"
+        if "吸顶灯" in model or "筒灯" in model or "射灯" in model: return "ceiling_lamp"
+        if "灯带" in model: return "light_strip"
+        if "开关" in model: return "switch"
+        return "bulb"
+    if category_id == 804: return "robot"
+    return "generic"
+
+
+def type_of(category_id, model, kind):
+    if kind == "phone": return "5G手机"
+    if kind == "laptop": return {201: "游戏笔记本", 202: "商务笔记本", 203: "轻薄笔记本"}.get(category_id, "笔记本电脑")
+    if kind == "tablet": return "平板电脑"
+    if kind == "headphone": return "头戴式耳机"
+    if kind == "earbud": return "真无线蓝牙耳机"
+    if kind == "speaker": return "蓝牙音箱"
+    if kind == "watch": return "运动手表" if category_id == 502 else "智能手表"
+    if kind == "camera": return "数码相机"
+    if kind == "case": return "手机保护壳"
+    if kind == "keyboard": return "机械键盘" if "机械" in model else ("蓝牙键盘" if "蓝牙" in model else "键盘")
+    if kind == "mouse": return "无线鼠标"
+    if kind == "dock": return "扩展坞"
+    if kind == "stand": return "笔记本支架"
+    if kind == "cable": return "HDMI视频线" if "HDMI" in model else "视频线"
+    if kind == "pad": return "鼠标垫"
+    if kind == "webcam": return "电脑摄像头"
+    if kind == "card": return "存储卡"
+    if kind == "usb": return "U盘"
+    if kind == "ssd": return "移动固态硬盘"
+    if kind == "hdd": return "移动硬盘"
+    if kind == "reader": return "读卡器"
+    if kind == "charger": return "充电器"
+    if kind == "powerbank": return "移动电源"
+    if kind == "wireless": return "无线充电器"
+    if kind == "cable_charge": return "数据线"
+    if kind == "smart_speaker": return "智能音箱"
+    if kind == "ipcam": return "智能摄像头"
+    if kind == "doorbell": return "智能门铃"
+    if kind == "sensor": return "智能传感器"
+    if kind == "alarm": return "智能报警器"
+    if kind == "desk_lamp": return "护眼台灯"
+    if kind == "ceiling_lamp": return "智能吸顶灯"
+    if kind == "light_strip": return "智能灯带"
+    if kind == "switch": return "智能开关"
+    if kind == "bulb": return "智能灯泡"
+    if kind == "robot": return "扫地机器人"
+    return "商品"
+
+
+def display_name(brand, model, type_name):
+    base = f"{brand} {model}" if brand.isascii() else f"{brand}{model}"
+    if any(k in model for k in TYPE_KEYWORDS.get(type_name, [])):
+        # 型号本身已经说明品类；移动固态/摄像头等补足到可读
+        if type_name == "移动固态硬盘" and "硬盘" not in model:
+            return base + "硬盘"
+        if type_name == "电脑摄像头" and "电脑" not in model:
+            return base + " 电脑摄像头"
+        return base
+    return base + " " + type_name
+
+
+def subtitle_for(type_name):
+    return TYPE_SUBTITLE.get(type_name, type_name + "，品牌正品，品质保障，支持七天无理由退换，现货速发")
+
+
 def spec(name, value):
     return {"name": name, "value": str(value)}
 
 
-def build_specs(category_id, brand, price, rng):
+def build_specs(category_id, brand, model, price, rng):
+    kind = kind_of(category_id, model)
+    if category_id == 702:
+        if kind == "keyboard":
+            return [spec("连接方式", rng.choice(["蓝牙5.0", "2.4G+蓝牙", "有线/蓝牙双模"])),
+                    spec("键位数", rng.choice(["87键", "104键", "75键"])),
+                    spec("续航", rng.choice(["6个月", "12个月", "24个月"])),
+                    spec("兼容系统", rng.choice(["Windows/macOS", "多系统兼容"]))]
+        if kind == "mouse":
+            return [spec("连接方式", rng.choice(["蓝牙5.0", "2.4G+蓝牙", "USB接收器"])),
+                    spec("DPI", rng.choice(["4000DPI", "8000DPI", "26000DPI"])),
+                    spec("续航", rng.choice(["60天", "70天", "90天"])),
+                    spec("按键数", rng.choice(["6键", "7键", "8键"]))]
+        if kind == "dock":
+            return [spec("接口", rng.choice(["USB-C", "USB-A", "HDMI+USB-C"])),
+                    spec("传输速度", rng.choice(["5Gbps", "10Gbps", "40Gbps"])),
+                    spec("兼容设备", rng.choice(["笔记本/平板", "手机/平板", "通用"])),
+                    spec("材质", rng.choice(["铝合金", "ABS", "金属"]))]
+        if kind == "stand":
+            return [spec("材质", rng.choice(["铝合金", "ABS", "硅胶"])),
+                    spec("尺寸", rng.choice(["标准", "加大", "折叠款"])),
+                    spec("兼容设备", rng.choice(["11-17英寸笔记本", "平板/手机", "通用"])),
+                    spec("调节方式", rng.choice(["多档调节", "无级调节"]))]
+        if kind == "cable":
+            return [spec("长度", rng.choice(["1m", "1.5m", "2m"])),
+                    spec("接口", rng.choice(["HDMI 2.1", "HDMI 2.0", "USB-C"])),
+                    spec("传输速度", rng.choice(["18Gbps", "48Gbps", "10Gbps"])),
+                    spec("材质", rng.choice(["尼龙编织", "PVC", "铝合金"]))]
+        if kind == "pad":
+            return [spec("尺寸", rng.choice(["中号", "大号", "超大号"])),
+                    spec("材质", rng.choice(["天然橡胶", "PU皮革", "布面"])),
+                    spec("厚度", rng.choice(["2mm", "3mm", "4mm"])),
+                    spec("防滑", "底部防滑")]
+        if kind == "webcam":
+            return [spec("分辨率", rng.choice(["1080P", "2K", "4K"])), spec("接口", "USB"),
+                    spec("夜视", rng.choice(["自动补光", "红外夜视"])),
+                    spec("麦克风", rng.choice(["内置双麦", "内置单麦"]))]
+    if category_id == 703:
+        if kind == "reader":
+            return [spec("接口", rng.choice(["USB-C", "USB 3.0"])),
+                    spec("支持卡型", rng.choice(["SD/TF双卡", "SD卡", "TF卡"])),
+                    spec("传输速度", rng.choice(["104MB/s", "312MB/s"])),
+                    spec("材质", rng.choice(["ABS", "铝合金"]))]
+        return [spec("容量", rng.choice(["128GB", "256GB", "512GB", "1TB", "2TB"])),
+                spec("接口", rng.choice(["USB-C 3.2", "USB 3.2", "NVMe"])),
+                spec("读写速度", rng.choice(["550MB/s", "1050MB/s", "2000MB/s"])),
+                spec("尺寸", rng.choice(["2.5英寸", "M.2 2280", "卡片式"]))]
+    if category_id == 704:
+        return [spec("功率", rng.choice(["20W", "33W", "65W", "100W"])),
+                spec("接口", rng.choice(["USB-C", "USB-A", "双口"])),
+                spec("协议", rng.choice(["PD3.0", "QC4+", "PPS"])),
+                spec("线长/容量", rng.choice(["1m", "1.5m", "10000mAh", "20000mAh"]))]
     if category_id in (101, 102):
         return [
             spec("屏幕尺寸", rng.choice(["6.1英寸", "6.7英寸", "6.8英寸"])),
@@ -285,21 +498,36 @@ def specs_json(specs):
     return json.dumps(specs, ensure_ascii=False, separators=(",", ":"))
 
 
+
+def make_title(name, subtitle, specs):
+    values = [s["value"] for s in specs if s.get("value")]
+    parts = [name, (subtitle or "").replace("，", " ").strip()]
+    parts.extend(values[:3])
+    parts.extend(["官方正品", "现货速发"])
+    result, seen = [], set()
+    for item in parts:
+        if item and item not in seen:
+            seen.add(item)
+            result.append(item)
+    return " ".join(result)
+
 def make_product(pid, category_id, brand, model, existing_names):
     low, high, _ = LEAVES[category_id]
-    name = f"{brand}{model}"
+    kind = kind_of(category_id, model)
+    type_name = type_of(category_id, model, kind)
+    name = display_name(brand, model, type_name)
     if name in existing_names:
         return None
     rng = random.Random(pid)
     price = round(rng.uniform(low, high), 2)
     market = round(price * rng.uniform(1.02, 1.15), 2)
     cost = round(price * rng.uniform(0.85, 0.92), 2)
-    specs = build_specs(category_id, brand, price, rng)
+    specs = build_specs(category_id, brand, model, price, rng)
     highlight = " / ".join(s["value"] for s in specs[:2])
     return dict(
         id=pid, category_id=category_id, brand=brand, name=name,
-        sub_title=highlight,
-        description=f"{name}，{highlight}，正品保障，支持七天无理由退换。",
+        sub_title=subtitle_for(type_name),
+        title=make_title(name, subtitle_for(type_name), specs),
         image=f"/image/upload/{pid}.webp", price=price, market=market, cost=cost,
         stock=rng.randint(50, 500), specs=specs_json(specs), code=f"SEED-{pid}",
     )
@@ -339,7 +567,7 @@ def generate(conn):
     for r in existing:
         category_id = r["category_id"] or 101
         rng = random.Random(r["id"])
-        specs = build_specs(category_id, r["brand"] or "", float(r["sales_price"] or 0), rng)
+        specs = build_specs(category_id, r["brand"] or "", r["name"] or "", float(r["sales_price"] or 0), rng)
         backfill.append(
             "UPDATE products SET specs = {} WHERE id = {} AND specs IS NULL;".format(
                 sql_str(specs_json(specs)), r["id"]
@@ -364,13 +592,13 @@ def generate(conn):
             values.append(
                 "({},{},NULL,{},{},{},{},{},NULL,'spot',1,{},{},{},{},{},NULL,NULL,{},'2026-10-01 10:00:00','2026-10-01 10:00:00')".format(
                     r["id"], r["category_id"], sql_str(r["name"]), sql_str(r["sub_title"]),
-                    sql_str(r["brand"]), sql_str(r["description"]), sql_str(r["image"]),
+                    sql_str(r["brand"]), sql_str(r["title"]), sql_str(r["image"]),
                     r["price"], r["market"], r["cost"], sql_str(r["code"]), r["stock"],
                     sql_str(r["specs"]),
                 )
             )
         chunks.append(
-            "INSERT IGNORE INTO products (id, category_id, tag_id, name, sub_title, brand, description, image, body, "
+            "INSERT IGNORE INTO products (id, category_id, tag_id, name, sub_title, brand, title, image, body, "
             "sales_mode, listing_status, sales_price, market_price, cost_price, product_code, stock, weight, volume, "
             "specs, create_time, update_time) VALUES\n" + ",\n".join(values) + ";"
         )

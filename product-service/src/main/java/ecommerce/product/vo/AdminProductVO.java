@@ -30,8 +30,8 @@ public class AdminProductVO {
     private String subTitle;
     @Schema(description = "品牌")
     private String brand;
-    @Schema(description = "商品描述")
-    private String description;
+    @Schema(description = "主标题")
+    private String title;
     @Schema(description = "主图 URL")
     private String image;
     @Schema(description = "图文详情（富文本）")

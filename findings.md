@@ -297,6 +297,8 @@ ecommerce
 - 新接口 `GET /api/products/page?page=&pageSize=&categoryId=&keyword=&brand=&minPrice=&maxPrice=&sort=`，返回 `PageVO<ProductVO>`；pageSize clamp 60，sort 白名单（default/newest/price_asc/price_desc）；旧 `/api/products` 仍返回数组，仅分类过滤增强，兼容小程序/PC。
 - 后台 `listAdmin/countAdmin` 分类筛选也支持一级/二级；`AdminProductVO/DTO` 增加 specs（实际是驼峰，勿加 SnakeCase）。
 - 分类缓存新增 `CategoryCacheEvictor`，后台分类/商品写操作后清 `category:parent:*`。
+- `products.description` 重命名为 `title`（中文叫**主标题**，`sub_title` 保留）；后端实体/VO/DTO/Mapper 全部改为 title，order-service 商品快照用 `title AS description` 兼容购物车表。
+- 主标题内容为 SEO 长标题：名称（含品牌+型号+品类）+ 卖家卖点 + 3 个关键参数 + 官方正品/现货速发；脚本 `05-fix-titles.sql`，生成器 `fix_titles.py`。
 - 本地与生产均已执行数据脚本并验证：8/21/126、每叶子 6、商品名全唯一、specs 无空值、分页/筛选/排序/后台 specs 读写均通过。生产备份 `/www/backup/e_commerce_db_before_product_expand_2026-10-29_1935.sql`；生产额外有一个空的「家电 / 电冰箱」分类，用户自行删除。
 
 ### PC 商城 Web 端（ecommerce-mall，2026-10-29）

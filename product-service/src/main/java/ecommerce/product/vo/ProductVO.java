@@ -29,8 +29,8 @@ public class ProductVO {
     private String brand;
     @Schema(description = "主图 URL")
     private String image;
-    @Schema(description = "商品描述")
-    private String description;
+    @Schema(description = "主标题")
+    private String title;
     @Schema(description = "图文详情（富文本，列表不返回）")
     private String body;
     @Schema(description = "售价")

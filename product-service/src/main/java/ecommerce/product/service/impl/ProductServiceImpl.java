@@ -284,7 +284,7 @@ public class ProductServiceImpl implements ProductService {
                 .subTitle(p.getSubTitle())
                 .brand(p.getBrand())
                 .image(p.getImage())
-                .description(p.getDescription())
+                .title(p.getTitle())
                 .body(p.getBody())
                 .price(p.getSalesPrice())
                 .marketPrice(p.getMarketPrice())

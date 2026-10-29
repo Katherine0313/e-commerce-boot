@@ -23,7 +23,7 @@ public class Product {
     private String name;
     private String subTitle;
     private String brand;
-    private String description;
+    private String title;
     private String image;
     private String body;
     private String salesMode;

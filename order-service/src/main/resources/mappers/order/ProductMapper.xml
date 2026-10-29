@@ -6,7 +6,7 @@
 
     <!-- 查商品快照：加购/下单时校验商品存在 + 拿 name/image/price/description/stock -->
     <select id="findById" resultType="ecommerce.order.entity.Product">
-        SELECT id, name, image, sales_price, description, stock
+        SELECT id, name, image, sales_price, title AS description, stock
         FROM products
         WHERE id = #{id}
     </select>

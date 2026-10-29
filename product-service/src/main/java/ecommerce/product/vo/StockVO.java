@@ -27,8 +27,8 @@ public class StockVO {
     private String name;
     @Schema(description = "商品主图")
     private String image;
-    @Schema(description = "商品描述")
-    private String description;
+    @Schema(description = "主标题")
+    private String title;
     @Schema(description = "当前库存")
     private Integer stock;
     @Schema(description = "库存下限")

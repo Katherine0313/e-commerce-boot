@@ -27,3 +27,11 @@ SELECT COUNT(*) AS specs_null FROM products WHERE specs IS NULL;                
 SELECT COUNT(*) AS legacy_specs FROM products WHERE id <= 50 AND specs IS NOT NULL; -- 期望 50
 SELECT COUNT(*) AS total_names, COUNT(DISTINCT name) AS distinct_names FROM products;
 SELECT id, name, category_id, specs FROM products ORDER BY id LIMIT 3;
+
+-- title 重命名（06a 之后）
+SELECT COUNT(*) AS title_null FROM products WHERE title IS NULL;                  -- 期望 0
+SELECT MIN(CHAR_LENGTH(title)) AS title_min_len, MAX(CHAR_LENGTH(title)) AS title_max_len FROM products;
+-- 06b 执行后期望 0
+SELECT COUNT(*) AS description_column
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'products' AND COLUMN_NAME = 'description';

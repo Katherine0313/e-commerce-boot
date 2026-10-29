@@ -10,7 +10,7 @@
             p.id          AS product_id,
             p.name,
             p.image,
-            p.description,
+            p.title,
             p.stock,
             s.min_stock,
             s.max_stock,

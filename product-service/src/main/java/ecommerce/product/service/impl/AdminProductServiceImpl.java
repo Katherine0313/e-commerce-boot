@@ -117,7 +117,7 @@ public class AdminProductServiceImpl implements AdminProductService {
         if (dto.getName() != null) p.setName(dto.getName());
         if (dto.getSubTitle() != null) p.setSubTitle(dto.getSubTitle());
         if (dto.getBrand() != null) p.setBrand(dto.getBrand());
-        if (dto.getDescription() != null) p.setDescription(dto.getDescription());
+        if (dto.getTitle() != null) p.setTitle(dto.getTitle());
         if (dto.getImage() != null) p.setImage(dto.getImage());
         if (dto.getBody() != null) p.setBody(dto.getBody());
         if (dto.getCategoryId() != null) p.setCategoryId(dto.getCategoryId());
@@ -140,7 +140,7 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .name(p.getName())
                 .subTitle(p.getSubTitle())
                 .brand(p.getBrand())
-                .description(p.getDescription())
+                .title(p.getTitle())
                 .image(p.getImage())
                 .body(p.getBody())
                 .categoryId(p.getCategoryId())

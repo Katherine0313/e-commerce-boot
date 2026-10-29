@@ -53,7 +53,7 @@
 
     <!-- 标签关联的商品（不含 body/cost_price） -->
     <select id="listProductsByTag" resultType="ecommerce.product.entity.Product">
-        SELECT id, category_id, tag_id, name, sub_title, brand, description, image,
+        SELECT id, category_id, tag_id, name, sub_title, brand, title, image,
                sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
                create_time, update_time
         FROM products

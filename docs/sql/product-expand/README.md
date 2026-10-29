@@ -12,7 +12,10 @@
 | `03-backfill-specs.sql` | 现有 50 个商品补 specs |
 | `03a-remove-old-seed.sql` | 清理旧版 51~300 伪变体种子（先清购物车/库存引用） |
 | `04-products-seed.sql` | 76 个去重种子商品（id 51~126，`SEED-xxx`） |
+| `05-fix-titles.sql` | 重写 126 个商品的主标题 title（名称+卖点+参数+官方正品） |
 | `05-indexes.sql` | 分页/筛选索引（幂等） |
+| `06a-add-title.sql` | products 加 title 并复制 description（发新代码前） |
+| `06b-drop-description.sql` | 新代码上线后删除 description |
 | `99-verify.sql` | 数量/specs/图片校验 |
 | `generator/generate_catalog.py` | 重新生成 03/03a/04 和 51~126 唯一占位图 |
 
@@ -32,7 +35,11 @@ mysql ... e_commerce_db < docs/sql/product-expand/03-backfill-specs.sql
 mysql ... e_commerce_db < docs/sql/product-expand/03a-remove-old-seed.sql
 mysql ... e_commerce_db < docs/sql/product-expand/04-products-seed.sql
 mysql ... e_commerce_db < docs/sql/product-expand/05-indexes.sql
+mysql ... e_commerce_db < docs/sql/product-expand/06a-add-title.sql
+mysql ... e_commerce_db < docs/sql/product-expand/05-fix-titles.sql
 mysql ... e_commerce_db < docs/sql/product-expand/99-verify.sql
+# 部署新 product-service / order-service 后：
+mysql ... e_commerce_db < docs/sql/product-expand/06b-drop-description.sql
 ```
 
 清分类缓存：
@@ -45,10 +52,11 @@ redis-cli --scan --pattern 'category:parent:*' | xargs -r redis-cli DEL
 
 1. 备份数据库
 2. 上传 `product-expand/` 到服务器
-3. 依次执行 00/01/02/03/03a/04/05/99（用 `deploy/run-sql-prod.sh`）
+3. 依次执行 00/01/02/03/03a/04/05-indexes/06a/05-fix-titles/99（用 `deploy/run-sql-prod.sh`）
 4. 同步图片：本机 `upload/image/upload/51~126.webp` 和 `upload/image/opt/upload/51~126.webp` → 服务器 `/www/java/upload/image/` 对应目录
 5. 清 Redis `category:parent:*`
-6. 部署 product-service
+6. 部署 product-service / order-service（新代码只读写 `title`）
+7. 验证商品/库存/加购正常后，执行 `06b-drop-description.sql` 删除旧列
 
 ## 生成器
 
