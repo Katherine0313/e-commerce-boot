@@ -30,6 +30,12 @@ public interface ProductService {
     List<ProductVO> listRandomProducts(int limit, List<Long> excludeIds);
 
     /**
+     * 首页热门推荐：优先取「推荐分类」（categories.recommend=1，含父分类推荐）下的商品，
+     * 不够 limit 时用随机上架商品补足；excludeIds 排除当前已展示的，下拉刷新换一批用。
+     */
+    List<ProductVO> listHotProducts(int limit, List<Long> excludeIds);
+
+    /**
      * 商品详情；商品不存在时抛 404
      */
     ProductVO getProduct(Long id);

@@ -88,6 +88,31 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
     }
 
+    // 首页热门推荐：推荐分类优先，不够再随机补足
+    @Override
+    public List<ProductVO> listHotProducts(int limit, List<Long> excludeIds) {
+        int size = Math.max(1, Math.min(limit, 50));
+        List<Long> exclude = excludeIds == null ? new ArrayList<>() : new ArrayList<>(excludeIds);
+
+        List<ProductVO> hot = productMapper
+                .listRandomOnSaleByRecommendedCategory(size, exclude).stream()
+                .map(this::toVO)
+                .toList();
+        if (hot.size() >= size) {
+            return hot;
+        }
+
+        // 推荐分类商品不够：排除已选中的 id 后再随机补足
+        hot.forEach(p -> exclude.add(p.getId()));
+        List<ProductVO> fill = productMapper
+                .listRandomOnSale(size - hot.size(), exclude).stream()
+                .map(this::toVO)
+                .toList();
+        List<ProductVO> result = new ArrayList<>(hot);
+        result.addAll(fill);
+        return result;
+    }
+
     @Override
     public ProductVO getProduct(Long id) {
         Product product = productMapper.findById(id);

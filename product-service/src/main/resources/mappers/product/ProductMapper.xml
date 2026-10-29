@@ -77,6 +77,26 @@
         LIMIT #{limit}
     </select>
 
+    <!-- 随机取「推荐分类」下的上架商品：分类自身或父分类 recommend=1 -->
+    <select id="listRandomOnSaleByRecommendedCategory" resultType="ecommerce.product.entity.Product">
+        SELECT p.id, p.category_id, p.tag_id, p.name, p.sub_title, p.brand, p.description, p.image,
+               p.sales_mode, p.listing_status, p.sales_price, p.market_price, p.product_code, p.stock, p.weight, p.volume,
+               p.create_time, p.update_time
+        FROM products p
+        JOIN categories c ON p.category_id = c.id
+        LEFT JOIN categories parent ON c.parent_id = parent.id
+        WHERE p.listing_status = 1
+          AND (c.recommend = 1 OR parent.recommend = 1)
+        <if test="excludeIds != null and excludeIds.size() > 0">
+            AND p.id NOT IN
+            <foreach collection="excludeIds" item="id" open="(" separator="," close=")">
+                #{id}
+            </foreach>
+        </if>
+        ORDER BY RAND()
+        LIMIT #{limit}
+    </select>
+
     <!-- ==================== 后台管理 ==================== -->
 
     <!-- 后台商品列表：含下架、含 cost_price 与 body（编辑回填需要）；分页 + 可选关键词/分类筛选 -->

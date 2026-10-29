@@ -25,6 +25,10 @@ public interface ProductMapper {
     List<Product> listRandomOnSale(@Param("limit") int limit,
                                    @Param("excludeIds") List<Long> excludeIds);
 
+    // 随机取「推荐分类」下的上架商品：分类自身或父分类 recommend=1（首页热门推荐优先用）
+    List<Product> listRandomOnSaleByRecommendedCategory(@Param("limit") int limit,
+                                                        @Param("excludeIds") List<Long> excludeIds);
+
     // ==================== 后台管理（/api/admin/**） ====================
 
     // 后台商品列表：含下架、含成本价与图文详情（编辑回填需要）；分页 + 可选关键词/分类筛选

@@ -157,20 +157,12 @@ public class ReportServiceImpl implements ReportService {
                 orderMapper.countNewUsersByDay(start, endExclusive));
         long totalRefundOrders = orderMapper.countRefundOrders(start, endExclusive);
 
-
-
-
-
-
-
-
         List<OperationReportRowVO> rows = new ArrayList<>(end.getDayOfMonth());
         BigDecimal totalSales = BigDecimal.ZERO;
         long totalEffectivePaid = 0;
         long totalCreated = 0;
         long totalCreatedPaid = 0;
         long totalNewUsers = 0;
-
         for (LocalDate d = begin; !d.isAfter(end); d = d.plusDays(1)) {
             String key = d.toString();
             // 销售额与退款都按原订单 pay_at 归属到当天
@@ -197,7 +189,6 @@ public class ReportServiceImpl implements ReportService {
             totalCreatedPaid += createdPaid;
             totalNewUsers += newUsers;
         }
-
         return OperationReportVO.builder()
                 .begin(begin)
                 .end(end)
@@ -224,20 +215,17 @@ public class ReportServiceImpl implements ReportService {
             }
             try (XSSFWorkbook excel = new XSSFWorkbook(is)) {
                 XSSFSheet sheet = excel.getSheetAt(0);
-
-                // 概览区：Excel 第 3 行（POI 下标 2）和第 4 行（下标 3）
+                // 读取第三行，并填充 B,D,F列
                 Row overview1 = sheet.getRow(2);
                 overview1.getCell(1).setCellValue(report.getTotalSales().doubleValue());
                 overview1.getCell(3).setCellValue(report.getPaymentConversionRate());
                 overview1.getCell(5).setCellValue(report.getTotalNewUsers());
-
+                // 读取第四行，并填充 B,D,F列
                 Row overview2 = sheet.getRow(3);
                 overview2.getCell(1).setCellValue(report.getTotalEffectivePaidOrders());
                 overview2.getCell(3).setCellValue(report.getAverageOrderValue().doubleValue());
                 overview2.getCell(5).setCellValue(report.getTotalRefundOrders());
-
-                // 明细区：模板第 7 行起（下标 6）预置了 31 行带样式的空行，
-                // 用 getRow 取行再填值，样式不会丢
+                // 读取第七行，for循环填充
                 int rowIndex = 6;
                 for (OperationReportRowVO item : report.getRows()) {
                     Row row = sheet.getRow(rowIndex++);
@@ -264,7 +252,6 @@ public class ReportServiceImpl implements ReportService {
                 response.setHeader(HttpHeaders.CACHE_CONTROL, "no-store");
                 response.setContentType(
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
-
                 excel.write(response.getOutputStream());
             }
         } catch (IOException e) {

@@ -50,6 +50,13 @@ public class ProductController {
         return Result.success(productService.listRandomProducts(limit, excludeIds));
     }
 
+    @Operation(summary = "热门推荐（推荐分类优先，不够随机补足；excludeIds 排除当前已展示的）")
+    @GetMapping("/products/hot")
+    public Result<List<ProductVO>> hotProducts(@RequestParam(defaultValue = "8") Integer limit,
+                                               @RequestParam(required = false) List<Long> excludeIds) {
+        return Result.success(productService.listHotProducts(limit, excludeIds));
+    }
+
     @Operation(summary = "商品详情")
     @GetMapping("/products/{id}")
     public Result<ProductVO> getProduct(@PathVariable Long id) {
