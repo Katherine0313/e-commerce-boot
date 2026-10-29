@@ -4,10 +4,10 @@
 SET NAMES utf8mb4;
 
 SELECT COUNT(*) AS top_count FROM categories WHERE parent_id IS NULL;            -- 期望 8（生产可能有额外空分类）
-SELECT COUNT(*) AS child_count FROM categories WHERE parent_id IS NOT NULL;      -- 期望 21（生产可能多一个）
-SELECT COUNT(*) AS product_count FROM products;                                  -- 期望 126
+SELECT COUNT(*) AS child_count FROM categories WHERE parent_id IS NOT NULL;      -- 期望 21（502 并入 501，新增 503 机械普通手表）
+SELECT COUNT(*) AS product_count FROM products;                                  -- 期望 136（126 + 10 机械表）
 
--- 每个叶子目标 6 个
+-- 每个叶子目标 6 个（501 智能手表 12 个、503 机械普通手表 10 个）
 SELECT c.id, c.name, COUNT(p.id) AS cnt
 FROM categories c
 LEFT JOIN products p ON p.category_id = c.id AND p.listing_status = 1
@@ -22,7 +22,7 @@ GROUP BY top_id
 ORDER BY top_id;
 
 -- 种子商品、specs、名称唯一性
-SELECT COUNT(*) AS seed_count FROM products WHERE product_code LIKE 'SEED-%';     -- 期望 76
+SELECT COUNT(*) AS seed_count FROM products WHERE product_code LIKE 'SEED-%';     -- 期望 86（51~136）
 SELECT COUNT(*) AS specs_null FROM products WHERE specs IS NULL;                  -- 期望 0
 SELECT COUNT(*) AS legacy_specs FROM products WHERE id <= 50 AND specs IS NOT NULL; -- 期望 50
 SELECT COUNT(*) AS total_names, COUNT(DISTINCT name) AS distinct_names FROM products;

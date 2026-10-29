@@ -99,7 +99,7 @@ INSERT IGNORE INTO `categories` (`id`, `name`, `parent_id`, `sort_order`, `statu
 INSERT IGNORE INTO `categories` (`id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (402, '无线耳机', 4, 1, 1, 0);
 INSERT IGNORE INTO `categories` (`id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (403, '蓝牙音箱', 4, 3, 1, 0);
 INSERT IGNORE INTO `categories` (`id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (501, '智能手表', 5, 1, 1, 0);
-INSERT IGNORE INTO `categories` (`id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (502, '运动手表', 5, 2, 1, 0);
+INSERT IGNORE INTO `categories` (`id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (503, '机械普通手表', 5, 2, 1, 0);
 INSERT IGNORE INTO `categories` (`id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (601, '微单相机', 6, 1, 1, 0);
 INSERT IGNORE INTO `categories` (`id`, `name`, `parent_id`, `sort_order`, `status`, `recommend`) VALUES (807, '床', 806, 1, 1, 0);
 

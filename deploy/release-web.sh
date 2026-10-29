@@ -8,7 +8,11 @@ ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WEB_DIR="${WEB_DIR:-$ROOT/../e-commerce}"
 SERVER="${DEPLOY_HOST:-ecommerce}"
 WEB_ROOT="${WEB_ROOT:-/www/wwwroot/jiemids.com}"
+# 备份放站点根目录之外：wwwroot 下的任何目录都能被外网访问，源码 bak 会泄露
+BACKUP_ROOT="${BACKUP_ROOT:-/www/backup/web}"
 KEEP_BACKUPS="${KEEP_BACKUPS:-3}"
+# 站点名用于备份目录命名，如 jiemids.com.bak.20261029132723
+SITE="$(basename "$WEB_ROOT")"
 
 NO_BUILD=0
 DRY_RUN=0
@@ -29,6 +33,7 @@ usage() {
   WEB_DIR        后台前端目录（默认 ../e-commerce）
   DEPLOY_HOST    SSH 别名或 user@host（默认 ecommerce）
   WEB_ROOT       服务器站点目录（默认 /www/wwwroot/jiemids.com）
+  BACKUP_ROOT    备份目录（默认 /www/backup/web，必须在站点根目录之外）
   KEEP_BACKUPS   保留的备份份数（默认 3）
 
 示例:
@@ -62,7 +67,7 @@ run() {
 if [[ $ROLLBACK -eq 1 ]]; then
   run ssh "$SERVER" "
     set -e
-    latest=\$(ls -1dt '$WEB_ROOT'.bak.* 2>/dev/null | head -n1 || true)
+    latest=\$(ls -1dt '$BACKUP_ROOT/$SITE.bak.'* 2>/dev/null | head -n1 || true)
     if [ -z \"\$latest\" ]; then
       echo '没有可回滚的备份' >&2
       exit 1
@@ -93,8 +98,8 @@ BACKUP_TS="$(date +%Y%m%d%H%M%S)"
 run ssh "$SERVER" "
   set -e
   if [ -d '$WEB_ROOT' ]; then
-    mkdir -p '$WEB_ROOT.bak.$BACKUP_TS'
-    rsync -a --link-dest='$WEB_ROOT' --exclude '.user.ini' '$WEB_ROOT/' '$WEB_ROOT.bak.$BACKUP_TS/'
+    mkdir -p '$BACKUP_ROOT'
+    rsync -a --link-dest='$WEB_ROOT' --exclude '.user.ini' '$WEB_ROOT/' '$BACKUP_ROOT/$SITE.bak.$BACKUP_TS/'
   fi
 "
 
@@ -117,6 +122,6 @@ else
 fi
 
 # 只保留最近 N 份备份
-run ssh "$SERVER" "ls -1dt '$WEB_ROOT'.bak.* 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -rf"
+run ssh "$SERVER" "ls -1dt '$BACKUP_ROOT/$SITE.bak.'* 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -rf"
 
 echo "==> 完成：$WEB_ROOT（https://$(basename "$WEB_ROOT")）"

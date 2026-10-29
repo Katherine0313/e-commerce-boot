@@ -295,7 +295,8 @@ SSH 到服务器 `docker pull <目标镜像>` → `docker compose -f docker-comp
 - 前端目录默认 `../e-commerce`（可用 `WEB_DIR` 覆盖），脚本先执行 `npm run build`
 - 上传后在服务器用 `rsync -a --delete` 同步 `index.html` / `assets` / `image` / `region`，
   保留 `.env`、`.htaccess`、`.user.ini`、`.well-known`、`public`
-- 每次发布前用 `rsync --link-dest` 做硬链接快照到 `jiemids.com.bak.<时间戳>`（排除不可变的 `.user.ini`），默认保留 3 份
+- 每次发布前用 `rsync --link-dest` 做硬链接快照到 `/www/backup/web/jiemids.com.bak.<时间戳>`（排除不可变的 `.user.ini`），默认保留 3 份（`KEEP_BACKUPS` 可调）
+- 备份**不放 `wwwroot` 下**（`BACKUP_ROOT` 可覆盖），避免站点目录旁的旧代码被误暴露；`./deploy/release-web.sh --rollback` 会自动从新位置找最近一份
 - 回滚：`./deploy/release-web.sh --rollback`（同步最近一份备份，不重新构建）
 - 跳过构建：`--no-build`；只打印命令：`--dry-run`
 - 静态文件不需要 reload Nginx；`assets` 文件名带 hash，不会命中旧缓存；若 `index.html` 被 Cloudflare 缓存，到控制台清一次缓存

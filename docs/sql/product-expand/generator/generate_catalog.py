@@ -99,12 +99,10 @@ LEAVES = {
         ("JBL", "Flip 6"), ("Bose", "SoundLink Flex"), ("华为", "Sound Joy"), ("小米", "Sound Pro"),
         ("Marshall", "Emberton II"), ("B&O", "Beosound A1"),
     ]),
-    501: (999, 3999, [
+    # 运动手表已合并到智能手表（原 502），价格区间放宽到覆盖入门运动表
+    501: (499, 3999, [
         ("苹果", "Watch Series 9"), ("苹果", "Watch Series 10"), ("苹果", "Watch Ultra 2"), ("华为", "Watch 4 Pro"),
         ("华为", "Watch GT 5"), ("三星", "Galaxy Watch7"), ("小米", "Watch S3"), ("OPPO", "Watch X"),
-        ("vivo", "Watch 3"), ("荣耀", "Watch 5"),
-    ]),
-    502: (499, 2999, [
         ("苹果", "Watch Ultra"), ("华为", "Watch Ultimate"), ("华为", "Watch Fit 3"), ("华为", "Watch GT 4"),
         ("小米", "Watch S4 Sport"), ("佳明", "Forerunner 265"), ("佳明", "Forerunner 965"),
         ("佳明", "Instinct 2"), ("高驰", "Pace 3"), ("高驰", "Apex 2 Pro"),
@@ -160,7 +158,7 @@ LEAVES = {
 TYPE_KEYWORDS = {
     "5G手机": ["手机"], "游戏笔记本": ["笔记本", "电脑"], "商务笔记本": ["笔记本", "电脑"],
     "轻薄笔记本": ["笔记本", "电脑"], "平板电脑": ["平板"], "头戴式耳机": ["耳机"],
-    "真无线蓝牙耳机": ["耳机"], "蓝牙音箱": ["音箱"], "智能手表": ["手表"], "运动手表": ["手表"],
+    "真无线蓝牙耳机": ["耳机"], "蓝牙音箱": ["音箱"], "智能手表": ["手表"],
     "数码相机": ["相机"], "手机保护壳": ["壳"], "蓝牙键盘": ["键盘"], "机械键盘": ["键盘"],
     "键盘": ["键盘"], "无线鼠标": ["鼠标"], "扩展坞": ["扩展坞"], "笔记本支架": ["支架"],
     "HDMI视频线": ["线"], "视频线": ["线"], "鼠标垫": ["垫"], "电脑摄像头": ["摄像头"],
@@ -182,7 +180,6 @@ TYPE_SUBTITLE = {
     "真无线蓝牙耳机": "主动降噪，低延迟连接，长续航，运动通勤皆适合",
     "蓝牙音箱": "大功率输出，防水防尘，长续航，户外便携好声音",
     "智能手表": "健康监测，长续航，多运动模式，消息提醒抬手即看",
-    "运动手表": "专业运动模式，GPS定位，长续航，防水耐造",
     "数码相机": "高像素传感器，快速对焦，视频防抖，创作拍摄更轻松",
     "手机保护壳": "精准开孔，防摔耐磨，亲肤手感，多机型可选",
     "蓝牙键盘": "蓝牙/多模连接，静音按键，长续航，办公游戏两相宜",
@@ -225,7 +222,7 @@ def kind_of(category_id, model):
     if category_id == 401: return "headphone"
     if category_id == 402: return "earbud"
     if category_id == 403: return "speaker"
-    if category_id in (501, 502): return "watch"
+    if category_id == 501: return "watch"
     if category_id == 601: return "camera"
     if category_id == 701: return "case"
     if category_id == 702:
@@ -271,7 +268,7 @@ def type_of(category_id, model, kind):
     if kind == "headphone": return "头戴式耳机"
     if kind == "earbud": return "真无线蓝牙耳机"
     if kind == "speaker": return "蓝牙音箱"
-    if kind == "watch": return "运动手表" if category_id == 502 else "智能手表"
+    if kind == "watch": return "智能手表"
     if kind == "camera": return "数码相机"
     if kind == "case": return "手机保护壳"
     if kind == "keyboard": return "机械键盘" if "机械" in model else ("蓝牙键盘" if "蓝牙" in model else "键盘")
@@ -421,7 +418,7 @@ def build_specs(category_id, brand, model, price, rng):
             spec("蓝牙", "5.3"), spec("防水", rng.choice(["IPX4", "IPX7", "IP67"])),
             spec("续航", rng.choice(["12小时", "18小时", "24小时"])),
         ]
-    if category_id in (501, 502):
+    if category_id == 501:
         return [
             spec("屏幕", rng.choice(["1.4英寸AMOLED", "1.5英寸AMOLED", "1.9英寸OLED"])),
             spec("续航", rng.choice(["2天", "7天", "14天", "30天"])),

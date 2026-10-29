@@ -1,5 +1,5 @@
 -- =====================================================================
--- 商品扩容 02：分类重构（8 个一级 + 21 个二级）
+-- 商品扩容 02：分类重构（8 个一级 + 21 个二级；原 502 运动手表并入 501，新增 503 机械普通手表，见 09/10）
 -- 可重复执行；不删除旧分类，不重建表
 -- =====================================================================
 SET NAMES utf8mb4;
@@ -29,7 +29,6 @@ UPDATE categories SET sort_order = 1 WHERE id = 401;
 UPDATE categories SET sort_order = 2 WHERE id = 402;
 UPDATE categories SET sort_order = 3 WHERE id = 403;
 UPDATE categories SET sort_order = 1 WHERE id = 501;
-UPDATE categories SET sort_order = 2 WHERE id = 502;
 UPDATE categories SET sort_order = 1 WHERE id = 601;
 
 -- 首页热门推荐使用的重点二级分类（与本地一致）
@@ -38,6 +37,7 @@ UPDATE categories SET recommend = 1 WHERE id IN (101, 102, 201, 301, 501, 601);
 -- 3. 新增二级：先父后子（INSERT IGNORE 保证重复执行不报错）
 INSERT IGNORE INTO categories (id, name, parent_id, sort_order, status, recommend, image)
 VALUES
+(503, '机械普通手表', 5, 2, 1, 0, NULL),
 (701, '手机配件', 7, 1, 1, 0, NULL),
 (702, '电脑配件', 7, 2, 1, 0, NULL),
 (703, '存储设备', 7, 3, 1, 0, NULL),
@@ -47,7 +47,7 @@ VALUES
 (803, '智能照明', 8, 3, 1, 0, NULL),
 (804, '扫地机器人', 8, 4, 1, 0, NULL);
 
--- 4. 验证：一级 8、二级 21
+-- 4. 验证：一级 8、二级 20
 SELECT COUNT(*) AS top_count FROM categories WHERE parent_id IS NULL;
 SELECT COUNT(*) AS child_count FROM categories WHERE parent_id IS NOT NULL;
 SELECT id, name, parent_id, sort_order FROM categories ORDER BY COALESCE(parent_id, id), parent_id IS NOT NULL, sort_order;

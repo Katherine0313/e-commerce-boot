@@ -8,13 +8,15 @@
 |---|---|
 | `00-precheck.sql` | 只读预检：版本、id 冲突、分类/商品数量 |
 | `01-specs-column.sql` | `products.specs JSON NULL`（幂等） |
-| `02-category-refactor.sql` | 8 个一级 + 21 个二级（幂等） |
+| `02-category-refactor.sql` | 8 个一级 + 21 个二级（幂等；502 运动手表并入 501，新增 503 机械普通手表） |
 | `03-backfill-specs.sql` | 现有 50 个商品补 specs |
 | `03a-remove-old-seed.sql` | 清理旧版 51~300 伪变体种子（先清购物车/库存引用） |
 | `04-products-seed.sql` | 76 个去重种子商品（id 51~126，`SEED-xxx`） |
 | `05-fix-titles.sql` | 重写 126 个商品的主标题 title（名称+卖点+参数+官方正品） |
 | `07-fix-subtitles.sql` | 淘宝风格重写 126 个商品副标题（销量+可开发票+品类口碑，营销数字） |
 | `08-fix-seed-data.sql` | 修正种子脏数据：id=76 title 去掉「c」、id=85 名称/标题/参数（生成器未识别 MX Master 3S） |
+| `09-merge-watch-category.sql` | 合并「运动手表」(502) 到「智能手表」(501) |
+| `10-mechanical-watches.sql` | 新增「机械普通手表」(503) + 10 款机械/石英表商品（id 127~136） |
 | `05-indexes.sql` | 分页/筛选索引（幂等） |
 | `06a-add-title.sql` | products 加 title 并复制 description（发新代码前） |
 | `06b-drop-description.sql` | 新代码上线后删除 description |
@@ -42,6 +44,8 @@ mysql ... e_commerce_db < docs/sql/product-expand/06a-add-title.sql
 mysql ... e_commerce_db < docs/sql/product-expand/05-fix-titles.sql
 mysql ... e_commerce_db < docs/sql/product-expand/07-fix-subtitles.sql
 mysql ... e_commerce_db < docs/sql/product-expand/08-fix-seed-data.sql
+mysql ... e_commerce_db < docs/sql/product-expand/09-merge-watch-category.sql
+mysql ... e_commerce_db < docs/sql/product-expand/10-mechanical-watches.sql
 mysql ... e_commerce_db < docs/sql/product-expand/99-verify.sql
 # 部署新 product-service / order-service 后：
 mysql ... e_commerce_db < docs/sql/product-expand/06b-drop-description.sql
@@ -57,7 +61,7 @@ redis-cli --scan --pattern 'category:parent:*' | xargs -r redis-cli DEL
 
 1. 备份数据库
 2. 上传 `product-expand/` 到服务器
-3. 依次执行 00/01/02/03/03a/04/05-indexes/06a/05-fix-titles/07-fix-subtitles/08-fix-seed-data/99（用 `deploy/run-sql-prod.sh`）
+3. 依次执行 00/01/02/03/03a/04/05-indexes/06a/05-fix-titles/07-fix-subtitles/08-fix-seed-data/09-merge-watch-category/10-mechanical-watches/99（用 `deploy/run-sql-prod.sh`）
 4. 同步图片：本机 `upload/image/upload/51~126.webp` 和 `upload/image/opt/upload/51~126.webp` → 服务器 `/www/java/upload/image/` 对应目录
 5. 清 Redis `category:parent:*`
 6. 部署 product-service / order-service（新代码只读写 `title`）
