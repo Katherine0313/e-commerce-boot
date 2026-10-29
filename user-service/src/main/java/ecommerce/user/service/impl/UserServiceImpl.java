@@ -77,13 +77,20 @@ public class UserServiceImpl implements UserService {
         // 2. 解析微信返回的 openid，code 无效时微信会返回 errcode 而没有 openid
         JsonNode respNode = objectMapper.readTree(respBody);
         JsonNode openidNode = respNode.get("openid");
-        if (openidNode == null) {
+        String openid;
+        if (openidNode != null) {
+            openid = openidNode.stringValue();
+        } else if (weChatProperties.isDevMockEnabled() && respNode.path("errcode").asInt() == 40164) {
+            // 本地开发兜底：公网出口 IP 经常变、不在微信白名单时，用固定 mock openid 走完登录流程。
+            // 仅 dev-mock-enabled=true（本地配置）时生效，生产环境关闭。
+            log.warn("微信登录被 IP 白名单拦截(errcode=40164)，开发环境使用 mock openid 登录");
+            openid = "dev_mock_openid";
+        } else {
             // 只记录微信错误码/文案，不记录 openid/session_key
             log.warn("微信 jscode2session 失败 errcode={} errmsg={}",
                     respNode.path("errcode").asText(""), respNode.path("errmsg").asText(""));
             throw new BusinessException(HttpStatus.BAD_REQUEST, "登录凭证 code 无效或已过期");
         }
-        String openid = openidNode.stringValue();
         // 3. 按 openid + shopId 查用户，查不到（首次登录）就自动注册
         // 不加 is_deleted 过滤（注销用户 openid 仍占 uk_shop_openid，查不到会撞键）
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
