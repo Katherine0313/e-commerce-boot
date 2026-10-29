@@ -282,6 +282,39 @@ ecommerce
 - **日期筛选**：列表接口收 `dateField`/`startDate`/`endDate`，`dateField` 走白名单（created_at/confirm_at/pay_at/ship_at/finish_at）防动态列 SQL 注入；前端公共组件 date-range-select 统一吐这三个参数。
 - **售后审核**：`PUT /api/admin/after-sales/{id}` 只改主表 `status/merchant_remark/updated_at`，业务时间戳按状态写对应子表列（STATUS_COLUMN_MAP 白名单：refunding/returning→review_at、rejected→rejected_at、refund_confirming→refund_at、refunded→refunded_at、exchanging→exchange_at、exchanged→exchanged_at）；删除=主表/明细/子表 `is_deleted=1` 软删。售后前端字段蛇形→驼形对齐（afterSaleNo/createdAt/afterSaleType/payTypeDesc 等）。
 
+## 首页热门推荐（2026-10-29）
+
+- 新增 `GET /api/products/hot?limit=8&excludeIds=`：`ProductMapper.listRandomOnSaleByRecommendedCategory` 先取
+  `categories.recommend=1`（含父分类 recommend）的上架商品，`ORDER BY RAND()`；不足 limit 时由
+  `ProductService.listHotProducts` 再调 `listRandomOnSale` 随机补足，补的时候排除已选和 `excludeIds`。
+- 小程序首屏 `loadHot()` 与下拉刷新共用该接口；刷新只换 `HotPanel` 8 个商品位，排除当前批次。
+- 本地数据：6 个推荐分类（101/102/201/301/501/601）共 24 个上架商品，8 个位足够；`limit=30` 验证 24 推荐 + 6 随机。
+
+## 后台新增商品 500（2026-10-29）
+
+- 现象：`POST /api/admin/products` 500，日志 `Column 'sales_mode' cannot be null`。
+- 原因：后台新增表单没有「销售模式」字段，`AdminProductDTO.salesMode` 为 null；INSERT 显式带 `sales_mode` 列，
+  NULL 覆盖了数据库 `NOT NULL DEFAULT 'spot'`。
+- 修复：`AdminProductServiceImpl.create` 对 `salesMode`（spot）、`listingStatus`（1）、`subTitle`/`brand`（空串）、
+  `salesPrice`（0）、`stock`（0）做兜底，并校验商品名非空。`update` 走动态 SQL，不受影响。
+
+## 个性化推荐接口缺失（2026-10-29）
+
+- `recommender-python` 只有 `/api/agent/chat`、`/api/agent/chat/stream`、`/health`，**没有 Java `RecommendServiceImpl`
+  调用的 `/recommend`**（git 历史也从未有过）；因此首页「猜你喜欢」一直走销量兜底，日志每次 WARN。
+- 生产 `product-service` 的 `recommend.base-url` 已改为 `${RECOMMEND_BASE_URL:http://127.0.0.1:8000}`，
+  compose 设 `RECOMMEND_BASE_URL=http://ai-service:8000`；地址正确但接口仍待实现。
+- 用户已决定近期不用 Python 写 recommend，暂不实现，保持兜底。
+
+## RabbitMQ 最小 demo（2026-10-29）
+
+- 本地 Docker 启动：`docker run -d --name rabbitmq -p 5672:5672 -p 15672:15672 rabbitmq:3.13-management`。
+- 管理台：http://127.0.0.1:15672 ，账号 `guest` / 密码 `guest`。
+- `order-service` 加 `spring-boot-starter-amqp`，`application.yml` 配置 `spring.rabbitmq.*`（环境变量 `RABBITMQ_HOST/PORT/USERNAME/PASSWORD/VHOST`，默认本机 guest/guest）。
+- demo 代码在 `ecommerce.order.mq.demo`：`RabbitDemoConfig`（direct exchange/queue/binding）、`RabbitDemoProducer`、`RabbitDemoListener`、`RabbitDemoRunner`，全部 `@Profile("dev")`，生产不加载。
+- 启动 order-service 自动发一条 `hello rabbitmq` 并由本服务消费，日志可见「已发送/收到消息」。
+- 生产暂未加 RabbitMQ 容器；等做 WebSocket 跨实例广播时再加 compose 服务和环境变量。
+
 ## 单店化改造（2026-10-29）
 
 多租户沙箱彻底下线，退化为单店。关键事实：
@@ -318,7 +351,7 @@ ecommerce
 - **会话注册表（单店模式，2026-10-29）**：`WebSocketSessionRegistry` 从 `Map<shopId, Set>` 改为单个 `Set<WebSocketSession>`，`sendToShop` → `broadcast`。
 - **触发点**：支付成功 `payOrder` → `pushNewOrderNotice` 推 `{type:1, orderId, content}` 给所有在线后台连接。
 - **前端**：`utils/orderNotify.js` 登录后自动连 + notification 弹窗 + SpeechSynthesis 语音；收到推送后 `orderNotifyTick` 自增，工作台监听它自动刷新统计卡/营业额。
-- **单实例内存版**：真多实例要补 Redis pub/sub 跨实例广播（task_plan 阶段 11）。
+- **单实例内存版**：真多实例计划用 RabbitMQ fanout 跨实例广播（task_plan 阶段 11）。
 - **连接可靠性加固（2026-10-22）**：前端加 25s 心跳 ping（后端回 pong）、握手 10s 超时、无限退避重连（3s→30s，登出/token 清除时停止）、页面 `visibilitychange`/`online` 时断线立即重连；重连成功后触发一次 `orderNotifyTick` 作为对账。后端 `broadcast` 串行发送（`WebSocketSession` 非线程安全），发送失败或半开连接直接从注册表移除，避免僵尸 session 导致后续推送持续丢失。
 - **语音播报的浏览器限制（2026-10-22）**：`speechSynthesis` 受自动播放策略限制，**页面刷新后如果没有用户交互，语音会被静默拒绝**（表现：弹窗正常、没有声音；退出登录点击过页面后才恢复）。处理：首次 `pointerdown`/`keydown` 时播一条音量为 0 的短语音预热解锁；缓存中文语音（`voiceschanged` 后再取）；播报前 `resume()`，`cancel()` 后延迟 60ms 再 `speak()`（Chrome 偶发吞掉）。
   - **使用注意：刷新页面后，随便点一下后台页面任意位置（菜单、空白处都行），之后来单就会正常播报。** 如果刷新后完全不点击页面，浏览器仍会拒绝发声，代码层面无法绕过。
@@ -611,7 +644,7 @@ ecommerce
 后端发布从「本地 `mvn package` → scp jar → 服务器 `docker compose build`」改为「本地构建镜像 → 推腾讯云 TCR → 服务器 `pull + up --no-build`」。线上 9 个业务容器已全部换成 TCR 镜像，网关 `:8080` 和公网 `https://api.jiemids.com/api/products/1` 均返回 200。
 
 ### 固定信息
-- TCR：`ccr.ccs.tencentyun.com`，命名空间 `jiemi-ecommerce`，9 个仓库：8 个 Java 服务 + `ai-service`
+- TCR：`ccr.ccs.tencentyun.com`，命名空间 `jiemi-ecommerce`，8 个仓库：7 个 Java 服务 + `ai-service`（2026-10-29 移除 shop-service）
 - 服务器：`/www/java`；SSH 别名 `ecommerce`（root@193.112.176.228，私钥 `~/.ssh/ecommerce.pem`；`~/.ssh/ecommerce_deploy` 作备用）
 - compose：每个服务同时有 `image: "${REGISTRY:-local}/<svc>:${TAG:-latest}"` 和 `build:`；服务器部署必须 `--no-build`
 - `.env`：本地 `deploy/.env` 与服务器 `/www/java/.env` 都有 `REGISTRY=ccr.ccs.tencentyun.com/jiemi-ecommerce`
@@ -619,11 +652,11 @@ ecommerce
 - 生产库已确认有 `shops.visitor_key`、`orders.is_subscribe_unpaid`、`orders.unpaid_notify_sent`、`idx_orders_unpaid_notify`
 
 ### release.sh
-- 位置 `deploy/release.sh`；白名单 8 Java + `ai-service`，`common` 不能部署
+- 位置 `deploy/release.sh`；白名单 7 Java + `ai-service`（2026-10-29 移除 shop-service），`common` 不能部署
 - 流程：Maven（只 Java）→ `docker build`（Java context=`<svc>/target`；ai context=`../recommender-python`）→ `docker push` → SSH `docker pull <目标镜像>` → `docker compose -f docker-compose.yml up -d --no-build --no-deps <svc>` → `docker inspect` 状态 → 重新生成 `docker-compose.override.yml`
 - 常用：
   - `./deploy/release.sh all`
-  - `./deploy/release.sh shop-service`
+  - `./deploy/release.sh product-service`
   - `--no-deploy` 只推送；`--no-build` 跳过 Maven；`--no-ai` 排除 Python；`--dry-run` 只打印
   - `--rollback <tag> all` 跳过构建/推送，直接部署指定 tag
 - tag 默认 `日期-git短SHA`，工作区脏加 `-dirty`

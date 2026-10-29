@@ -5,7 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
-  2026-10-29 多租户彻底下线、退化为单店：删除 shop-service 模块及网关路由/compose/release 项；JWT 不再签 shopId，`UserContext`/各服务 Mapper/XML/Service 全部去掉 `shop_id`；WebSocket 来单提醒改单集合广播；后台前端店铺名改静态配置 `src/utils/shop.js`；小程序登录不再传 SHOP_ID；AI 推荐服务同步去掉 `products.shop_id`。数据库迁移脚本 `docs/sql/single-shop-01-cleanup.sql`（发布前清沙箱数据）+ `single-shop-02-drop-shop-id.sql`（新代码上线后删列），由用户备份后执行；发布顺序要求 auth-service 最后。
+  2026-10-29 多租户彻底下线、退化为单店并**已完成生产迁移**：删除 shop-service 模块及网关路由/compose/release 项；JWT 不再签 shopId，`UserContext`/各服务 Mapper/XML/Service 全部去掉 `shop_id`；WebSocket 来单提醒改单集合广播；后台前端店铺名改静态配置 `src/utils/shop.js`；小程序登录不再传 SHOP_ID；AI 推荐服务同步去掉 `products.shop_id`，并补上生产 `.env` 的 `MYSQL_HOST=host.docker.internal`（此前 AI 商品查询一直连不上）。生产执行 01 清掉 2 家沙箱店（55/56）数据、按序发布 7 服务（auth 最后）、02 删除 18 表 `shop_id` 与 `shops` 表并重建唯一键；接口与 AI 商品读取验证通过，备份在服务器 `/www/backup/`。同日新增首页热门推荐接口（推荐分类优先、不足随机补）、修复后台新增商品 `sales_mode` 为空 500。
   2026-10-28 沙箱按浏览器复用（`shops.visitor_key` + 前端 UUID + 唯一索引，退出登录/401 不清 key，24h 内复用原店）；admin 用户名改 `admin_{shopId}`、`create_time` 改开店时间；订单金额注释/标签统一；软著三件套（TEST、源程序文档、用户手册）完成；发布切腾讯云 TCR 镜像（`ccr.ccs.tencentyun.com/jiemi-ecommerce`，9 个仓库，`deploy/release.sh` 一键发布/回滚），服务器 compose 已切 `image:` + `--no-build`，线上 9 容器 Up，网关直连与公网接口均 200。同日小程序提审被拒（VIP 入口点击无响应），新增 `utils/features.js` 功能开关，隐藏 VIP/优惠券/积分与用户协议/隐私政策死链，「联系我们」改跳已有客服页；新增 `deploy/release-web.sh`，后台管理端前端一条命令发布（npm build + rsync + 备份/回滚）；一键体验改为手机号验证码鉴权（`/api/admin/shops/sandbox`）；发布脚本修复多服务 tag 牵连（`docker-compose.override.yml` 固定各服务镜像 + `--no-deps` 部署）；面试演示确定走单店模式，登录页移除「一键体验」，恢复账号密码 / 手机号直接登录模板店，沙箱后端保留未使用。
   2026-10-27 运营报表导出改为模板式（黑马风格：Controller 3 行 + Service 读 `template/运营报表模板.xlsx` 写 response，删除旧 `OperationReportExcelWriter`）；同日运营报表统计口径由近 30 天改为本月（模板扩到 31 行，本月未过完时隐藏多余空行）；沙箱治理：user 克隆脱敏（假 openid、name 脱敏、phone/avatar 置 NULL）+ shop-service 每小时回收过期沙箱店 + 沙箱 token 24h 与店铺同寿命、前台到期强制登出。
   2026-10-26 AI 迁移与生产部署完成：删除 Java `ai-agent-service` 与 Spring AI BOM，新增 Python `recommender-python`（FastAPI + LangGraph）导购机器人，生产容器 `ai-service` 已上线；网关 `/api/agent/**` 静态转发（本地默认 `127.0.0.1:8000`，Docker 由 `AI_SERVICE_URL` 覆盖）。第一阶段能力为多轮对话 + 商品问答（直连 MySQL 只读），并加 JWT 登录校验 + 每用户限流 + 并发/超时保护。线上验证：`/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）。物流轨迹已过滤未来时间；分类图 webp 已上传并改库，待重建 product/user 容器 + 清 CF 缓存。工作台顶部累计销售额/订单量已改为后端聚合（`/api/admin/report/headline`），近 30 天运营数据报表 Excel 导出已实现（`/api/admin/report/export`），Excel 结构测试和后台前端构建均通过，待部署 order-service + 上传新 dist 验证。
@@ -24,7 +24,7 @@
   7. 购物车 2 个缺口 + 商品/订单/售后端到端验证
   8. file-service（CDN/通用文件）
   9. 沙箱 `templateGuard` + 扫码进店（过期回收已完成 2026-10-27）
-  10. 阶段 11 WebSocket：Redis pub/sub 跨实例广播 + 发货/新售后事件
+  10. 阶段 11 WebSocket：RabbitMQ fanout 跨实例广播 + 发货/新售后事件
   11. 阶段 12 微信支付接入（回调 + 查单 + 对账）
 
 - **目标是什么？**
@@ -32,7 +32,7 @@
 
 - **我学到了什么？**（详见 `findings.md`）
   - 静态资源地址统一拼，`X-Forwarded-*` 不可信
-  - `lb://` 长连接与 ThreadLocal 在 WS 下失效，跨实例推送走 Redis pub/sub
+  - `lb://` 长连接与 ThreadLocal 在 WS 下失效，跨实例推送计划走 RabbitMQ fanout
   - 业务时间用 Java `LocalDateTime.now()`，别用 MySQL `NOW()`（差 8h）
   - `GROUP BY` 大小写不敏感会合并枚举值，查 pay_type 用 `BINARY`
   - 凭据统一走环境变量，缺了启动直接失败
@@ -49,6 +49,8 @@
   - Spring Cloud Gateway 5.x 默认移除 `X-Forwarded-*`，绝对 URL 的协议不能依赖它；对外 https 场景在 `UrlUtil` 兜底
 
 - **我做了什么？（近期）**
+  - 2026-10-29：RabbitMQ 最小 demo（order-service 加 AMQP，dev profile 下启动自动发送/消费 demo.queue，本地 Docker rabbitmq 3.13-management 跑通；管理台 http://127.0.0.1:15672 ，账号 guest / guest）
+  - 2026-10-29：首页热门推荐接口（`/api/products/hot`：categories.recommend 优先 + 随机补足）；后台新增商品 sales_mode 空值 500 修复；生产单店化迁移完成
   - 2026-10-29：多租户彻底下线（删 shop-service / JWT shopId / 18 表 shop_id / 沙箱前端与 SHOP_ID / AI 服务 shop_id），新增两阶段迁移 SQL 与执行说明，`deploy/release.sh` 调整发布顺序（auth 最后）
   - 2026-10-28：沙箱复用（visitor_key + 前端 UUID）、admin 用户名/时间修复、订单金额文案统一、软著材料、TCR 镜像发布（9 仓库 + release.sh，服务器已切 image + --no-build）、小程序提审驳回修复（未开通功能统一用 `utils/features.js` 开关隐藏）、后台前端一键发布 `release-web.sh`
   - 2026-10-27：沙箱过期强制登录（沙箱 token TTL 跟店铺 24h、前端按 `expiresAt` 定时踢人 + 路由守卫校验 JWT `exp`）；运营报表导出改模板式（openpyxl 生成 `template/运营报表模板.xlsx`，预置 30 行样式）+ 沙箱治理（克隆 user 脱敏、过期回收定时任务、19 张表按外键顺序清理）
@@ -63,7 +65,7 @@
 
 ## 未完成事项（速查）
 
-- [ ] 首页优化收尾：`opt/` 图与分类 webp 已上传、生产库 `categories.image` 已是 `.webp`；还差 `--force-recreate product-service user-service`（bind mount 仍指向旧目录）+ 清 Cloudflare `/image/category/*`
+- [ ] 首页优化收尾：`opt/` 图与分类 webp 已上传、生产库 `categories.image` 已是 `.webp`；product/user 容器已于 2026-10-29 重建，还差清 Cloudflare `/image/category/*`
 - [ ] 订阅消息：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，服务已部署；小程序发行后验证推送
 - [ ] 运营数据导出上线：新版 `order-service` 已随 TCR 部署；待上传新 `e-commerce/dist` + 清缓存 + 验证 xlsx
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + request/uploadFile/downloadFile 域名
@@ -75,10 +77,13 @@
 - [ ] 售后：退货入库单（仓库核验）
 - [ ] file-service：CDN/通用文件 + `uploads` 表
 - [x] 沙箱过期回收 + user 克隆脱敏（2026-10-27，shop-service 每小时清到期店）
-- [x] 发布切 TCR 镜像（2026-10-28，9 个仓库，release.sh 一键发布/回滚，线上 9 容器 Up）
+- [x] 发布切 TCR 镜像（2026-10-28 起，2026-10-29 起 8 个仓库：7 Java + ai-service；release.sh 一键发布/回滚）
 - [x] 沙箱按浏览器复用（2026-10-28，退出登录 24h 内复用原店）
 - [x] 多租户沙箱彻底下线（2026-10-29，单店模式）；扫码进店/分享链接不再支持
-- [ ] WebSocket：Redis pub/sub 跨实例、发货/新售后事件
+- [ ] WebSocket：RabbitMQ fanout 跨实例、发货/新售后事件（RabbitMQ 本地 demo 已完成）
+- [ ] 小程序重新上传：热门推荐（推荐分类优先）+ 单店化登录（不再传 shopId）
+- [ ] 后台新增商品 500 修复后的 product-service 需确认已发布到生产（代码已修，`sales_mode` 默认 spot）
+- [x] ~~个性化推荐/`/recommend`~~：用户决定近期不实现 Python recommend，继续销量兜底（2026-10-29）
 - [ ] 导购机器人后续能力：下单、RAG、商品卡片渲染（当前多轮对话 + 商品问答，已上线并加登录/限流）
 - [ ] 短信服务商：手机号登录目前仅演示号 13800138000 能收码，待接阿里云/腾讯云短信并关闭 `SMS_TEST_PHONE`
 - [ ] 微信支付接入（阶段 12）

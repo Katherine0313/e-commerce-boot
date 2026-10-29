@@ -77,6 +77,7 @@
 - [✓] 商品/分类/标签/库存预警后台 CRUD + C 端浏览/搜索/收藏
 - [✓] Redis 分类树缓存（按一级父分类一棵树一个 key）
 - [✓] 图片上传：后台 `/api/admin/upload`、C 端 `/api/upload`（type 分流目录）
+- [✓] 首页热门推荐 `GET /api/products/hot`（2026-10-29）：推荐分类优先 + 随机补足 + excludeIds
 - [ ] parameters 表 + 参数组/参数项
 - [ ] 促销 `business_onsale` 表 + 活动 CRUD（含定时下架）
 - **状态：** in_progress
@@ -120,7 +121,7 @@
 - [✓] 小程序分包 + 图片后端化（2026-10-24）：主包保留 4 个 tabBar 页 + 我的子页（12 页），商品/搜索/订单/售后拆 4 个分包；`OrderCard`/`AfterSaleCard` 移到 `components`；删除 15M 的 `static/image`，商品图/轮播/分享图全部走后端
 - [✓] 生产部署（2026-10-24~26）：腾讯云 8G + Docker Compose（Nacos 3.1.1 + Redis 容器 + 8 个 Java 服务 + Python `ai-service`）+ 宝塔 MySQL；`api.jiemids.com` / `www.jiemids.com` 经 Cloudflare + Nginx；后台沙箱/图片/来单 WebSocket、小程序发行已通；部署文件见 `deploy/`
 - [✓] AI 迁移上线（2026-10-26）：网关 `/api/agent/**` → `http://ai-service:8000`；线上 `/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）
-- [✓] 发布切 TCR 镜像（2026-10-28）：9 个仓库（8 Java + ai-service）；compose 加 `image:`；`deploy/release.sh` 支持构建/推送/回滚；服务器已切 `image:` + `--no-build`；首次 tag `20261028-3af36f5-dirty`
+- [✓] 发布切 TCR 镜像（2026-10-28）：初始 9 个仓库，2026-10-29 移除 shop-service 后为 8 个（7 Java + ai-service）；compose 加 `image:`；`deploy/release.sh` 支持构建/推送/回滚；服务器已切 `image:` + `--no-build`
 - [✓] 后台管理端一键发布（2026-10-28）：`deploy/release-web.sh` 构建 `../e-commerce` → rsync 到 `/www/wwwroot/jiemids.com`，保留运行时文件，支持 `--no-build` / `--dry-run` / `--rollback`
 - [ ] 分类图收尾：webp 已上传、生产库已改 `.webp`；待重建 product/user 容器 + 清 CF 缓存
 - [✓] 线上问题修复（2026-10-25）：小程序审核白屏（上传了 `dist/dev`，接口地址是 127.0.0.1 → 改传 `dist/build`）、分类接口 Redis 降级 + Redis 容器化、用户头像 http→https（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg（iOS 兼容）
@@ -157,8 +158,9 @@
 - **状态：** pending
 
 ### 阶段 11：后台实时提醒（WebSocket）
-- [✓] 单实例版：`order-service /ws/order` + 握手鉴权 + 按 shopId 分组 + 支付成功推送 + 前端弹窗/语音/心跳/重连
-- [ ] Redis pub/sub 跨实例广播（解 `lb://` 长连接钉死单实例）
+- [✓] 单实例版：`order-service /ws/order` + 握手鉴权 + 单集合广播 + 支付成功推送 + 前端弹窗/语音/心跳/重连
+- [✓] RabbitMQ 最小 demo（2026-10-29，仅 dev）：`order-service` 加 `spring-boot-starter-amqp`，`demo.exchange/demo.queue` 启动自动发一条并消费打日志
+- [ ] RabbitMQ fanout 跨实例广播（替代单机内存注册表，解 `lb://` 长连接钉死单实例）
 - [ ] 事件补齐：发货、新售后单
 - **状态：** in_progress
 
@@ -179,7 +181,7 @@
 |------|---------|---------|------|
 | 超时未支付订单自动取消（30min 恢复库存 + 改取消） | order-service | `fixedDelay=60000` | ✅ 已实现 |
 | 订单超时自动确认收货（发货满 7 天，`sign_status=auto`） | order-service | `fixedDelay=60000` | ✅ 已实现 |
-| 订单未支付提醒（失效前 10 分钟，一次性订阅消息） | order-service | `fixedDelay=60000` | ✅ 已实现（待上线） |
+| 订单未支付提醒（失效前 10 分钟，一次性订阅消息） | order-service | `fixedDelay=60000` | ✅ 已实现（待上线）；后续计划改 RabbitMQ 延迟队列 |
 | ~~沙箱过期回收~~ | ~~shop-service~~ | — | ❌ 已随多租户下线（2026-10-29） |
 | 定时下架过期活动商品 | product-service | 每天 | ⏳ 待做（依赖 `business_onsale`） |
 
@@ -197,6 +199,15 @@
 > 库存预警不需要定时任务（实时 join `products`）。
 > `@Scheduled` 单机执行，将来多实例需加分布式锁（Redis SETNX 占位）。
 
+### 阶段 13：RabbitMQ 接入（2026-10-29）
+- [✓] 本地 Docker `rabbitmq:3.13-management`（5672/15672）；管理台 http://127.0.0.1:15672 ，账号 guest / guest
+- [✓] order-service 加 `spring-boot-starter-amqp` + `spring.rabbitmq.*` 配置
+- [✓] dev profile 最小 demo：`demo.exchange`/`demo.queue`，启动自动发送并消费
+- [ ] 未支付 30 分钟延迟队列（TTL + 死信，替代 `sweepExpiredPendingPayOrders` 轮询）
+- [ ] RabbitMQ fanout 跨实例广播来单提醒（替代单机内存注册表）
+- [ ] 生产 compose 增加 rabbitmq 服务 + 凭据
+- **状态：** in_progress（仅 demo）
+
 ## 风险与待确认
 
 | # | 风险/待确认 | 影响 | 处置 |
@@ -205,7 +216,7 @@
 | 2 | ~~沙箱回收的跨服务一致性~~ | — | 已随多租户下线 |
 | 3 | 现有 `user`（小程序）与 `admin`（后台）账号体系并存 | 两套登录入口 | admin 走 auth-service，user 走 user-service，JWT type 区分 |
 | 4 | Spring Cloud 组件在 Boot 4 下的调试成本 | 单人项目进度 | 先最小骨架再铺开 |
-| 5 | 后台断线重连 / 跨实例推送 | 多实例下 WS 钉死单机 | 阶段 11 补 Redis pub/sub |
+| 5 | 后台断线重连 / 跨实例推送 | 多实例下 WS 钉死单机 | 阶段 11 用 RabbitMQ fanout 广播 |
 
 ## 历史错误
 
