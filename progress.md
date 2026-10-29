@@ -49,6 +49,7 @@
   - Spring Cloud Gateway 5.x 默认移除 `X-Forwarded-*`，绝对 URL 的协议不能依赖它；对外 https 场景在 `UrlUtil` 兜底
 
 - **我做了什么？（近期）**
+  - 2026-10-29：副标题淘宝风格化：126 个商品 `sub_title` 改为「营销销量/加购 + 可开发票 + 品类口碑」一句话（` | ` 分隔，21~28 字），生成器 `fix_subtitles.py` + `07-fix-subtitles.sql`，本地/生产均已执行；同步修正 id=85（MX Master 3S 名称/标题/参数）与 id=76（title 脏字符），补生成器型号识别
   - 2026-10-29：RabbitMQ 最小 demo（order-service 加 AMQP，dev profile 下启动自动发送/消费 demo.queue，本地 Docker rabbitmq 3.13-management 跑通；管理台 http://127.0.0.1:15672 ，账号 guest / guest）
   - 2026-10-29：PC 商城 `ecommerce-mall` 首版上线 xiaojiecpn.com（首页/列表/详情/搜索，Nginx 同源 `/api` 代理）
   - 2026-10-29：商品扩容后端完成并上线：specs 属性、8×21 分类、126 商品（按型号去重）、`/api/products/page` 分页筛选；生产 SQL/图片/product-service 已发布验证

@@ -299,6 +299,8 @@ ecommerce
 - 分类缓存新增 `CategoryCacheEvictor`，后台分类/商品写操作后清 `category:parent:*`。
 - `products.description` 重命名为 `title`（中文叫**主标题**，`sub_title` 保留）；后端实体/VO/DTO/Mapper 全部改为 title，order-service 商品快照用 `title AS description` 兼容购物车表。
 - 主标题内容为 SEO 长标题：名称（含品牌+型号+品类）+ 卖家卖点 + 3 个关键参数 + 官方正品/现货速发；脚本 `05-fix-titles.sql`，生成器 `fix_titles.py`。
+- `sub_title` 采用淘宝风格：一句话 21~28 字，销量/加购营销数字 + 可开发票 + 品类口碑短语，三段用 ` | ` 分隔（中文逗号在列表卡片里太碎）；脚本 `07-fix-subtitles.sql`，生成器 `fix_subtitles.py`。数字按商品 id 稳定生成（演示用，非真实销量）。
+- 生成器 `kind_of` 原来只认型号里带「鼠标」二字，`MX Master 3S` 被判成 generic，名称/标题/参数全落成兜底「商品」+ 手机壳模板；已补型号兜底，并用 `08-fix-seed-data.sql` 修正 id=85（名称/标题/参数）和 id=76（title 里混入的脏字符 `c`）。
 - 本地与生产均已执行数据脚本并验证：8/21/126、每叶子 6、商品名全唯一、specs 无空值、分页/筛选/排序/后台 specs 读写均通过。生产备份 `/www/backup/e_commerce_db_before_product_expand_2026-10-29_1935.sql`；生产额外有一个空的「家电 / 电冰箱」分类，用户自行删除。
 
 ### PC 商城 Web 端（ecommerce-mall，2026-10-29）

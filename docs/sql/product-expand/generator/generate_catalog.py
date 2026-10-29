@@ -230,7 +230,8 @@ def kind_of(category_id, model):
     if category_id == 701: return "case"
     if category_id == 702:
         if "键盘" in model: return "keyboard"
-        if "鼠标" in model and "垫" not in model: return "mouse"
+        # 「MX Master 3S」这类专业型号名不含「鼠标」二字，按型号兜底识别
+        if ("鼠标" in model or "MX Master" in model) and "垫" not in model: return "mouse"
         if "扩展坞" in model or "Hub" in model: return "dock"
         if "支架" in model: return "stand"
         if "线" in model: return "cable"

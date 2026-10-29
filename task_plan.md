@@ -83,6 +83,7 @@
 - [✓] 商品整理为 126 件（50 现有 + 76 去重种子 id 51~126，每叶子 6）并已上生产
 - [✓] C 端分页 `GET /api/products/page`（分类/关键词/品牌/价格/排序），旧接口保持数组兼容
 - [✓] `products.description` 重命名为 `title`（主标题），商品 title 改为 SEO 长标题；`sub_title` 保留
+- [✓] 商品 `sub_title` 淘宝风格化：营销销量/加购 + 可开发票 + 品类口碑，一句话 17~24 字（2026-10-29）
 - [ ] 前端接 specs / 分页 / 分类侧边栏（小程序 → 后台 → PC）
 - [ ] parameters 表 + 参数组/参数项
 - [ ] 促销 `business_onsale` 表 + 活动 CRUD（含定时下架）
