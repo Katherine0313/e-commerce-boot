@@ -21,7 +21,6 @@ public class Admin {
     private String password;
     private String name;
     private String role;
-    private Long shopId;
     private Integer status;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

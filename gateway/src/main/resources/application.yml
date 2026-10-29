@@ -19,12 +19,6 @@ spring:
                 - Path=/auth-service/v3/api-docs
               filters:
                 - RewritePath=/auth-service/(?<segment>.*), /$\{segment}
-            - id: shop-service-api-docs
-              uri: lb://shop-service
-              predicates:
-                - Path=/shop-service/v3/api-docs
-              filters:
-                - RewritePath=/shop-service/(?<segment>.*), /$\{segment}
             - id: product-service-api-docs
               uri: lb://product-service
               predicates:
@@ -60,11 +54,6 @@ spring:
               uri: lb://auth-service
               predicates:
                 - Path=/api/login,/api/logout,/api/admin/info,/api/auth/sms-code,/api/auth/phone-login
-            # 店铺 → shop-service（当前店铺 + 一键体验开沙箱，均需 admin 令牌）
-            - id: shop-service
-              uri: lb://shop-service
-              predicates:
-                - Path=/api/admin/shops,/api/admin/shops/**
             # 商品浏览 + 商品收藏 → product-service（收藏与商品同库，列表直接 join products）；
             # 必须放在 user-service 的 /api/** 通配之前，更具体的规则优先匹配。
             # 裸路径（/api/products）是列表接口，/** 是详情等子路径，两者都要覆盖。
@@ -123,8 +112,6 @@ springdoc:
     urls:
       - name: 登录 auth-service
         url: /auth-service/v3/api-docs
-      - name: 店铺 shop-service
-        url: /shop-service/v3/api-docs
       - name: 商品 product-service
         url: /product-service/v3/api-docs
       - name: 订单 order-service

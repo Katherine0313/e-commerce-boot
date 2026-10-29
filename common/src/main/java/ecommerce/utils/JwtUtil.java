@@ -39,37 +39,22 @@ public class JwtUtil {
     /**
      ** 对外暴露生成的方法，给调用方（WxLoginController）调用
      */
-    public String generateUserToken(Long userId, Long shopId){
-        Map<String, Object> extraClaims = new HashMap<>();
-        // C 端用户也签 shopId（多租户隔离键），下游 JwtInterceptor 统一解析写入 UserContext
-        extraClaims.put("shopId", shopId);
-        return buildToken(userId, TYPE_USER, extraClaims);
+    public String generateUserToken(Long userId){
+        return buildToken(userId, TYPE_USER, new HashMap<>());
     }
 
     /**
      * 签发后台管理员令牌。
      * <p>
      * 前端 getCurrentUser() 直接解 token 的 payload 读 username、role 做权限判断（isAdmin 查 role==='admin'），
-     * 所以这几个字段必须写进 payload，不能只塞 subject。shopId 是多租户隔离键，也要一并签进去。
+     * 所以这几个字段必须写进 payload，不能只塞 subject。
      */
-    public String generateAdminToken(Long adminId, String username, String role, Long shopId) {
-        return generateAdminToken(adminId, username, role, shopId, jwtProperties.getExpire());
-    }
-
-    /**
-     * 签发指定有效期的后台管理员令牌。
-     * <p>
-     * 沙箱店 24 小时后数据会被回收，令牌有效期随店铺走（不活得比店铺久），
-     * 到期后接口返回 401，前台会自动清 token 回登录页。
-     */
-    public String generateAdminToken(Long adminId, String username, String role, Long shopId,
-                                     long expireSeconds) {
+    public String generateAdminToken(Long adminId, String username, String role) {
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("id", adminId);
         extraClaims.put("username", username);
         extraClaims.put("role", role);
-        extraClaims.put("shopId", shopId);
-        return buildToken(adminId, TYPE_ADMIN, extraClaims, expireSeconds);
+        return buildToken(adminId, TYPE_ADMIN, extraClaims);
     }
 
     private String buildToken(Long id, String type, Map<String, Object> extraClaims) {

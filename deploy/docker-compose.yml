@@ -50,19 +50,6 @@ services:
     networks:
       - my-net
 
-  shop-service:
-    image: "${REGISTRY:-local}/shop-service:${TAG:-latest}"
-    build: ./shop-service
-    container_name: shop-service
-    restart: always
-    depends_on:
-      - nacos
-    env_file: .env
-    extra_hosts:
-      - "host.docker.internal:host-gateway"
-    networks:
-      - my-net
-
   product-service:
     image: "${REGISTRY:-local}/product-service:${TAG:-latest}"
     build: ./product-service
@@ -158,7 +145,6 @@ services:
     depends_on:
       - nacos
       - auth-service
-      - shop-service
       - product-service
       - order-service
       - aftersale-service

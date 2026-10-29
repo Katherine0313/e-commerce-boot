@@ -25,7 +25,6 @@ import java.time.LocalDateTime;
 public class Feedback {
     @TableId(type = IdType.AUTO)
     private Long id;
-    private Long shopId;
     private Long userId;
     /** 反馈类型：suggestion / product / order / other */
     private String type;

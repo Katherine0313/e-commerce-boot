@@ -27,9 +27,6 @@ import java.util.List;
 @Service
 public class ReviewServiceImpl implements ReviewService {
 
-    /** 模板店（杰米小店）：多租户沙箱接入前固定为 1 */
-    private static final Long TEMPLATE_SHOP_ID = 1L;
-
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final ProductReviewMapper productReviewMapper;
@@ -51,21 +48,20 @@ public class ReviewServiceImpl implements ReviewService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "评价内容至少 5 个字");
         }
 
-        Long shopId = currentShopId();
         Long userId = currentUserId();
-        Order order = getOwnedOrder(orderId, shopId, userId);
+        Order order = getOwnedOrder(orderId, userId);
 
         // 只有「已完成」订单可评价
         if (!OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "订单完成后才能评价");
         }
         // 一个订单只评一次
-        if (productReviewMapper.findByOrderId(orderId, shopId) != null) {
+        if (productReviewMapper.findByOrderId(orderId) != null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "该订单已评价");
         }
 
         // 从订单明细定位被评价商品：优先匹配前端传的 productId，否则取订单首个商品
-        List<OrderItem> items = orderItemMapper.listByOrderId(orderId, shopId);
+        List<OrderItem> items = orderItemMapper.listByOrderId(orderId);
         if (items.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "订单明细为空，无法评价");
         }
@@ -75,7 +71,6 @@ public class ReviewServiceImpl implements ReviewService {
                 .orElse(items.get(0));
 
         ProductReview review = ProductReview.builder()
-                .shopId(shopId)
                 .orderId(orderId)
                 .userId(userId)
                 .productId(item.getProductId())
@@ -94,8 +89,8 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     // 查订单并校验归属（与 OrderServiceImpl.getOwnedOrder 同款规则，评价模块独立实现）
-    private Order getOwnedOrder(Long orderId, Long shopId, Long userId) {
-        Order order = orderMapper.findById(orderId, shopId);
+    private Order getOwnedOrder(Long orderId, Long userId) {
+        Order order = orderMapper.findById(orderId);
         if (order == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "订单不存在");
         }
@@ -107,12 +102,6 @@ public class ReviewServiceImpl implements ReviewService {
 
     private Long currentUserId() {
         return UserContext.getUserId();
-    }
-
-    // 当前店铺：C 端 user 令牌带 shopId（多租户隔离键），无 shopId 时回退模板店
-    private Long currentShopId() {
-        Long shopId = UserContext.getShopId();
-        return shopId == null ? TEMPLATE_SHOP_ID : shopId;
     }
 
     private ReviewVO toVO(ProductReview review) {

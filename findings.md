@@ -77,7 +77,6 @@ curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 
 |---|---|---|---|
 | gateway | 8080 | `GatewayApplication` | 否 |
 | auth-service | 9001 | `AuthServiceApplication` | **是**（DB） |
-| shop-service | 9002 | `ShopServiceApplication` | **是**（DB） |
 | product-service | 9003 | `ProductServiceApplication` | **是**（DB） |
 | order-service | 9004 | `OrderServiceApplication` | **是**（DB） |
 | aftersale-service | 9005 | `AftersaleServiceApplication` | **是**（DB） |
@@ -268,7 +267,7 @@ ecommerce
 | 免登录清单唯一来源 `EXCLUDE_AUTH_PATHS` | 拦截器豁免与文档补全读同一份，防漂移 |
 | C 端商品浏览免登录（列表/详情/分类/标签），加购、下单需登录 | 小程序进首页看商品不带 token；写操作走购物车/订单接口需 user 令牌；后台商品管理走 `/api/admin/**` 需 admin 令牌 |
 | 头像存相对路径、返回时拼完整 URL | 换域名不失效 |
-| 后台 Admin 端以驼峰为主（订单/库存/用户统计等），商品模块保留蛇形（`@JsonNaming(SnakeCase)` 兼容旧 Node 前端），分页 `Result<PageVO<T>>`，shopId 从 admin 令牌取 | 商品前端照旧 Node 蛇形契约写、改动成本高；其余模块用驼峰消除翻译层，见下节「后台 Admin 端对接契约」 |
+| 后台 Admin 端以驼峰为主（订单/库存/用户统计等），商品模块保留蛇形（`@JsonNaming(SnakeCase)` 兼容旧 Node 前端），分页 `Result<PageVO<T>>` | 商品前端照旧 Node 蛇形契约写、改动成本高；其余模块用驼峰消除翻译层，见下节「后台 Admin 端对接契约」 |
 
 ## 后台 Admin 端对接契约（2026-10-19）
 
@@ -277,13 +276,26 @@ ecommerce
 - **路径**：后台写操作走 `/api/admin/**`，`JwtInterceptor` 按此分流 admin 身份（复用 `/api/products` 会撞免登录白名单 + admin 令牌被判成 user 403）。
 - **字段以驼峰为主，商品模块例外**：订单/库存/用户统计等 VO（OrderVO/StockVO/DashboardVO）是驼峰（Jackson 默认，无注解）；但商品模块 AdminProductVO/AdminProductDTO 用了 `@JsonNaming(SnakeCase)` 返回蛇形。对接时按具体模块确认字段名，别一刀切（工作台订单统计曾因前端按 snake_case 读驼峰的 OrderVO 导致数据全空，2026-10-20）。
 - **分页**：返回 `Result<PageVO<T>>`（`PageVO` 在 common，字段 list/total/page/pageSize），前端读 `res.data.data.list` / `res.data.data.total`，`pageSize` 从 `res.data.data.pageSize` 读（后端返回实际值，前端不写死 pageSize）。订单列表 4 个状态 tab 独立请求后端分页（status+page，pageSize 后端默认 13）；发货页 3 tab 全量（status 筛选 + pageSize 给足，订单量少不分页）。
-- **shopId 多租户**：service 用 `UserContext.getShopId()`（admin 和 C 端 user 令牌都签了 shopId，`JwtInterceptor` 统一解析写入 `UserContext`）。
+- **单店模式（2026-10-29）**：多租户已下线，JWT 不再签 `shopId`，service 不再按店铺过滤。
 - **时间字段**：后台 VO 用 `createdAt`/`updatedAt`（entity 是 createTime/updateTime，toVO 映射），前端读 createdAt/updatedAt。
 - **时间格式**：`LocalDateTime` 加 `@JsonFormat(pattern="yyyy-MM-dd HH:mm:ss")`，避免默认 ISO 格式（T 分隔）前端不好读。
 - **日期筛选**：列表接口收 `dateField`/`startDate`/`endDate`，`dateField` 走白名单（created_at/confirm_at/pay_at/ship_at/finish_at）防动态列 SQL 注入；前端公共组件 date-range-select 统一吐这三个参数。
 - **售后审核**：`PUT /api/admin/after-sales/{id}` 只改主表 `status/merchant_remark/updated_at`，业务时间戳按状态写对应子表列（STATUS_COLUMN_MAP 白名单：refunding/returning→review_at、rejected→rejected_at、refund_confirming→refund_at、refunded→refunded_at、exchanging→exchange_at、exchanged→exchanged_at）；删除=主表/明细/子表 `is_deleted=1` 软删。售后前端字段蛇形→驼形对齐（afterSaleNo/createdAt/afterSaleType/payTypeDesc 等）。
 
-## 多租户沙箱（2026-10-20）
+## 单店化改造（2026-10-29）
+
+多租户沙箱彻底下线，退化为单店。关键事实：
+
+- **代码**：删除 `shop-service` 模块、网关 `/api/admin/shops/**` 路由与 Swagger 条目、compose/release 项；`JwtUtil` / `JwtInterceptor` / `UserContext` 去掉 shopId；各服务实体、Mapper、XML、Service 全部去掉 `shop_id`。
+- **WebSocket**：`WebSocketSessionRegistry` 由 `Map<shopId, Set>` 改为单个 Set，`sendToShop` → `broadcast`；`AuthHandshakeInterceptor` 只校验 admin 类型，不再要求 shopId。
+- **数据库**：18 张表删 `shop_id`，`user.uk_shop_openid` → `uk_openid(openid)`，`product_favorites.uk_shop_user_product` → `uk_user_product(user_id, product_id)`，`shops` 表删除。迁移脚本 `docs/sql/single-shop-01-cleanup.sql`（发布前清沙箱数据）、`single-shop-02-drop-shop-id.sql`（全部新代码上线后删列），说明见 `docs/sql/README.md`。
+- **AI 服务**：`recommender-python` 也查 `products.shop_id`，已同步删除，且必须在 02 DDL 前发布，否则导购查询报 `Unknown column`。
+- **发布顺序**：01 清理 → product → order → aftersale → user → ai → 后台前端 → gateway → **auth 最后**（auth 停止签发 shopId，旧服务会拒绝新 token）。`deploy/release.sh` 的 `ALL_SERVICES` 已把 auth 排到最后。
+- **兼容**：旧 token 带 shopId 可忽略；旧小程序多传 `shopId` 由 `WxLoginDTO` 的 `@JsonIgnoreProperties(ignoreUnknown = true)` 忽略。
+
+## 多租户沙箱（2026-10-20，已废弃）
+
+> 2026-10-29 已彻底下线，以下仅作历史记录。
 
 - **开沙箱**：`POST /api/admin/shops/sandbox`（2026-10-28 起需 admin 令牌；前端先走后台账号「手机号 + 验证码」登录，再开沙箱；原 `/api/shops/sandbox` 已删除并移出免登录白名单），shops 插行 → 15 张业务表按「id + offset」克隆模板店数据（offset = shopId × 100 万，MySQL 全局自增显式指定 id 后 AUTO_INCREMENT 跳大，无害）→ 签发沙箱店 admin 令牌。admin 账号也克隆：username 加 `_{shopId}` 后缀（如 `admin_16`）、password 随机（一键体验直接签 token，不走密码登录）。
 - **克隆唯一键冲突（2026-10-20 修复）**：`orders` 表有 `uk_orders_order_no` 唯一键，`cloneOrders`/`cloneAfterSales` 的 order_no/after_sale_no 原样复制会撞唯一键 → 开沙箱 500。改成 `CONCAT(order_no, '_s', shopId)` 后缀（与 cloneTags.code、cloneAdmin.username 同一套做法）。模板店一开始没订单时不暴露，有订单后才炸。
@@ -302,12 +314,12 @@ ecommerce
 ## 后台来单提醒 WebSocket（2026-10-20）
 
 - **端点挂 order-service**（非独立推送服务）：`/ws/order`，用 Spring 原生 `WebSocketHandler` + `HandshakeInterceptor`（不用 JSR-356 `@ServerEndpoint`），网关加 `/ws/**` 路由转发。
-- **握手鉴权**：浏览器 `new WebSocket` 不能带 header，token 走 `?token=` query，`AuthHandshakeInterceptor` 用 `JwtUtil.parseToken` 验 admin + 取 shopId 存 attributes。
-- **会话按 shopId 分组**：`WebSocketSessionRegistry`（`ConcurrentHashMap<Long, Set<WebSocketSession>>`），多商户不串店。
-- **触发点**：支付成功 `payOrder` → `pushNewOrderNotice` 推 `{shopId, type:1, orderId, content}` 给对应店铺的在线连接。
+- **握手鉴权**：浏览器 `new WebSocket` 不能带 header，token 走 `?token=` query，`AuthHandshakeInterceptor` 用 `JwtUtil.parseToken` 只校验 admin 类型。
+- **会话注册表（单店模式，2026-10-29）**：`WebSocketSessionRegistry` 从 `Map<shopId, Set>` 改为单个 `Set<WebSocketSession>`，`sendToShop` → `broadcast`。
+- **触发点**：支付成功 `payOrder` → `pushNewOrderNotice` 推 `{type:1, orderId, content}` 给所有在线后台连接。
 - **前端**：`utils/orderNotify.js` 登录后自动连 + notification 弹窗 + SpeechSynthesis 语音；收到推送后 `orderNotifyTick` 自增，工作台监听它自动刷新统计卡/营业额。
 - **单实例内存版**：真多实例要补 Redis pub/sub 跨实例广播（task_plan 阶段 11）。
-- **连接可靠性加固（2026-10-22）**：前端加 25s 心跳 ping（后端回 pong）、握手 10s 超时、无限退避重连（3s→30s，登出/token 清除时停止）、页面 `visibilitychange`/`online` 时断线立即重连；重连成功后触发一次 `orderNotifyTick` 作为对账。后端 `sendToShop` 串行发送（`WebSocketSession` 非线程安全），发送失败或半开连接直接从注册表移除，避免僵尸 session 导致后续推送持续丢失。
+- **连接可靠性加固（2026-10-22）**：前端加 25s 心跳 ping（后端回 pong）、握手 10s 超时、无限退避重连（3s→30s，登出/token 清除时停止）、页面 `visibilitychange`/`online` 时断线立即重连；重连成功后触发一次 `orderNotifyTick` 作为对账。后端 `broadcast` 串行发送（`WebSocketSession` 非线程安全），发送失败或半开连接直接从注册表移除，避免僵尸 session 导致后续推送持续丢失。
 - **语音播报的浏览器限制（2026-10-22）**：`speechSynthesis` 受自动播放策略限制，**页面刷新后如果没有用户交互，语音会被静默拒绝**（表现：弹窗正常、没有声音；退出登录点击过页面后才恢复）。处理：首次 `pointerdown`/`keydown` 时播一条音量为 0 的短语音预热解锁；缓存中文语音（`voiceschanged` 后再取）；播报前 `resume()`，`cancel()` 后延迟 60ms 再 `speak()`（Chrome 偶发吞掉）。
   - **使用注意：刷新页面后，随便点一下后台页面任意位置（菜单、空白处都行），之后来单就会正常播报。** 如果刷新后完全不点击页面，浏览器仍会拒绝发声，代码层面无法绕过。
 
@@ -424,7 +436,7 @@ ecommerce
 
 - `ReportServiceImpl.resolvePeriod(period)` 返回 `PeriodRange(begin, end, timeDesc)` 记录，switch 只负责算起止日期；`getTurnoverStats`（卡片）与 `getTurnoverReport`（折线）共用一份，不再各写一套 switch。
 - `getDateList(begin, end)` 用 `while (!d.isAfter(end))` 生成闭区间日期，全类只写一次；用局部变量 `d` 递增，不修改入参 `begin`。
-- `turnoverOf(shopId, LocalDate begin, LocalDate end)` 内部转 `[begin 0点, end 次日 0点)`；工作台今日/昨日营业额也改用日期入参。
+- `turnoverOf(LocalDate begin, LocalDate end)` 内部转 `[begin 0点, end 次日 0点)`；工作台今日/昨日营业额也改用日期入参。
 
 ### 2. 口径不变，上界从 now 改为「end 次日 0 点」
 
@@ -434,9 +446,9 @@ ecommerce
 ### 3. 按天分组 SQL 的坑（`sumPaidAmountByDay` / `sumRefundAmountByDay`）
 
 - **`GROUP BY pay_at` 是错的**：`pay_at` 精确到秒，按它分组等于每笔订单一组，同一天出现多行；Java 端 `toDateAmountMap` 用 `put` 转换时后一条覆盖前一条，折线每天只剩一笔金额。必须 `GROUP BY DATE_FORMAT(pay_at, '%Y-%m-%d')`。
-- **必须带 `shop_id = #{shopId} AND is_deleted = 0`**：漏掉会把所有店铺的实收/退款汇总到一起（跨租户数据泄露），与单区间 `sumPaidAmount`/`sumRefundAmount` 的条件保持一致。
+- **必须带 `is_deleted = 0`**，与单区间 `sumPaidAmount`/`sumRefundAmount` 的条件保持一致（单店模式已无 `shop_id`）。
 - 退款按天同样按**原订单** `o.pay_at` 分组（`a.status='refunded'`），与 `sumRefundAmount` 口径一致。
-- MyBatis 参数必须全标 `@Param("shopId")/@Param("start")/@Param("end")`，与单区间查询命名一致；只标部分参数时其余依赖编译期 `-parameters`，不可靠。
+- MyBatis 参数必须全标 `@Param("start")/@Param("end")`，与单区间查询命名一致；只标部分参数时其余依赖编译期 `-parameters`，不可靠。
 - XML 正文里的 `<` 必须写 `&lt;`（`>` 可以不转义），否则 mapper 解析直接报 well-formed 错误；SQL 里也注意不要出现重复的 `WHERE`。
 
 ## 商品收藏（2026-10-23）

@@ -18,9 +18,6 @@ import java.util.List;
 @Service
 public class FavoriteServiceImpl implements FavoriteService {
 
-    /** 模板店（杰米小店）：多租户沙箱接入前，令牌没有 shopId 时回退到 1，与商品浏览口径一致 */
-    private static final Long TEMPLATE_SHOP_ID = 1L;
-
     private final FavoriteMapper favoriteMapper;
     private final ProductMapper productMapper;
 
@@ -31,35 +28,28 @@ public class FavoriteServiceImpl implements FavoriteService {
 
     @Override
     public List<FavoriteVO> list() {
-        return favoriteMapper.listByUser(currentShopId(), currentUserId());
+        return favoriteMapper.listByUser(currentUserId());
     }
 
     @Override
     public boolean check(Long productId) {
-        return favoriteMapper.exists(currentShopId(), currentUserId(), productId);
+        return favoriteMapper.exists(currentUserId(), productId);
     }
 
     @Override
     public void add(Long productId) {
-        Long shopId = currentShopId();
         Long userId = currentUserId();
-        // 商品必须存在且属于本店，避免收藏脏数据；下架商品允许收藏（收藏关系保留）
-        if (productMapper.findById(productId, shopId) == null) {
+        // 商品必须存在，避免收藏脏数据；下架商品允许收藏（收藏关系保留）
+        if (productMapper.findById(productId) == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
         // createdAt 用 JVM 时间，不用 MySQL NOW()（数据库时区 UTC 会差 8 小时）
-        favoriteMapper.insert(shopId, userId, productId, LocalDateTime.now());
+        favoriteMapper.insert(userId, productId, LocalDateTime.now());
     }
 
     @Override
     public void remove(Long productId) {
-        favoriteMapper.delete(currentShopId(), currentUserId(), productId);
-    }
-
-    /** 当前店铺：user 令牌带 shopId；缺失时回退模板店（与 ProductServiceImpl 的商品浏览口径一致） */
-    private Long currentShopId() {
-        Long shopId = UserContext.getShopId();
-        return shopId == null ? TEMPLATE_SHOP_ID : shopId;
+        favoriteMapper.delete(currentUserId(), productId);
     }
 
     /** 当前用户：/api/favorites 不在免登录白名单，拦截器已保证有值，这里再兜一层 */

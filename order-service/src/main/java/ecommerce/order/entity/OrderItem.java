@@ -19,7 +19,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class OrderItem {
     private Long id;
-    private Long shopId;
     private Long orderId;
     private Long productId;
     private String productName;

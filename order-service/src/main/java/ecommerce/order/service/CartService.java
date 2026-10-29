@@ -8,8 +8,7 @@ import java.util.List;
 /**
  * 购物车 Service。
  * <p>
- * 当前登录用户从 UserContext.getUserId() 取，店铺固定模板店（shopId=1），
- * 与 product-service 的多租户沙箱接入前保持一致。
+ * 当前登录用户从 UserContext.getUserId() 取（单店模式）。
  */
 public interface CartService {
 

@@ -7,8 +7,9 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SERVER="${DEPLOY_HOST:-ecommerce}"
 REMOTE_BASE="${REMOTE_BASE:-/www/java}"
-ALL_SERVICES=(auth-service shop-service product-service order-service
-              aftersale-service user-service file-service gateway ai-service)
+# auth-service 排最后：它停止签发 shopId 后，旧版本服务会拒绝新 token，必须等其它服务先升级
+ALL_SERVICES=(product-service order-service aftersale-service user-service
+              file-service gateway ai-service auth-service)
 AI_DIR="${AI_SERVICE_DIR:-$ROOT/../recommender-python}"
 
 NO_BUILD=0
@@ -40,7 +41,7 @@ usage() {
 
 示例:
   ./deploy/release.sh order-service
-  ./deploy/release.sh order-service shop-service
+  ./deploy/release.sh order-service product-service
   ./deploy/release.sh all
   ./deploy/release.sh --dry-run all
   ./deploy/release.sh --rollback 20261027-abc1234 order-service
@@ -165,7 +166,7 @@ set -e
   echo '# 由 deploy/release.sh 自动生成：把每个服务固定到当前运行的镜像 tag'
   echo '# 目的：单服务发布后，直接 docker compose up -d 不会拿全局 TAG 去拉其它服务'
   echo 'services:'
-  for svc in auth-service shop-service product-service order-service aftersale-service user-service file-service ai-service gateway; do
+  for svc in product-service order-service aftersale-service user-service file-service ai-service gateway auth-service; do
     img=$(docker inspect -f '{{.Config.Image}}' "$svc" 2>/dev/null || true)
     if [ -n "$img" ]; then
       printf '  %s:\n    image: %s\n' "$svc" "$img"

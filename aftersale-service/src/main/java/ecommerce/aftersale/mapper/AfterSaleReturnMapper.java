@@ -14,22 +14,22 @@ public interface AfterSaleReturnMapper {
     int insertPlaceholder(AfterSaleReturn afterSaleReturn);
 
     // 按售后单查子表（不含软删除）
-    AfterSaleReturn findByAfterSaleId(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId);
+    AfterSaleReturn findByAfterSaleId(@Param("afterSaleId") Long afterSaleId);
 
     // 用户提交退货方式：写 return_way/return_time_slot/return_at
-    int updateReturnInfo(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId,
+    int updateReturnInfo(@Param("afterSaleId") Long afterSaleId,
                          @Param("returnWay") String returnWay, @Param("returnTimeSlot") String returnTimeSlot,
                          @Param("returnAt") LocalDateTime returnAt, @Param("updatedAt") LocalDateTime updatedAt);
 
     // 回填退货物流：写 return_courier/return_tracking_number/return_at
-    int updateTracking(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId,
+    int updateTracking(@Param("afterSaleId") Long afterSaleId,
                        @Param("courier") String courier, @Param("trackingNumber") String trackingNumber,
                        @Param("returnAt") LocalDateTime returnAt, @Param("updatedAt") LocalDateTime updatedAt);
 
     // 后台审核：更新指定时间戳列（列名由 STATUS_COLUMN_MAP 白名单保证）
-    int updateTimestamp(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId,
+    int updateTimestamp(@Param("afterSaleId") Long afterSaleId,
                         @Param("column") String column, @Param("now") LocalDateTime now);
 
     // 软删除子表
-    int softDelete(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId, @Param("now") LocalDateTime now);
+    int softDelete(@Param("afterSaleId") Long afterSaleId, @Param("now") LocalDateTime now);
 }

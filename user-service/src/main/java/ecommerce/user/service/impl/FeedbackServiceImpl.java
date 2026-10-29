@@ -23,8 +23,6 @@ import java.util.Set;
 @Service
 public class FeedbackServiceImpl implements FeedbackService {
 
-    /** 模板店（杰米小店）：令牌没有 shopId 时回退，与商品浏览口径一致 */
-    private static final Long TEMPLATE_SHOP_ID = 1L;
     /** 允许的反馈类型 code */
     private static final Set<String> ALLOWED_TYPES = Set.of("suggestion", "product", "order", "other");
     private static final int MAX_IMAGES = 6;
@@ -75,10 +73,8 @@ public class FeedbackServiceImpl implements FeedbackService {
             contact = null;
         }
 
-        Long shopId = UserContext.getShopId() == null ? TEMPLATE_SHOP_ID : UserContext.getShopId();
         LocalDateTime now = LocalDateTime.now();
         Feedback feedback = Feedback.builder()
-                .shopId(shopId)
                 .userId(userId)
                 .type(type)
                 .content(content)

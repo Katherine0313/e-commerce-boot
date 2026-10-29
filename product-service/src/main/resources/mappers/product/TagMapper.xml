@@ -5,31 +5,30 @@
 <mapper namespace="ecommerce.product.mapper.TagMapper">
     <!-- product_count 读物化列（写操作维护），不实时算 -->
     <select id="listTags" resultType="ecommerce.product.entity.Tag">
-        SELECT id, shop_id, name, code, type, color, sort_order, status, product_count,
+        SELECT id, name, code, type, color, sort_order, status, product_count,
                create_time, created_by, update_time, updated_by
         FROM tags
-        WHERE shop_id = #{shopId}
         ORDER BY sort_order ASC, id ASC
     </select>
 
     <select id="findById" resultType="ecommerce.product.entity.Tag">
-        SELECT id, shop_id, name, code, type, color, sort_order, status, product_count,
+        SELECT id, name, code, type, color, sort_order, status, product_count,
                create_time, created_by, update_time, updated_by
         FROM tags
-        WHERE id = #{id} AND shop_id = #{shopId}
+        WHERE id = #{id}
     </select>
 
     <select id="findByCode" resultType="ecommerce.product.entity.Tag">
-        SELECT id, shop_id, name, code, type, color, sort_order, status, product_count,
+        SELECT id, name, code, type, color, sort_order, status, product_count,
                create_time, created_by, update_time, updated_by
         FROM tags
-        WHERE code = #{code} AND shop_id = #{shopId}
+        WHERE code = #{code}
     </select>
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO tags (shop_id, name, code, type, color, sort_order, status,
+        INSERT INTO tags (name, code, type, color, sort_order, status,
                           create_time, created_by, update_time, updated_by)
-        VALUES (#{shopId}, #{name}, #{code}, #{type}, #{color}, #{sortOrder}, #{status},
+        VALUES (#{name}, #{code}, #{type}, #{color}, #{sortOrder}, #{status},
                 #{createTime}, #{createdBy}, #{updateTime}, #{updatedBy})
     </insert>
 
@@ -45,20 +44,20 @@
             update_time = #{updateTime},
             updated_by = #{updatedBy},
         </set>
-        WHERE id = #{id} AND shop_id = #{shopId}
+        WHERE id = #{id}
     </update>
 
     <delete id="delete">
-        DELETE FROM tags WHERE id = #{id} AND shop_id = #{shopId}
+        DELETE FROM tags WHERE id = #{id}
     </delete>
 
     <!-- 标签关联的商品（不含 body/cost_price） -->
     <select id="listProductsByTag" resultType="ecommerce.product.entity.Product">
-        SELECT id, shop_id, category_id, tag_id, name, sub_title, brand, description, image,
+        SELECT id, category_id, tag_id, name, sub_title, brand, description, image,
                sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume,
                create_time, update_time
         FROM products
-        WHERE tag_id = #{tagId} AND shop_id = #{shopId}
+        WHERE tag_id = #{tagId}
         ORDER BY id ASC
     </select>
 
@@ -69,13 +68,12 @@
         <foreach collection="productIds" item="pid" open="(" separator="," close=")">
             #{pid}
         </foreach>
-        AND shop_id = #{shopId}
     </update>
 
     <!-- 解绑单个商品的标签（仅当当前标签匹配，避免误删其它标签绑定） -->
     <update id="unbindProductTag">
         UPDATE products SET tag_id = NULL, update_time = #{now}
-        WHERE id = #{productId} AND tag_id = #{tagId} AND shop_id = #{shopId}
+        WHERE id = #{productId} AND tag_id = #{tagId}
     </update>
 
     <!-- 批量解绑标签下的商品 -->
@@ -85,13 +83,11 @@
         <foreach collection="productIds" item="pid" open="(" separator="," close=")">
             #{pid}
         </foreach>
-        AND shop_id = #{shopId}
     </update>
 
     <!-- 重算每个标签的 product_count -->
     <update id="refreshProductCounts">
         UPDATE tags t
-        SET product_count = (SELECT COUNT(*) FROM products p WHERE p.tag_id = t.id AND p.shop_id = t.shop_id)
-        WHERE t.shop_id = #{shopId}
+        SET product_count = (SELECT COUNT(*) FROM products p WHERE p.tag_id = t.id)
     </update>
 </mapper>

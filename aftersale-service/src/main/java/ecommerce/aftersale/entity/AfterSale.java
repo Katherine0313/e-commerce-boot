@@ -20,7 +20,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class AfterSale {
     private Long id;
-    private Long shopId;
     private Long orderId;
     private String afterSaleNo;
     private String orderNo;

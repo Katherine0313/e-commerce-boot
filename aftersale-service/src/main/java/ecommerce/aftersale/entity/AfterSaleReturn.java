@@ -18,7 +18,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class AfterSaleReturn {
     private Long id;
-    private Long shopId;
     private Long afterSaleId;
     private String returnWay;
     private String returnTimeSlot;

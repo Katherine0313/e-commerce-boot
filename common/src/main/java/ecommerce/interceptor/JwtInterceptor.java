@@ -72,10 +72,6 @@ public class JwtInterceptor implements HandlerInterceptor {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "登录信息不完整，请重新登录");
         }
         // 存入本次请求的上下文，Controller / Service 里用 UserContext 取
-        // shopId 仅 admin 令牌携带（多租户隔离键）；C 端 user 令牌无此 claim，保持 null。
-        // jjwt 反序列化小整数可能是 Integer，用 Number 兜底，避免直接 Long 强转 ClassCastException。
-        Object shopIdClaim = claims.get("shopId");
-        UserContext.setShopId(shopIdClaim == null ? null : ((Number) shopIdClaim).longValue());
         UserContext.setUserId(Long.valueOf(subject));
         return true;
     }

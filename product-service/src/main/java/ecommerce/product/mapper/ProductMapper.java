@@ -7,37 +7,35 @@ import java.util.List;
 
 public interface ProductMapper {
     // 上架商品列表（listing_status=1，不含图文详情 body 与成本价 cost_price）
-    List<Product> listOnSale(@Param("shopId") Long shopId);
+    List<Product> listOnSale();
 
     // 根据 id 查单个商品（含图文详情 body，仍不下发 cost_price）
-    Product findById(@Param("id") Long id, @Param("shopId") Long shopId);
+    Product findById(@Param("id") Long id);
 
     // 按 id 列表查上架商品（推荐接口用，不含 body/cost_price）
-    List<Product> listOnSaleByIds(@Param("ids") List<Long> ids, @Param("shopId") Long shopId);
+    List<Product> listOnSaleByIds(@Param("ids") List<Long> ids);
 
     // 按一级分类（父类）查上架商品：商品挂在二级分类，按 parent_id 聚合到父类（不含 body/cost_price）
-    List<Product> listOnSaleByCategory(@Param("categoryId") Long categoryId, @Param("shopId") Long shopId);
+    List<Product> listOnSaleByCategory(@Param("categoryId") Long categoryId);
 
     // 按关键词搜索上架商品：name/sub_title/brand 模糊匹配（不含 body/cost_price）
-    List<Product> searchOnSale(@Param("keyword") String keyword, @Param("shopId") Long shopId);
+    List<Product> searchOnSale(@Param("keyword") String keyword);
 
     // 随机取上架商品（首页下拉刷新「换一批」用）；excludeIds 排除当前已展示的，避免刷新后大量重复
-    List<Product> listRandomOnSale(@Param("shopId") Long shopId, @Param("limit") int limit,
+    List<Product> listRandomOnSale(@Param("limit") int limit,
                                    @Param("excludeIds") List<Long> excludeIds);
 
     // ==================== 后台管理（/api/admin/**） ====================
 
     // 后台商品列表：含下架、含成本价与图文详情（编辑回填需要）；分页 + 可选关键词/分类筛选
     List<Product> listAdmin(@Param("search") String search, @Param("categoryId") Long categoryId,
-                            @Param("offset") int offset, @Param("pageSize") int pageSize,
-                            @Param("shopId") Long shopId);
+                            @Param("offset") int offset, @Param("pageSize") int pageSize);
 
     // 后台商品总数（与 listAdmin 同筛选条件，分页 total 用）
-    long countAdmin(@Param("search") String search, @Param("categoryId") Long categoryId,
-                    @Param("shopId") Long shopId);
+    long countAdmin(@Param("search") String search, @Param("categoryId") Long categoryId);
 
     // 后台商品详情（含成本价 cost_price）
-    Product findByIdAdmin(@Param("id") Long id, @Param("shopId") Long shopId);
+    Product findByIdAdmin(@Param("id") Long id);
 
     // 新增商品，自增 id 回填到 product.id
     int insert(Product product);
@@ -46,11 +44,11 @@ public interface ProductMapper {
     int update(Product product);
 
     // 删除商品
-    int delete(@Param("id") Long id, @Param("shopId") Long shopId);
+    int delete(@Param("id") Long id);
 
     // 品牌列表（去重、非空）
-    List<String> listBrands(@Param("shopId") Long shopId);
+    List<String> listBrands();
 
     // 工作台统计：商品总数 / 总库存 / 库存总价值（售价 × 库存）
-    DashboardVO dashboardStats(@Param("shopId") Long shopId);
+    DashboardVO dashboardStats();
 }

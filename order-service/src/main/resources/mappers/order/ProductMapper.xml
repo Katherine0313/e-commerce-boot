@@ -8,19 +8,19 @@
     <select id="findById" resultType="ecommerce.order.entity.Product">
         SELECT id, name, image, sales_price, description, stock
         FROM products
-        WHERE id = #{id} AND shop_id = #{shopId}
+        WHERE id = #{id}
     </select>
 
-    <!-- 扣库存：shop_id 多租户过滤 + stock >= quantity 条件防超卖，返回 0 表示库存不足 -->
+    <!-- 扣库存：stock >= quantity 条件防超卖，返回 0 表示库存不足 -->
     <update id="deductStock">
         UPDATE products SET stock = stock - #{quantity}
-        WHERE id = #{id} AND shop_id = #{shopId} AND stock >= #{quantity}
+        WHERE id = #{id} AND stock >= #{quantity}
     </update>
 
     <!-- 恢复库存 -->
     <update id="restoreStock">
         UPDATE products SET stock = stock + #{quantity}
-        WHERE id = #{id} AND shop_id = #{shopId}
+        WHERE id = #{id}
     </update>
 
 </mapper>

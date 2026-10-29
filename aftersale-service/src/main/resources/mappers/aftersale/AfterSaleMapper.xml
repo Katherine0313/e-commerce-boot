@@ -4,36 +4,35 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="ecommerce.aftersale.mapper.AfterSaleMapper">
 
-    <!-- 售后主表共用的 LEFT JOIN orders 一段：带出 user_id（归属校验）与收货信息（展示）。
-         店铺条件写在 ON 里而非 WHERE 里，避免把订单缺失的售后单整行滤掉。 -->
+    <!-- 售后主表共用的 LEFT JOIN orders 一段：带出 user_id（归属校验）与收货信息（展示） -->
     <sql id="joinOrderColumns">
-        SELECT a.id, a.shop_id, a.order_id, a.after_sale_no, a.order_no, a.after_sale_type, a.status, a.goods_status,
+        SELECT a.id, a.order_id, a.after_sale_no, a.order_no, a.after_sale_type, a.status, a.goods_status,
                a.reason, a.remark, a.images, a.merchant_remark,
                a.is_deleted, a.created_at, a.updated_at,
                o.user_id, o.consignee, o.phone, o.region, o.detail_address, o.pay_type, o.pay_at, o.pay_amount, o.order_status,
                o.courier, o.tracking_number
         FROM after_sales a
-        LEFT JOIN orders o ON o.id = a.order_id AND o.shop_id = a.shop_id
+        LEFT JOIN orders o ON o.id = a.order_id
     </sql>
 
     <!-- 创建售后单：初始状态由 service 传入，is_deleted 默认 0 -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO after_sales (shop_id, order_id, order_no, after_sale_no, after_sale_type, status,
+        INSERT INTO after_sales (order_id, order_no, after_sale_no, after_sale_type, status,
                                  goods_status, reason, remark, images, merchant_remark,
                                  is_deleted, created_at, updated_at)
-        VALUES (#{shopId}, #{orderId}, #{orderNo}, #{afterSaleNo}, #{afterSaleType}, #{status},
+        VALUES (#{orderId}, #{orderNo}, #{afterSaleNo}, #{afterSaleType}, #{status},
                 #{goodsStatus}, #{reason}, #{remark}, #{images}, #{merchantRemark},
                 0, #{createdAt}, #{updatedAt})
     </insert>
 
     <select id="findById" resultType="ecommerce.aftersale.entity.AfterSale">
         <include refid="joinOrderColumns"/>
-        WHERE a.id = #{id} AND a.is_deleted = 0 AND a.shop_id = #{shopId}
+        WHERE a.id = #{id} AND a.is_deleted = 0
     </select>
 
     <select id="listByUser" resultType="ecommerce.aftersale.entity.AfterSale">
         <include refid="joinOrderColumns"/>
-        WHERE o.user_id = #{userId} AND a.is_deleted = 0 AND a.shop_id = #{shopId}
+        WHERE o.user_id = #{userId} AND a.is_deleted = 0
         <if test="status != null and status != ''">
             AND a.status = #{status}
         </if>
@@ -55,7 +54,7 @@
 
     <select id="listByShop" resultType="ecommerce.aftersale.entity.AfterSale">
         <include refid="joinOrderColumns"/>
-        WHERE a.is_deleted = 0 AND a.shop_id = #{shopId}
+        WHERE a.is_deleted = 0
         <if test="status != null and status != ''">
             AND a.status = #{status}
         </if>
@@ -77,7 +76,7 @@
 
     <select id="findByOrderId" resultType="ecommerce.aftersale.entity.AfterSale">
         <include refid="joinOrderColumns"/>
-        WHERE a.order_id = #{orderId} AND a.is_deleted = 0 AND a.shop_id = #{shopId}
+        WHERE a.order_id = #{orderId} AND a.is_deleted = 0
         ORDER BY a.id DESC
         LIMIT 1
     </select>
@@ -86,21 +85,21 @@
     <update id="updateStatus">
         UPDATE after_sales
         SET status = #{status}, updated_at = #{updatedAt}
-        WHERE id = #{id} AND shop_id = #{shopId} AND is_deleted = 0
+        WHERE id = #{id} AND is_deleted = 0
     </update>
 
     <!-- 后台审核：状态 + 商家备注 + 更新时间（业务时间戳仍写子表） -->
     <update id="updateStatusAndRemark">
         UPDATE after_sales
         SET status = #{status}, merchant_remark = #{merchantRemark}, updated_at = #{updatedAt}
-        WHERE id = #{id} AND shop_id = #{shopId} AND is_deleted = 0
+        WHERE id = #{id} AND is_deleted = 0
     </update>
 
     <!-- 软删除主表 -->
     <update id="softDelete">
         UPDATE after_sales
         SET is_deleted = 1, updated_at = #{now}
-        WHERE id = #{id} AND shop_id = #{shopId}
+        WHERE id = #{id}
     </update>
 
 </mapper>

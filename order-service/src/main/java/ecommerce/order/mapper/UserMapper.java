@@ -11,6 +11,6 @@ import org.apache.ibatis.annotations.Select;
 public interface UserMapper {
 
     // 按用户 ID 查 openid（只读，不涉及用户资料修改）
-    @Select("SELECT openid FROM `user` WHERE id = #{userId} AND shop_id = #{shopId}")
-    String findOpenidById(@Param("userId") Long userId, @Param("shopId") Long shopId);
+    @Select("SELECT openid FROM `user` WHERE id = #{userId}")
+    String findOpenidById(@Param("userId") Long userId);
 }

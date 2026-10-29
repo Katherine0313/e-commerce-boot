@@ -6,11 +6,11 @@
 
     <!-- 批量插入订单明细 -->
     <insert id="insertBatch">
-        INSERT INTO order_items (shop_id, order_id, product_id, product_name, image, sales_price,
+        INSERT INTO order_items (order_id, product_id, product_name, image, sales_price,
                                  quantity, sub_total, insurance_detail, insurance_fee, is_deleted, created_at)
         VALUES
         <foreach collection="items" item="item" separator=",">
-            (#{item.shopId}, #{item.orderId}, #{item.productId}, #{item.productName}, #{item.image},
+            (#{item.orderId}, #{item.productId}, #{item.productName}, #{item.image},
              #{item.salesPrice}, #{item.quantity}, #{item.subTotal}, #{item.insuranceDetail},
              #{item.insuranceFee}, 0, NOW())
         </foreach>
@@ -18,10 +18,10 @@
 
     <!-- 查某订单明细 -->
     <select id="listByOrderId" resultType="ecommerce.order.entity.OrderItem">
-        SELECT id, shop_id, order_id, product_id, product_name, image, sales_price,
+        SELECT id, order_id, product_id, product_name, image, sales_price,
                quantity, sub_total, insurance_detail, insurance_fee, is_deleted, created_at
         FROM order_items
-        WHERE order_id = #{orderId} AND shop_id = #{shopId} AND is_deleted = 0
+        WHERE order_id = #{orderId} AND is_deleted = 0
     </select>
 
     <!-- 销量排名：某区间已支付订单按商品汇总销量
@@ -34,10 +34,8 @@
                SUM(oi.quantity) AS sales_quantity
         FROM order_items oi
                  JOIN orders o ON o.id = oi.order_id
-        WHERE oi.shop_id = #{shopId}
-          AND oi.is_deleted = 0
+        WHERE oi.is_deleted = 0
           AND o.is_deleted = 0
-          AND o.shop_id = #{shopId}
           AND o.order_status NOT IN (1, 6)
           AND o.pay_at IS NOT NULL
           AND o.pay_at &gt;= #{start} AND o.pay_at &lt; #{end}

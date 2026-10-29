@@ -77,7 +77,7 @@ public class AuthServiceImpl implements AuthService {
         if (admin.getStatus() != null && admin.getStatus() == 0) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "账号已被禁用");
         }
-        // 4. 签发管理员令牌：claims 带上 username/role/shopId/id，前端解 payload 做权限判断
+        // 4. 签发管理员令牌：claims 带上 username/role/id，前端解 payload 做权限判断
         return buildLoginResult(admin);
     }
 
@@ -174,7 +174,7 @@ public class AuthServiceImpl implements AuthService {
     /** 签发令牌并组装登录响应：账号密码登录与手机号登录共用 */
     private AdminLoginVO buildLoginResult(Admin admin) {
         String token = jwtUtil.generateAdminToken(admin.getId(), admin.getUsername(),
-                admin.getRole(), admin.getShopId());
+                admin.getRole());
         return AdminLoginVO.builder()
                 .token(token)
                 .user(AdminUserVO.builder()

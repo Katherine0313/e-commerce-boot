@@ -18,7 +18,6 @@ import ecommerce.order.vo.LogisticsTraceVO;
 import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderItemVO;
 import ecommerce.order.vo.OrderVO;
-import ecommerce.utils.UserContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -36,7 +35,7 @@ import java.util.stream.Collectors;
 /**
  * 后台订单管理 Service 实现。
  * <p>
- * 商家视角：shopId 取自 UserContext（admin 令牌），查所有订单（不限用户）；
+ * 商家视角：查所有订单（不限用户）；
  * 状态文案用 OrderStatusEnum 的 adminDesc（「待确认」而非顾客视角「待发货」）。
  */
 @Service
@@ -59,26 +58,17 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         this.afterSaleRefundMapper = afterSaleRefundMapper;
     }
 
-    private Long requireShopId() {
-        Long shopId = UserContext.getShopId();
-        if (shopId == null) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "无权访问：缺少店铺上下文");
-        }
-        return shopId;
-    }
-
     @Override
     public PageVO<OrderVO> listAll(int page, int pageSize, Integer status, String keyword,
                                    String startDate, String endDate, String dateField) {
-        Long shopId = requireShopId();
         String field = resolveDateField(dateField);
         LocalDateTime start = parseDateTime(startDate);
         LocalDateTime end = parseDateTime(endDate);
         int offset = (page - 1) * pageSize;
-        List<OrderVO> list = orderMapper.listAdmin(offset, pageSize, status, keyword, start, end, field, shopId).stream()
+        List<OrderVO> list = orderMapper.listAdmin(offset, pageSize, status, keyword, start, end, field).stream()
                 .map(this::toVO)
                 .toList();
-        long total = orderMapper.countAdmin(status, keyword, start, end, field, shopId);
+        long total = orderMapper.countAdmin(status, keyword, start, end, field);
         return new PageVO<>(list, total, page, pageSize);
     }
 
@@ -132,11 +122,9 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
     @Override
     public OrderVO updateOrder(Long id, AdminOrderDTO dto) {
-        Long shopId = requireShopId();
         requireOrder(id);
         Order o = new Order();
         o.setId(id);
-        o.setShopId(shopId);
         o.setConsignee(dto.getConsignee());
         o.setPhone(dto.getPhone());
         o.setRegion(dto.getRegion());
@@ -150,65 +138,59 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     @Override
     @Transactional
     public OrderVO confirmOrder(Long id) {
-        Long shopId = requireShopId();
         Order order = requireOrder(id);
         checkTransition(order, OrderStatusEnum.PENDING_SHIP);
-        orderMapper.updateStatus(id, shopId, OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
     @Override
     @Transactional
     public OrderVO shipOrder(Long id, String courier, String trackingNumber) {
-        Long shopId = requireShopId();
         Order order = requireOrder(id);
         checkTransition(order, OrderStatusEnum.SHIPPED);
-        orderMapper.updateStatus(id, shopId, OrderStatusEnum.SHIPPED.getCode(), null, courier, trackingNumber, LocalDateTime.now());
+        orderMapper.updateStatus(id, OrderStatusEnum.SHIPPED.getCode(), null, courier, trackingNumber, LocalDateTime.now());
         return getOrder(id);
     }
 
     @Override
     @Transactional
     public OrderVO finishOrder(Long id) {
-        Long shopId = requireShopId();
         Order order = requireOrder(id);
         checkTransition(order, OrderStatusEnum.FINISHED);
-        orderMapper.updateStatus(id, shopId, OrderStatusEnum.FINISHED.getCode(), null, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, OrderStatusEnum.FINISHED.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
     @Override
     @Transactional
     public OrderVO cancelOrder(Long id) {
-        Long shopId = requireShopId();
         Order order = requireOrder(id);
         checkTransition(order, OrderStatusEnum.CANCEL);
-        restoreStock(order.getId(), shopId);
+        restoreStock(order.getId());
         // 已支付未发货（status 2/3）取消 → 自动生成退款售后单（整单退）
         if (OrderStatusEnum.PENDING_CONFIRM.getCode().equals(order.getOrderStatus())
                 || OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getOrderStatus())) {
-            autoRefundOnCancel(order, shopId);
+            autoRefundOnCancel(order);
         }
-        orderMapper.updateStatus(id, shopId, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
     @Override
     public void deleteOrder(Long id) {
-        Long shopId = requireShopId();
         requireOrder(id);
-        orderMapper.delete(id, shopId, LocalDateTime.now());
+        orderMapper.delete(id, LocalDateTime.now());
     }
 
     @Override
     public void batchDelete(List<Long> ids) {
-        Long shopId = requireShopId();
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ids 必须是非空数组");
         }
         for (Long id : ids) {
-            if (orderMapper.findById(id, shopId) != null) {
-                orderMapper.delete(id, shopId, LocalDateTime.now());
+            if (orderMapper.findById(id) != null) {
+                orderMapper.delete(id, LocalDateTime.now());
             }
         }
     }
@@ -221,8 +203,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     // ==================== 内部工具 ====================
 
     private Order requireOrder(Long id) {
-        Long shopId = requireShopId();
-        Order order = orderMapper.findById(id, shopId);
+        Order order = orderMapper.findById(id);
         if (order == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "订单不存在");
         }
@@ -237,34 +218,33 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         }
     }
 
-    private void restoreStock(Long orderId, Long shopId) {
-        List<OrderItem> items = orderItemMapper.listByOrderId(orderId, shopId);
+    private void restoreStock(Long orderId) {
+        List<OrderItem> items = orderItemMapper.listByOrderId(orderId);
         for (OrderItem item : items) {
-            productMapper.restoreStock(item.getProductId(), item.getQuantity(), shopId);
+            productMapper.restoreStock(item.getProductId(), item.getQuantity());
         }
     }
 
     /** 取消订单自动退款：生成 refunded 售后单（整单退，退款跟着原订单 pay_at 归属营业额） */
-    private void autoRefundOnCancel(Order order, Long shopId) {
+    private void autoRefundOnCancel(Order order) {
         // 已有售后单则跳过（退款已走售后流程，不重复退）
-        if (afterSaleRefundMapper.countAfterSale(order.getId(), shopId) > 0) {
+        if (afterSaleRefundMapper.countAfterSale(order.getId()) > 0) {
             return;
         }
-        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId(), shopId);
+        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId());
         if (items.isEmpty()) {
             return;
         }
         LocalDateTime now = LocalDateTime.now();
         Map<String, Object> params = new HashMap<>();
-        params.put("shopId", shopId);
         params.put("orderId", order.getId());
         params.put("orderNo", order.getOrderNo());
         params.put("afterSaleNo", "AS" + now.format(AFTER_SALE_NO_FORMATTER));
         params.put("now", now);
         afterSaleRefundMapper.insertAfterSale(params);
         Long afterSaleId = ((Number) params.get("id")).longValue();
-        afterSaleRefundMapper.insertItems(shopId, afterSaleId, items, now);
-        afterSaleRefundMapper.insertOnlyRefund(shopId, afterSaleId, now);
+        afterSaleRefundMapper.insertItems(afterSaleId, items, now);
+        afterSaleRefundMapper.insertOnlyRefund(afterSaleId, now);
     }
 
     /** 生成假物流轨迹（照旧 Node getLogistics）：订单 id 做种子，courier 英文 key 转中文 */
@@ -326,7 +306,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private OrderVO toVO(Order order) {
         OrderStatusEnum status = OrderStatusEnum.fromCode(order.getOrderStatus());
         PayTypeEnum payType = PayTypeEnum.fromCode(order.getPayType());
-        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId(), order.getShopId());
+        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId());
         CourierEnum courierEnum = CourierEnum.fromCode(order.getCourier());
         String courierDesc = courierEnum != null ? courierEnum.getDesc() : order.getCourier();
         // 已发货/已完成订单附物流摘要，列表卡片直接展示
@@ -366,14 +346,14 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 .shipAt(order.getShipAt())
                 .confirmAt(order.getConfirmAt())
                 .finishAt(order.getFinishAt())
-                .items(items.stream().map(i -> toItemVO(i, order.getShopId())).toList())
+                .items(items.stream().map(this::toItemVO).toList())
                 .build();
     }
 
-    private OrderItemVO toItemVO(OrderItem item, Long shopId) {
+    private OrderItemVO toItemVO(OrderItem item) {
         Integer stock = null;
         if (item.getProductId() != null) {
-            Product product = productMapper.findById(item.getProductId(), shopId);
+            Product product = productMapper.findById(item.getProductId());
             stock = product == null ? null : product.getStock();
         }
         return OrderItemVO.builder()

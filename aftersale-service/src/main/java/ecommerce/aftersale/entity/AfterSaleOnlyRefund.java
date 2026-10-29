@@ -18,7 +18,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class AfterSaleOnlyRefund {
     private Long id;
-    private Long shopId;
     private Long afterSaleId;
     private LocalDateTime reviewAt;
     private LocalDateTime rejectedAt;

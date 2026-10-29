@@ -51,8 +51,6 @@ import java.util.Set;
 @Service
 public class AfterSaleServiceImpl implements AfterSaleService {
 
-    /** 模板店（杰米小店）：多租户沙箱接入前固定为 1 */
-    private static final Long TEMPLATE_SHOP_ID = 1L;
     /** 售后单号格式：AS + 年月日时分秒（照原 Node） */
     private static final DateTimeFormatter AFTER_SALE_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     /** 订单状态数字 code（对齐 order-service 的 OrderStatusEnum）：2/3=未发货 4=已发货 5=已完成 */
@@ -113,7 +111,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         Long userId = currentUserId();
 
         // 查订单 + 校验归属（修正原 Node 越权问题）
-        Order order = orderMapper.findById(dto.getOrderId(), TEMPLATE_SHOP_ID);
+        Order order = orderMapper.findById(dto.getOrderId());
         if (order == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "订单不存在");
         }
@@ -131,20 +129,20 @@ public class AfterSaleServiceImpl implements AfterSaleService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "当前订单状态不支持该售后类型");
         }
         // 同一订单不允许重复申请
-        if (afterSaleMapper.findByOrderId(dto.getOrderId(), TEMPLATE_SHOP_ID) != null) {
+        if (afterSaleMapper.findByOrderId(dto.getOrderId()) != null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "该订单已存在售后申请，请勿重复提交");
         }
 
         // 快照订单明细：传了 orderItemId 则只退单个商品，否则整单
         List<OrderItem> orderItems;
         if (dto.getOrderItemId() != null) {
-            OrderItem item = orderMapper.findItemById(dto.getOrderItemId(), dto.getOrderId(), TEMPLATE_SHOP_ID);
+            OrderItem item = orderMapper.findItemById(dto.getOrderItemId(), dto.getOrderId());
             if (item == null) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "订单项不存在");
             }
             orderItems = List.of(item);
         } else {
-            orderItems = orderMapper.listItems(dto.getOrderId(), TEMPLATE_SHOP_ID);
+            orderItems = orderMapper.listItems(dto.getOrderId());
         }
         if (orderItems.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "订单无明细，无法申请售后");
@@ -154,7 +152,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
 
         // 写主表（初始状态 reviewing）
         AfterSale afterSale = AfterSale.builder()
-                .shopId(TEMPLATE_SHOP_ID)
+                
                 .orderId(dto.getOrderId())
                 .orderNo(order.getOrderNo())
                 .afterSaleNo(generateAfterSaleNo())
@@ -176,7 +174,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         // 写售后明细（快照）
         List<AfterSaleItem> items = orderItems.stream()
                 .map(oi -> AfterSaleItem.builder()
-                        .shopId(TEMPLATE_SHOP_ID)
+                        
                         .afterSaleId(afterSale.getId())
                         .orderItemId(oi.getId())
                         .productId(oi.getProductId())
@@ -201,8 +199,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         String field = resolveDateField(dateField);
         LocalDateTime start = parseDateTime(startDate);
         LocalDateTime end = parseDateTime(endDate);
-        return afterSaleMapper.listByUser(currentUserId(), TEMPLATE_SHOP_ID, status, search, start, end, field).stream()
-                .map(a -> toVO(a, afterSaleItemMapper.listByAfterSaleId(a.getId(), TEMPLATE_SHOP_ID), null))
+        return afterSaleMapper.listByUser(currentUserId(), status, search, start, end, field).stream()
+                .map(a -> toVO(a, afterSaleItemMapper.listByAfterSaleId(a.getId()), null))
                 .toList();
     }
 
@@ -239,7 +237,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         if (orderId == null) {
             return null;
         }
-        AfterSale afterSale = afterSaleMapper.findByOrderId(orderId, TEMPLATE_SHOP_ID);
+        AfterSale afterSale = afterSaleMapper.findByOrderId(orderId);
         if (afterSale == null || !currentUserId().equals(afterSale.getUserId())) {
             return null;
         }
@@ -266,7 +264,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         LocalDateTime now = LocalDateTime.now();
         if (AfterSaleTypeEnum.RETURN_REFUND.getCode().equals(afterSale.getAfterSaleType())) {
             // 退货退款：退货方式在申请时已选（create 存子表），这里回填物流；自行寄回必填单号
-            AfterSaleReturn sub = afterSaleReturnMapper.findByAfterSaleId(id, TEMPLATE_SHOP_ID);
+            AfterSaleReturn sub = afterSaleReturnMapper.findByAfterSaleId(id);
             if (sub == null || sub.getReturnWay() == null) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "请先选择退货方式");
             }
@@ -280,8 +278,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 courier = dto.getCourier();
                 trackingNumber = dto.getTrackingNumber();
             }
-            afterSaleReturnMapper.updateTracking(id, TEMPLATE_SHOP_ID, courier, trackingNumber, now, now);
-            afterSaleMapper.updateStatus(id, TEMPLATE_SHOP_ID, AfterSaleStatusEnum.REFUNDING.getCode(), now);
+            afterSaleReturnMapper.updateTracking(id, courier, trackingNumber, now, now);
+            afterSaleMapper.updateStatus(id, AfterSaleStatusEnum.REFUNDING.getCode(), now);
         } else {
             // 换货：提交退货方式 + 回填物流（自行寄回填单号）
             String returnWay = dto.getReturnWay();
@@ -302,9 +300,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 courier = dto.getCourier();
                 trackingNumber = dto.getTrackingNumber();
             }
-            afterSaleExchangeReturnMapper.updateReturnInfo(id, TEMPLATE_SHOP_ID, returnWay, returnTimeSlot, now, now);
-            afterSaleExchangeReturnMapper.updateTracking(id, TEMPLATE_SHOP_ID, courier, trackingNumber, now, now);
-            afterSaleMapper.updateStatus(id, TEMPLATE_SHOP_ID, afterSale.getStatus(), now);
+            afterSaleExchangeReturnMapper.updateReturnInfo(id, returnWay, returnTimeSlot, now, now);
+            afterSaleExchangeReturnMapper.updateTracking(id, courier, trackingNumber, now, now);
+            afterSaleMapper.updateStatus(id, afterSale.getStatus(), now);
         }
 
         return buildDetail(id);
@@ -370,7 +368,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
 
     /** 查售后并校验归属（当前用户只能操作自己的售后单） */
     private AfterSale getOwnedAfterSale(Long id) {
-        AfterSale afterSale = afterSaleMapper.findById(id, TEMPLATE_SHOP_ID);
+        AfterSale afterSale = afterSaleMapper.findById(id);
         if (afterSale == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "售后记录不存在");
         }
@@ -383,7 +381,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     /** 组装售后详情（主表 + 明细 + 子表平铺字段） */
     private AfterSaleVO buildDetail(Long id) {
         AfterSale afterSale = getOwnedAfterSale(id);
-        List<AfterSaleItem> items = afterSaleItemMapper.listByAfterSaleId(id, TEMPLATE_SHOP_ID);
+        List<AfterSaleItem> items = afterSaleItemMapper.listByAfterSaleId(id);
         SubInfo sub = loadSub(afterSale.getAfterSaleType(), id);
         return toVO(afterSale, items, sub);
     }
@@ -397,7 +395,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         }
         switch (typeEnum) {
             case RETURN_REFUND -> {
-                AfterSaleReturn r = afterSaleReturnMapper.findByAfterSaleId(id, TEMPLATE_SHOP_ID);
+                AfterSaleReturn r = afterSaleReturnMapper.findByAfterSaleId(id);
                 if (r != null) {
                     sub.returnWay = r.getReturnWay();
                     sub.returnTimeSlot = r.getReturnTimeSlot();
@@ -411,7 +409,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 }
             }
             case ONLY_REFUND -> {
-                AfterSaleOnlyRefund r = afterSaleOnlyRefundMapper.findByAfterSaleId(id, TEMPLATE_SHOP_ID);
+                AfterSaleOnlyRefund r = afterSaleOnlyRefundMapper.findByAfterSaleId(id);
                 if (r != null) {
                     sub.reviewAt = r.getReviewAt();
                     sub.rejectedAt = r.getRejectedAt();
@@ -420,7 +418,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 }
             }
             case EXCHANGE -> {
-                AfterSaleExchangeReturn r = afterSaleExchangeReturnMapper.findByAfterSaleId(id, TEMPLATE_SHOP_ID);
+                AfterSaleExchangeReturn r = afterSaleExchangeReturnMapper.findByAfterSaleId(id);
                 if (r != null) {
                     sub.returnWay = r.getReturnWay();
                     sub.returnTimeSlot = r.getReturnTimeSlot();
@@ -446,12 +444,12 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         }
         switch (typeEnum) {
             case RETURN_REFUND -> afterSaleReturnMapper.insertPlaceholder(
-                    AfterSaleReturn.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId)
+                    AfterSaleReturn.builder().afterSaleId(afterSaleId)
                             .returnWay(returnWay).returnTimeSlot(returnTimeSlot).createdAt(now).updatedAt(now).build());
             case ONLY_REFUND -> afterSaleOnlyRefundMapper.insertPlaceholder(
-                    AfterSaleOnlyRefund.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId).createdAt(now).updatedAt(now).build());
+                    AfterSaleOnlyRefund.builder().afterSaleId(afterSaleId).createdAt(now).updatedAt(now).build());
             case EXCHANGE -> afterSaleExchangeReturnMapper.insertPlaceholder(
-                    AfterSaleExchangeReturn.builder().shopId(TEMPLATE_SHOP_ID).afterSaleId(afterSaleId)
+                    AfterSaleExchangeReturn.builder().afterSaleId(afterSaleId)
                             .returnWay(returnWay).returnTimeSlot(returnTimeSlot)
                             .shipAddress(shipAddress).createdAt(now).updatedAt(now).build());
         }
@@ -460,10 +458,10 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     /** 是否已提交过退货方式（return_at 非空） */
     private boolean isReturnSubmitted(String type, Long id) {
         if (AfterSaleTypeEnum.EXCHANGE.getCode().equals(type)) {
-            AfterSaleExchangeReturn r = afterSaleExchangeReturnMapper.findByAfterSaleId(id, TEMPLATE_SHOP_ID);
+            AfterSaleExchangeReturn r = afterSaleExchangeReturnMapper.findByAfterSaleId(id);
             return r != null && r.getReturnAt() != null;
         }
-        AfterSaleReturn r = afterSaleReturnMapper.findByAfterSaleId(id, TEMPLATE_SHOP_ID);
+        AfterSaleReturn r = afterSaleReturnMapper.findByAfterSaleId(id);
         return r != null && r.getReturnAt() != null;
     }
 

@@ -11,10 +11,10 @@ import java.util.List;
  */
 public interface StockMapper {
     // 预警列表（LEFT JOIN products，含未配置预警的商品）
-    List<StockVO> listWithProducts(@Param("search") String search, @Param("shopId") Long shopId);
+    List<StockVO> listWithProducts(@Param("search") String search);
 
     // 按 product_id 查预警配置（upsert 判断用）
-    Stock findByProductId(@Param("productId") Long productId, @Param("shopId") Long shopId);
+    Stock findByProductId(@Param("productId") Long productId);
 
     // 新增预警配置，自增 id 回填
     int insert(Stock stock);

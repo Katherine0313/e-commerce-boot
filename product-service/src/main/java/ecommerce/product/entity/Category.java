@@ -16,7 +16,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class Category {
     private Long id;
-    private Long shopId;
     private String name;
     private Long parentId;
     private Integer sortOrder;

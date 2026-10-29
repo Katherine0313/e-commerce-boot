@@ -60,13 +60,11 @@ public class UserServiceImpl implements UserService {
     }
 
     @Override
-    public WxLoginVO login(String code, Long shopId) {
+    public WxLoginVO login(String code) {
         // 0. 校验 code：wx.login() 拿到的临时凭证不能为空
         if (code == null || code.isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "登录凭证 code 不能为空");
         }
-        // shopId 默认模板店（兼容旧调用不传）
-        Long sid = shopId == null ? 1L : shopId;
         // 1. code 换 openid
         Map<String, String> map = new HashMap<>();
         map.put("appid", weChatProperties.getAppid());
@@ -91,20 +89,20 @@ public class UserServiceImpl implements UserService {
                     respNode.path("errcode").asText(""), respNode.path("errmsg").asText(""));
             throw new BusinessException(HttpStatus.BAD_REQUEST, "登录凭证 code 无效或已过期");
         }
-        // 3. 按 openid + shopId 查用户，查不到（首次登录）就自动注册
-        // 不加 is_deleted 过滤（注销用户 openid 仍占 uk_shop_openid，查不到会撞键）
+        // 3. 按 openid 查用户，查不到（首次登录）就自动注册
+        // 不加 is_deleted 过滤（注销用户 openid 仍占 uk_openid，查不到会撞键）
         User user = userMapper.selectOne(new LambdaQueryWrapper<User>()
-                .eq(User::getOpenid, openid).eq(User::getShopId, sid));
+                .eq(User::getOpenid, openid));
         if (user == null) {
-            user = User.builder().openid(openid).shopId(sid).build();
+            user = User.builder().openid(openid).build();
             userMapper.insert(user); // BaseMapper.insert 自动回填自增 id
         } else if (isDeleted(user)) {
             // 已注销用户禁止再登录（新注册用户 is_deleted 走库默认 0，不会走到这）
             throw new BusinessException(HttpStatus.FORBIDDEN, "账号已注销");
         }
-        // 4. 生成 token 返回给调用方（签 shopId，下游按店铺隔离）
+        // 4. 生成 token 返回给调用方
         return WxLoginVO.builder()
-                .token(jwtUtil.generateUserToken(user.getId(), sid))
+                .token(jwtUtil.generateUserToken(user.getId()))
                 .id(user.getId())
                 .avatar(user.getAvatar())
                 .build();
@@ -281,10 +279,6 @@ public class UserServiceImpl implements UserService {
 
     @Override
     public UserStatisticsVO getUserStatistics(String period) {
-        Long shopId = UserContext.getShopId();
-        if (shopId == null) {
-            shopId = 1L; // 模板店默认
-        }
         LocalDate today = LocalDate.now();
         // 时间窗口与 order-service 的营业额报表保持一致：昨日 / 近7天 / 本月 / 近12月
         String p = (period == null || period.isBlank()) ? "year" : period;
@@ -322,7 +316,7 @@ public class UserServiceImpl implements UserService {
 
         // 查询区间 [begin 0点, end 次日 0点)，JVM 本地时区与 create_time 同基准
         List<Map<String, Object>> rows = userMapper.countNewUsersByBucket(
-                shopId, begin.atStartOfDay(), end.plusDays(1).atStartOfDay(), format);
+                begin.atStartOfDay(), end.plusDays(1).atStartOfDay(), format);
         // 行转 map（bucket -> cnt），缺失桶补 0
         Map<String, Long> cntMap = new HashMap<>();
         for (Map<String, Object> row : rows) {
@@ -355,7 +349,7 @@ public class UserServiceImpl implements UserService {
                 .bucketType(bucketType)
                 .buckets(buckets)
                 .newUsers(newUsers)
-                .totalUsers(userMapper.countTotalUsers(shopId))
+                .totalUsers(userMapper.countTotalUsers())
                 .build();
     }
 }

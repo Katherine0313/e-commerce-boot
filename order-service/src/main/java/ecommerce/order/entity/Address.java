@@ -9,7 +9,6 @@ import java.time.LocalDateTime;
 @Builder
 public class Address {
     private Long id;
-    private Long shopId;
     private  Long userId;
     private String consignee;
     private String phone;

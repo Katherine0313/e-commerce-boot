@@ -10,7 +10,7 @@
 
 | 决策 | 结论 |
 |------|------|
-| 多租户店铺沙箱 | **保留**（Spring 端重做 shopId 隔离 + 沙箱回收 + 模板店克隆） |
+| 多租户店铺沙箱 | **已下线（2026-10-29）**：退化为单店，删除 shop-service、shop_id、沙箱克隆/回收 |
 | 微服务落地程度 | **真·多服务部署**（Nacos 注册 + Gateway 网关 + Feign 调用，独立部署） |
 | 数据库 | SQLite → MySQL（表结构重设计，去掉号段 hack） |
 | 前端对接 | 接口路径 `/api/**` 不变，前端 baseURL 指向网关；后台对应 `admin` 模块 |
@@ -23,7 +23,6 @@
 |------|------|---------|------|
 | `gateway` | 路由、CORS、静态资源与 Swagger 聚合；JWT 鉴权由下游 `JwtInterceptor` 承担 | 无 | 8080 |
 | `auth-service` | 管理员登录/登出、JWT 签发、RBAC | admin/role/permission | 9001 |
-| `shop-service` | 多租户沙箱：开沙箱、克隆模板店、过期回收 | shops + 模板店数据源 | 9002 |
 | `product-service` | 商品/分类/标签/参数/库存/促销 | products/categories/tags/parameters/stock/business_onsale | 9003 |
 | `order-service` | 订单 + 购物车 + 报表 | orders/order_items/cart/address | 9004 |
 | `aftersale-service` | 售后（仅退款/退货退款/换货） | after_sales 及子表 | 9005 |
@@ -34,9 +33,8 @@
 **跨服务调用（Feign）：**
 - `order-service` 下单 → `product-service` 查商品价格库存；支付/取消 → 回写库存
 - `aftersale-service` 查订单、`order-service` 查商品均走**共享库直接 JOIN**，不跨服务 Feign
-- `shop-service` 回收沙箱 → 调各业务服务「按 shopId 清数据」内部接口
 
-**多租户落法：** 共享库共享表 + `shop_id` 字段；网关从 JWT 解析 shopId 注入 `X-Shop-Id`，各服务拦截器写 ThreadLocal；查询统一带 `shop_id` 过滤。
+**单店模式（2026-10-29 起）：** 共享库共享表，不再有 `shop_id`；JWT 只签用户/管理员身份，查询不带店铺过滤。
 
 ## 技术选型
 
@@ -70,18 +68,10 @@
 - [ ] 网关限流（并入阶段 10）
 - **状态：** in_progress
 
-### 阶段 2：shop-service（多租户基础设施）
-- [✓] 开沙箱 `POST /api/admin/shops/sandbox`（2026-10-28 起需 admin 令牌：先后台账号手机号验证码登录；15 张业务表 id+offset 克隆 + 签发 admin 令牌）
-- [✓] C 端多租户：user 加 shop_id，下单/支付/购物车/地址/来单提醒按 shopId 隔离
-- [✓] 克隆唯一键冲突修复（order_no/after_sale_no 加 `_s{shopId}` 后缀）
-- [✓] 沙箱过期回收（`cleanExpiredSandboxes` 每小时最多 20 个，启动即跑）
-- [✓] 沙箱按浏览器复用（`shops.visitor_key` + 前端 UUID，同一浏览器 24h 内重进不新建）
-- [✓] 开沙箱改为 `POST /api/admin/shops/sandbox`（2026-10-28）：需 admin 令牌，前端先走后台账号手机号验证码登录；原公开接口已删除
-- [✓] 演示模式定案（2026-10-28）：登录页移除「一键体验」，账号密码 / 手机号直接登录模板店（单店演示）；沙箱接口保留但前端不再调用
-- [ ] 短信服务商：手机号登录 + 一键体验目前仅演示号能收码，待接阿里云/腾讯云短信并关闭 `SMS_TEST_PHONE`
-- [ ] `templateGuard` 等价逻辑（禁写模板店）
-- [ ] 扫码进店/分享链接
-- **状态：** in_progress
+### 阶段 2：shop-service（多租户基础设施）——已废弃
+- [✓] 原沙箱能力（开箱/克隆/回收/visitorKey 复用）历史实现
+- [✓] **2026-10-29 彻底下线**：删除 shop-service、网关路由、compose/release 项；JWT 去掉 shopId；18 张表删 `shop_id`；后台前端店铺名改静态配置
+- **状态：** canceled（单店模式）
 
 ### 阶段 3：product-service（最大域）
 - [✓] 商品/分类/标签/库存预警后台 CRUD + C 端浏览/搜索/收藏
@@ -190,7 +180,7 @@
 | 超时未支付订单自动取消（30min 恢复库存 + 改取消） | order-service | `fixedDelay=60000` | ✅ 已实现 |
 | 订单超时自动确认收货（发货满 7 天，`sign_status=auto`） | order-service | `fixedDelay=60000` | ✅ 已实现 |
 | 订单未支付提醒（失效前 10 分钟，一次性订阅消息） | order-service | `fixedDelay=60000` | ✅ 已实现（待上线） |
-| 沙箱过期回收（扫 `shops.expires_at`） | shop-service | 每小时 | ✅ 已实现（2026-10-27） |
+| ~~沙箱过期回收~~ | ~~shop-service~~ | — | ❌ 已随多租户下线（2026-10-29） |
 | 定时下架过期活动商品 | product-service | 每天 | ⏳ 待做（依赖 `business_onsale`） |
 
 ### 档 2：需先建表 / 接第三方
@@ -211,8 +201,8 @@
 
 | # | 风险/待确认 | 影响 | 处置 |
 |---|---|---|---|
-| 1 | 每服务独立库 vs 共享库（多租户） | 事务边界与 Feign 复杂度 | 先「共享库共享表 + shopId」，后续按需拆库 |
-| 2 | 沙箱回收的跨服务一致性 | 非事务，部分服务清失败 | 「软删除 + 最终一致」，失败重试 |
+| 1 | 每服务独立库 vs 共享库 | 事务边界与 Feign 复杂度 | 单店共享库，后续按需拆库 |
+| 2 | ~~沙箱回收的跨服务一致性~~ | — | 已随多租户下线 |
 | 3 | 现有 `user`（小程序）与 `admin`（后台）账号体系并存 | 两套登录入口 | admin 走 auth-service，user 走 user-service，JWT type 区分 |
 | 4 | Spring Cloud 组件在 Boot 4 下的调试成本 | 单人项目进度 | 先最小骨架再铺开 |
 | 5 | 后台断线重连 / 跨实例推送 | 多实例下 WS 钉死单机 | 阶段 11 补 Redis pub/sub |

@@ -17,7 +17,6 @@ import lombok.NoArgsConstructor;
 @AllArgsConstructor
 public class Order {
     private Long id;
-    private Long shopId;
     private Long userId;
     private String orderNo;
     private Integer orderStatus;

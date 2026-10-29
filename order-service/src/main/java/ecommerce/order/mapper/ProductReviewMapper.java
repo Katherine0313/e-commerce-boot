@@ -12,5 +12,5 @@ public interface ProductReviewMapper {
     int insert(ProductReview review);
 
     // 查某订单的评价（不含软删除）；用于「是否已评价」标记与防重复提交
-    ProductReview findByOrderId(@Param("orderId") Long orderId, @Param("shopId") Long shopId);
+    ProductReview findByOrderId(@Param("orderId") Long orderId);
 }

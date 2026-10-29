@@ -6,46 +6,46 @@
 
     <!-- 插入占位行：创建售后时写，退货方式申请时已选，时间戳/物流字段先为 NULL -->
     <insert id="insertPlaceholder" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO after_sale_exchange_returns (shop_id, after_sale_id, return_way, return_time_slot,
+        INSERT INTO after_sale_exchange_returns (after_sale_id, return_way, return_time_slot,
                                                  ship_address, is_deleted, created_at, updated_at)
-        VALUES (#{shopId}, #{afterSaleId}, #{returnWay}, #{returnTimeSlot},
+        VALUES (#{afterSaleId}, #{returnWay}, #{returnTimeSlot},
                 #{shipAddress}, 0, #{createdAt}, #{updatedAt})
     </insert>
 
     <select id="findByAfterSaleId" resultType="ecommerce.aftersale.entity.AfterSaleExchangeReturn">
-        SELECT id, shop_id, after_sale_id, return_way, return_time_slot, return_courier, return_tracking_number, ship_address,
+        SELECT id, after_sale_id, return_way, return_time_slot, return_courier, return_tracking_number, ship_address,
                review_at, return_at,
                exchange_at, exchanged_at, rejected_at, is_deleted, created_at, updated_at
         FROM after_sale_exchange_returns
-        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId} AND is_deleted = 0
+        WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
     </select>
 
     <!-- 用户提交退货方式 -->
     <update id="updateReturnInfo">
         UPDATE after_sale_exchange_returns
         SET return_way = #{returnWay}, return_time_slot = #{returnTimeSlot}, return_at = #{returnAt}, updated_at = #{updatedAt}
-        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId} AND is_deleted = 0
+        WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
     </update>
 
     <!-- 回填退货物流 -->
     <update id="updateTracking">
         UPDATE after_sale_exchange_returns
         SET return_courier = #{courier}, return_tracking_number = #{trackingNumber}, return_at = #{returnAt}, updated_at = #{updatedAt}
-        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId} AND is_deleted = 0
+        WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
     </update>
 
     <!-- 后台审核：更新指定时间戳列（列名白名单由 service 层控制） -->
     <update id="updateTimestamp">
         UPDATE after_sale_exchange_returns
         SET ${column} = #{now}, updated_at = #{now}
-        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId} AND is_deleted = 0
+        WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
     </update>
 
     <!-- 软删除子表 -->
     <update id="softDelete">
         UPDATE after_sale_exchange_returns
         SET is_deleted = 1, updated_at = #{now}
-        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId}
+        WHERE after_sale_id = #{afterSaleId}
     </update>
 
 </mapper>

@@ -14,7 +14,6 @@ CREATE TABLE IF NOT EXISTS `admin` (
     `name`        VARCHAR(64)  NOT NULL                COMMENT '显示名',
     `phone`       VARCHAR(32)  DEFAULT NULL            COMMENT '手机号',
     `role`        VARCHAR(32)  NOT NULL DEFAULT 'admin' COMMENT '角色：admin=管理员（RBAC 权限表后续补充）',
-    `shop_id`     BIGINT       NOT NULL DEFAULT 1      COMMENT '所属店铺（模板店=1）',
     `status`      TINYINT      NOT NULL DEFAULT 1      COMMENT '状态：1 正常 0 禁用',
     `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP COMMENT '更新时间',
@@ -23,5 +22,5 @@ CREATE TABLE IF NOT EXISTS `admin` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COMMENT = '后台管理员';
 
 -- 种子数据：模板店管理员（与 Node 后端演示账号一致，只读维护演示素材用）
-INSERT IGNORE INTO `admin` (`username`, `password`, `name`, `role`, `shop_id`)
-VALUES ('admin', 'admin123', '管理员', 'admin', 1);
+INSERT IGNORE INTO `admin` (`username`, `password`, `name`, `role`)
+VALUES ('admin', 'admin123', '管理员', 'admin');

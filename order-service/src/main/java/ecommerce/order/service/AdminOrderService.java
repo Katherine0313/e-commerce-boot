@@ -11,7 +11,7 @@ import java.util.Map;
 /**
  * 后台订单管理 Service（/api/admin/orders）。
  * <p>
- * 商家视角：查所有订单（shopId 隔离，不限用户）、确认收款/发货/完成/取消/删除/批量删除。
+ * 商家视角：查所有订单（不限用户）、确认收款/发货/完成/取消/删除/批量删除。
  */
 public interface AdminOrderService {
 

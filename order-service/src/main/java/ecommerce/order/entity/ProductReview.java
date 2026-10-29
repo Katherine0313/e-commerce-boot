@@ -19,7 +19,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class ProductReview {
     private Long id;
-    private Long shopId;
     private Long orderId;
     private Long userId;
     private Long productId;

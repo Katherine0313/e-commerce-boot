@@ -19,7 +19,6 @@ import ecommerce.aftersale.service.AdminAfterSaleService;
 import ecommerce.aftersale.vo.AfterSaleItemVO;
 import ecommerce.aftersale.vo.AfterSaleVO;
 import ecommerce.exception.BusinessException;
-import ecommerce.utils.UserContext;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -71,20 +70,12 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
         this.objectMapper = objectMapper;
     }
 
-    private Long requireShopId() {
-        Long shopId = UserContext.getShopId();
-        if (shopId == null) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "无权访问：缺少店铺上下文");
-        }
-        return shopId;
-    }
-
     @Override
     public List<AfterSaleVO> list(String status, String search, String startDate, String endDate, String dateField) {
         String field = resolveDateField(dateField);
         LocalDateTime start = parseDateTime(startDate);
         LocalDateTime end = parseDateTime(endDate);
-        return afterSaleMapper.listByShop(requireShopId(), status, search, start, end, field).stream()
+        return afterSaleMapper.listByShop(status, search, start, end, field).stream()
                 .map(a -> toVO(a, null, null))
                 .toList();
     }
@@ -114,18 +105,17 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
 
     @Override
     public AfterSaleVO getById(Long id) {
-        Long shopId = requireShopId();
-        AfterSale afterSale = afterSaleMapper.findById(id, shopId);
+        AfterSale afterSale = afterSaleMapper.findById(id);
         if (afterSale == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "售后记录不存在");
         }
-        List<AfterSaleItem> items = afterSaleItemMapper.listByAfterSaleId(id, shopId);
-        SubInfo sub = loadSub(afterSale.getAfterSaleType(), id, shopId);
+        List<AfterSaleItem> items = afterSaleItemMapper.listByAfterSaleId(id);
+        SubInfo sub = loadSub(afterSale.getAfterSaleType(), id);
         return toVO(afterSale, items, sub);
     }
 
     /** 按售后类型路由到对应子表，读取时间戳/退货字段平铺 */
-    private SubInfo loadSub(String type, Long id, Long shopId) {
+    private SubInfo loadSub(String type, Long id) {
         SubInfo sub = new SubInfo();
         AfterSaleTypeEnum typeEnum = AfterSaleTypeEnum.fromCode(type);
         if (typeEnum == null) {
@@ -133,7 +123,7 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
         }
         switch (typeEnum) {
             case RETURN_REFUND -> {
-                AfterSaleReturn r = afterSaleReturnMapper.findByAfterSaleId(id, shopId);
+                AfterSaleReturn r = afterSaleReturnMapper.findByAfterSaleId(id);
                 if (r != null) {
                     sub.returnWay = r.getReturnWay();
                     sub.returnTimeSlot = r.getReturnTimeSlot();
@@ -145,7 +135,7 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                 }
             }
             case ONLY_REFUND -> {
-                AfterSaleOnlyRefund r = afterSaleOnlyRefundMapper.findByAfterSaleId(id, shopId);
+                AfterSaleOnlyRefund r = afterSaleOnlyRefundMapper.findByAfterSaleId(id);
                 if (r != null) {
                     sub.reviewAt = r.getReviewAt();
                     sub.rejectedAt = r.getRejectedAt();
@@ -154,7 +144,7 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                 }
             }
             case EXCHANGE -> {
-                AfterSaleExchangeReturn r = afterSaleExchangeReturnMapper.findByAfterSaleId(id, shopId);
+                AfterSaleExchangeReturn r = afterSaleExchangeReturnMapper.findByAfterSaleId(id);
                 if (r != null) {
                     sub.returnWay = r.getReturnWay();
                     sub.returnTimeSlot = r.getReturnTimeSlot();
@@ -268,62 +258,60 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
     @Override
     @Transactional
     public void review(Long id, AdminAfterSaleDTO dto) {
-        Long shopId = requireShopId();
         if (dto.getStatus() == null || AfterSaleStatusEnum.fromCode(dto.getStatus()) == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "售后状态不合法");
         }
-        AfterSale afterSale = afterSaleMapper.findById(id, shopId);
+        AfterSale afterSale = afterSaleMapper.findById(id);
         if (afterSale == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "售后记录不存在");
         }
         LocalDateTime now = LocalDateTime.now();
         // 1. 主表：状态 + 商家备注 + 更新时间
-        afterSaleMapper.updateStatusAndRemark(id, shopId, dto.getStatus(),
+        afterSaleMapper.updateStatusAndRemark(id, dto.getStatus(),
                 dto.getMerchantRemark() == null ? "" : dto.getMerchantRemark(), now);
         // 2. 子表：按状态写对应时间戳列
         String column = STATUS_COLUMN_MAP.get(dto.getStatus());
         if (column != null) {
-            updateSubTimestamp(afterSale.getAfterSaleType(), id, shopId, column, now);
+            updateSubTimestamp(afterSale.getAfterSaleType(), id, column, now);
         }
     }
 
     @Override
     @Transactional
     public void delete(Long id) {
-        Long shopId = requireShopId();
-        AfterSale afterSale = afterSaleMapper.findById(id, shopId);
+        AfterSale afterSale = afterSaleMapper.findById(id);
         if (afterSale == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "售后记录不存在");
         }
         LocalDateTime now = LocalDateTime.now();
-        afterSaleMapper.softDelete(id, shopId, now);
-        afterSaleItemMapper.softDelete(id, shopId, now);
-        softDeleteSub(afterSale.getAfterSaleType(), id, shopId, now);
+        afterSaleMapper.softDelete(id, now);
+        afterSaleItemMapper.softDelete(id, now);
+        softDeleteSub(afterSale.getAfterSaleType(), id, now);
     }
 
     /** 按售后类型路由到对应子表，写入时间戳列 */
-    private void updateSubTimestamp(String type, Long afterSaleId, Long shopId, String column, LocalDateTime now) {
+    private void updateSubTimestamp(String type, Long afterSaleId, String column, LocalDateTime now) {
         AfterSaleTypeEnum typeEnum = AfterSaleTypeEnum.fromCode(type);
         if (typeEnum == null) {
             return;
         }
         switch (typeEnum) {
-            case RETURN_REFUND -> afterSaleReturnMapper.updateTimestamp(afterSaleId, shopId, column, now);
-            case ONLY_REFUND -> afterSaleOnlyRefundMapper.updateTimestamp(afterSaleId, shopId, column, now);
-            case EXCHANGE -> afterSaleExchangeReturnMapper.updateTimestamp(afterSaleId, shopId, column, now);
+            case RETURN_REFUND -> afterSaleReturnMapper.updateTimestamp(afterSaleId, column, now);
+            case ONLY_REFUND -> afterSaleOnlyRefundMapper.updateTimestamp(afterSaleId, column, now);
+            case EXCHANGE -> afterSaleExchangeReturnMapper.updateTimestamp(afterSaleId, column, now);
         }
     }
 
     /** 按售后类型路由到对应子表，软删 */
-    private void softDeleteSub(String type, Long afterSaleId, Long shopId, LocalDateTime now) {
+    private void softDeleteSub(String type, Long afterSaleId, LocalDateTime now) {
         AfterSaleTypeEnum typeEnum = AfterSaleTypeEnum.fromCode(type);
         if (typeEnum == null) {
             return;
         }
         switch (typeEnum) {
-            case RETURN_REFUND -> afterSaleReturnMapper.softDelete(afterSaleId, shopId, now);
-            case ONLY_REFUND -> afterSaleOnlyRefundMapper.softDelete(afterSaleId, shopId, now);
-            case EXCHANGE -> afterSaleExchangeReturnMapper.softDelete(afterSaleId, shopId, now);
+            case RETURN_REFUND -> afterSaleReturnMapper.softDelete(afterSaleId, now);
+            case ONLY_REFUND -> afterSaleOnlyRefundMapper.softDelete(afterSaleId, now);
+            case EXCHANGE -> afterSaleExchangeReturnMapper.softDelete(afterSaleId, now);
         }
     }
 }

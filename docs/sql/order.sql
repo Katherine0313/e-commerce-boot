@@ -1,5 +1,5 @@
 -- 订单域表（order-service，对应 order 模块：订单 / 订单项 / 购物车 / 收货地址）
--- 数据来源：e-commerce/server/sqlite/database.sqlite（Node 后端模板店「杰米小店」shopId=1）。
+-- 数据来源：e-commerce/server/sqlite/database.sqlite（Node 后端模板店「杰米小店」）。
 --
 -- 执行方式（任选其一）：
 --   mysql -u root -p e_commerce_db < docs/sql/order.sql
@@ -30,7 +30,6 @@
 -- ==================== 订单 ====================
 CREATE TABLE IF NOT EXISTS `orders` (
     `id`             BIGINT        NOT NULL AUTO_INCREMENT COMMENT '订单 ID',
-    `shop_id`        BIGINT        NOT NULL DEFAULT 1      COMMENT '所属店铺（模板店=1）',
     `user_id`        BIGINT        NOT NULL                COMMENT '下单用户 ID',
     `order_no`       VARCHAR(64)   NOT NULL                COMMENT '订单号（业务唯一，ORD+时间戳）',
     `is_deleted`     TINYINT       NOT NULL DEFAULT 0      COMMENT '软删除：1 已删除 0 正常',
@@ -57,7 +56,6 @@ CREATE TABLE IF NOT EXISTS `orders` (
     PRIMARY KEY (`id`),
     UNIQUE KEY `uk_orders_order_no` (`order_no`),
     KEY `idx_orders_status_created` (`order_status`, `created_at`),
-    KEY `idx_orders_shop_user` (`shop_id`, `user_id`),
     KEY `idx_orders_unpaid_notify` (`order_status`, `is_subscribe_unpaid`, `unpaid_notify_sent`, `created_at`),
     CONSTRAINT `fk_orders_user` FOREIGN KEY (`user_id`) REFERENCES `user`(`id`) ON DELETE RESTRICT
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单';
@@ -65,7 +63,6 @@ CREATE TABLE IF NOT EXISTS `orders` (
 -- ==================== 订单项 ====================
 CREATE TABLE IF NOT EXISTS `order_items` (
     `id`               BIGINT        NOT NULL AUTO_INCREMENT COMMENT '订单项 ID',
-    `shop_id`          BIGINT        NOT NULL DEFAULT 1      COMMENT '所属店铺（模板店=1）',
     `order_id`         BIGINT        NOT NULL                COMMENT '所属订单 ID',
     `product_id`       BIGINT        NOT NULL                COMMENT '商品 ID（下单快照，订单历史不随商品删除，故不加外键）',
     `product_name`     VARCHAR(255)  NOT NULL                COMMENT '商品名快照',
@@ -78,14 +75,12 @@ CREATE TABLE IF NOT EXISTS `order_items` (
     `is_deleted`       TINYINT       NOT NULL DEFAULT 0      COMMENT '软删除：1 已删除 0 正常',
     `created_at`       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     PRIMARY KEY (`id`),
-    KEY `idx_order_shop` (`order_id`, `shop_id`),
     CONSTRAINT `fk_order_items_order` FOREIGN KEY (`order_id`) REFERENCES `orders`(`id`) ON DELETE CASCADE
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '订单项';
 
 -- ==================== 购物车 ====================
 CREATE TABLE IF NOT EXISTS `cart` (
     `id`               BIGINT        NOT NULL AUTO_INCREMENT COMMENT '购物车项 ID',
-    `shop_id`          BIGINT        NOT NULL DEFAULT 1      COMMENT '所属店铺（模板店=1）',
     `user_id`          BIGINT        NOT NULL                COMMENT '用户 ID',
     `product_id`       BIGINT        NOT NULL                COMMENT '商品 ID',
     `quantity`         INT           NOT NULL DEFAULT 1      COMMENT '数量',
@@ -106,7 +101,6 @@ CREATE TABLE IF NOT EXISTS `cart` (
 -- ==================== 收货地址 ====================
 CREATE TABLE IF NOT EXISTS `address` (
     `id`             BIGINT       NOT NULL AUTO_INCREMENT COMMENT '地址 ID',
-    `shop_id`        BIGINT       NOT NULL DEFAULT 1      COMMENT '所属店铺（模板店=1）',
     `user_id`        BIGINT       NOT NULL                COMMENT '用户 ID',
     `consignee`      VARCHAR(64)  NOT NULL                COMMENT '收货人姓名',
     `phone`          VARCHAR(32)  NOT NULL                COMMENT '收货人手机号',

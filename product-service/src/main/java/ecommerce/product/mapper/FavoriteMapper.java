@@ -12,17 +12,17 @@ import java.util.List;
 public interface FavoriteMapper {
 
     // 收藏：唯一键冲突时忽略，重复点击不会报错也不会产生第二条
-    int insert(@Param("shopId") Long shopId, @Param("userId") Long userId,
+    int insert(@Param("userId") Long userId,
                @Param("productId") Long productId, @Param("createdAt") LocalDateTime createdAt);
 
     // 取消收藏：不存在的记录删除 0 行，接口仍按成功处理（幂等）
-    int delete(@Param("shopId") Long shopId, @Param("userId") Long userId,
+    int delete(@Param("userId") Long userId,
                @Param("productId") Long productId);
 
     // 是否已收藏
-    boolean exists(@Param("shopId") Long shopId, @Param("userId") Long userId,
+    boolean exists(@Param("userId") Long userId,
                    @Param("productId") Long productId);
 
     // 当前用户收藏列表：join 商品取展示字段，按收藏时间倒序（含已下架商品）
-    List<FavoriteVO> listByUser(@Param("shopId") Long shopId, @Param("userId") Long userId);
+    List<FavoriteVO> listByUser(@Param("userId") Long userId);
 }

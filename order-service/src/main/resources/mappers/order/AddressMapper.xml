@@ -6,26 +6,26 @@
 
     <!-- 某用户地址列表（按 id 倒序，最新在前） -->
     <select id="listByUser" resultType="ecommerce.order.entity.Address">
-        SELECT id, shop_id, user_id, consignee, phone, region, detail_address, is_default, created_at, updated_at
+        SELECT id, user_id, consignee, phone, region, detail_address, is_default, created_at, updated_at
         FROM address
-        WHERE user_id = #{userId} AND shop_id = #{shopId}
+        WHERE user_id = #{userId}
         ORDER BY id DESC
     </select>
 
-    <!-- 查单个地址（按 id + userId + shopId 校验归属，防越权） -->
+    <!-- 查单个地址（按 id + userId 校验归属，防越权） -->
     <select id="findById" resultType="ecommerce.order.entity.Address">
-        SELECT id, shop_id, user_id, consignee, phone, region, detail_address, is_default, created_at, updated_at
+        SELECT id, user_id, consignee, phone, region, detail_address, is_default, created_at, updated_at
         FROM address
-        WHERE id = #{id} AND user_id = #{userId} AND shop_id = #{shopId}
+        WHERE id = #{id} AND user_id = #{userId}
     </select>
 
     <!-- 新增，回填自增 id -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO address (shop_id, user_id, consignee, phone, region, detail_address, is_default, created_at)
-        VALUES (#{shopId}, #{userId}, #{consignee}, #{phone}, #{region}, #{detailAddress}, #{isDefault}, NOW())
+        INSERT INTO address (user_id, consignee, phone, region, detail_address, is_default, created_at)
+        VALUES (#{userId}, #{consignee}, #{phone}, #{region}, #{detailAddress}, #{isDefault}, NOW())
     </insert>
 
-    <!-- 更新（按 id + userId + shopId 定位） -->
+    <!-- 更新（按 id + userId 定位） -->
     <update id="update">
         UPDATE address
         SET consignee = #{consignee},
@@ -34,18 +34,18 @@
             detail_address = #{detailAddress},
             is_default = #{isDefault},
             updated_at = NOW()
-        WHERE id = #{id} AND user_id = #{userId} AND shop_id = #{shopId}
+        WHERE id = #{id} AND user_id = #{userId}
     </update>
 
-    <!-- 删除（按 id + userId + shopId 定位） -->
+    <!-- 删除（按 id + userId 定位） -->
     <delete id="deleteById">
-        DELETE FROM address WHERE id = #{id} AND user_id = #{userId} AND shop_id = #{shopId}
+        DELETE FROM address WHERE id = #{id} AND user_id = #{userId}
     </delete>
 
     <!-- 把某用户所有地址的默认标志清 0 -->
     <update id="clearDefault">
         UPDATE address SET is_default = 0
-        WHERE user_id = #{userId} AND shop_id = #{shopId}
+        WHERE user_id = #{userId}
     </update>
 
     <!-- 把某用户最新一条（id 最大）设为默认：派生表绕开「UPDATE 不能直接 SELECT 同表」限制 -->
@@ -54,7 +54,7 @@
         SET is_default = 1
         WHERE id = (
             SELECT t.id
-            FROM (SELECT id FROM address WHERE user_id = #{userId} AND shop_id = #{shopId} ORDER BY id DESC LIMIT 1) t
+            FROM (SELECT id FROM address WHERE user_id = #{userId} ORDER BY id DESC LIMIT 1) t
         )
     </update>
 

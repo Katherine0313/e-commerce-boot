@@ -25,7 +25,7 @@ public class WxLoginController {
     @Operation(summary = "微信登陆")
     @PostMapping("/wxlogin")
     public Result<WxLoginVO> wxLogin(@RequestBody WxLoginDTO dto, HttpServletRequest request) {
-        WxLoginVO vo = userService.login(dto.getCode(), dto.getShopId());
+        WxLoginVO vo = userService.login(dto.getCode());
         // 库里存的是相对路径，拼成完整 URL 再返回，与 /api/user/profile 保持一致，
         // 否则前端拿到 /upload/avatar/xxx 会被小程序当成包内路径（渲染层加载失败）
         vo.setAvatar(UrlUtil.fullUrl(request, vo.getAvatar()));

@@ -16,7 +16,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class Tag {
     private Long id;
-    private Long shopId;
     private String name;
     private String code;
     private String type;

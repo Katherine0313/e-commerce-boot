@@ -6,12 +6,12 @@
 
     <!-- 某用户购物车列表（按加购时间倒序），join products 带出实时库存供前端校验数量上限 -->
     <select id="listByUser" resultType="ecommerce.order.entity.Cart">
-        SELECT c.id, c.shop_id, c.user_id, c.product_id, c.quantity, c.name, c.image, c.price,
+        SELECT c.id, c.user_id, c.product_id, c.quantity, c.name, c.image, c.price,
                c.description, c.insurance_detail, c.insurance_fee, c.created_at, c.updated_at,
                p.stock
         FROM cart c
-        LEFT JOIN products p ON p.id = c.product_id AND p.shop_id = c.shop_id
-        WHERE c.user_id = #{userId} AND c.shop_id = #{shopId}
+        LEFT JOIN products p ON p.id = c.product_id
+        WHERE c.user_id = #{userId}
         ORDER BY c.created_at DESC, c.id DESC
     </select>
 
@@ -19,26 +19,26 @@
     <select id="countQuantity" resultType="int">
         SELECT COALESCE(SUM(quantity), 0)
         FROM cart
-        WHERE user_id = #{userId} AND shop_id = #{shopId}
+        WHERE user_id = #{userId}
     </select>
 
     <!-- 某用户购物车里某个商品的行 -->
     <select id="findByUserAndProduct" resultType="ecommerce.order.entity.Cart">
-        SELECT id, shop_id, user_id, product_id, quantity, name, image, price, description,
+        SELECT id, user_id, product_id, quantity, name, image, price, description,
                insurance_detail, insurance_fee, created_at, updated_at
         FROM cart
-        WHERE user_id = #{userId} AND product_id = #{productId} AND shop_id = #{shopId}
+        WHERE user_id = #{userId} AND product_id = #{productId}
     </select>
 
     <!-- 新增购物车项，回填自增 id -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO cart (shop_id, user_id, product_id, quantity, name, image, price, description,
+        INSERT INTO cart (user_id, product_id, quantity, name, image, price, description,
                           insurance_detail, insurance_fee, created_at)
-        VALUES (#{shopId}, #{userId}, #{productId}, #{quantity}, #{name}, #{image}, #{price},
+        VALUES (#{userId}, #{productId}, #{quantity}, #{name}, #{image}, #{price},
                 #{description}, #{insuranceDetail}, #{insuranceFee}, NOW())
     </insert>
 
-    <!-- 按 id + userId + shopId 更新数量 + 快照字段 + 更新时间 -->
+    <!-- 按 id + userId 更新数量 + 快照字段 + 更新时间 -->
     <update id="update">
         UPDATE cart
         SET quantity = #{quantity},
@@ -49,19 +49,19 @@
             insurance_detail = #{insuranceDetail},
             insurance_fee = #{insuranceFee},
             updated_at = NOW()
-        WHERE id = #{id} AND user_id = #{userId} AND shop_id = #{shopId}
+        WHERE id = #{id} AND user_id = #{userId}
     </update>
 
     <!-- 移除某个商品 -->
     <delete id="deleteByProduct">
         DELETE FROM cart
-        WHERE user_id = #{userId} AND product_id = #{productId} AND shop_id = #{shopId}
+        WHERE user_id = #{userId} AND product_id = #{productId}
     </delete>
 
     <!-- 批量移除 -->
     <delete id="deleteByProducts">
         DELETE FROM cart
-        WHERE user_id = #{userId} AND shop_id = #{shopId}
+        WHERE user_id = #{userId}
         AND product_id IN
         <foreach collection="productIds" item="pid" open="(" separator="," close=")">
             #{pid}
@@ -70,7 +70,7 @@
 
     <!-- 清空购物车 -->
     <delete id="clear">
-        DELETE FROM cart WHERE user_id = #{userId} AND shop_id = #{shopId}
+        DELETE FROM cart WHERE user_id = #{userId}
     </delete>
 
 </mapper>

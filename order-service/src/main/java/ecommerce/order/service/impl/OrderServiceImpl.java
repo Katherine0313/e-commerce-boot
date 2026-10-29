@@ -53,8 +53,6 @@ import java.util.concurrent.ThreadLocalRandom;
 @Service
 public class OrderServiceImpl implements OrderService {
 
-    /** 模板店（杰米小店）：多租户沙箱接入前固定为 1 */
-    private static final Long TEMPLATE_SHOP_ID = 1L;
     /** 待付款订单超时关闭时长（秒）：30 分钟 */
     private static final long PENDING_PAY_TIMEOUT_SECONDS = 1800;
     /** 已发货订单超时自动确认收货时长（天）：发货后 7 天自动变已完成，无论用户是否主动签收 */
@@ -153,8 +151,6 @@ public class OrderServiceImpl implements OrderService {
 
     /** 原有下单逻辑：查商品 → 校验库存 → 扣库存 → 写订单。幂等占位/结果写回由外层 createOrder 负责。 */
     private OrderVO doCreateOrder(CreateOrderDTO dto, Long userId) {
-        Long shopId = currentShopId();
-
         // 逐个查商品，校验库存，组装明细，算总额
         List<OrderItem> orderItems = new ArrayList<>();
         BigDecimal totalAmount = BigDecimal.ZERO;
@@ -162,7 +158,7 @@ public class OrderServiceImpl implements OrderService {
             if (itemDTO.getProductId() == null) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID 不能为空");
             }
-            Product product = productMapper.findById(itemDTO.getProductId(), shopId);
+            Product product = productMapper.findById(itemDTO.getProductId());
             if (product == null) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID " + itemDTO.getProductId() + " 不存在");
             }
@@ -175,7 +171,6 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal insuranceFee = itemDTO.getInsuranceFee() == null ? BigDecimal.ZERO : itemDTO.getInsuranceFee();
             BigDecimal subTotal = price.add(insuranceFee).multiply(BigDecimal.valueOf(quantity));
             orderItems.add(OrderItem.builder()
-                    .shopId(shopId)
                     .productId(product.getId())
                     .productName(product.getName())
                     .image(product.getImage())
@@ -190,14 +185,13 @@ public class OrderServiceImpl implements OrderService {
 
         // 扣库存（乐观锁兜底防超卖）
         for (OrderItem item : orderItems) {
-            if (productMapper.deductStock(item.getProductId(), item.getQuantity(), shopId) == 0) {
+            if (productMapper.deductStock(item.getProductId(), item.getQuantity()) == 0) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "商品「" + item.getProductName() + "」库存不足");
             }
         }
 
         // 写订单主表（初始状态：待付款）
         Order order = Order.builder()
-                .shopId(shopId)
                 .userId(userId)
                 .orderNo(generateOrderNo())
                 .payAmount(totalAmount)
@@ -227,7 +221,7 @@ public class OrderServiceImpl implements OrderService {
         List<Long> orderedProductIds = orderItems.stream()
                 .map(OrderItem::getProductId).distinct().toList();
         if (!orderedProductIds.isEmpty()) {
-            cartMapper.deleteByProducts(userId, orderedProductIds, shopId);
+            cartMapper.deleteByProducts(userId, orderedProductIds);
         }
         return getOrder(order.getId());
     }
@@ -239,7 +233,7 @@ public class OrderServiceImpl implements OrderService {
 
     @Override
     public List<OrderVO> listOrders(String keyword) {
-        return orderMapper.listByUser(currentUserId(), currentShopId(), keyword).stream()
+        return orderMapper.listByUser(currentUserId(), keyword).stream()
                 .map(this::toVO)
                 .toList();
     }
@@ -249,23 +243,22 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO payOrder(Long id, String payType) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.PENDING_CONFIRM);
-        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.PENDING_CONFIRM.getCode(), payType, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, OrderStatusEnum.PENDING_CONFIRM.getCode(), payType, null, null, LocalDateTime.now());
         // 支付成功后推「新订单提醒」给后台管理端（推送失败不影响主流程）
         pushNewOrderNotice(order);
         return getOrder(id);
     }
 
-    // 组装并推送新订单提醒消息：shopId + type + orderId + content，序列化成 JSON 发给在线后台连接
+    // 组装并推送新订单提醒消息：type + orderId + content，序列化成 JSON 发给在线后台连接
     private void pushNewOrderNotice(Order order) {
         Map<String, Object> msg = Map.of(
-                "shopId", order.getShopId(),
                 "type", 1,
                 "orderId", order.getOrderNo(),
                 "content", "您有新订单，请及时处理"
         );
         try {
             String json = objectMapper.writeValueAsString(msg);
-            webSocketSessionRegistry.sendToShop(order.getShopId(), json);
+            webSocketSessionRegistry.broadcast(json);
         } catch (Exception e) {
             log.warn("推送新订单提醒失败: {}", e.getMessage());
         }
@@ -276,7 +269,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO confirmOrder(Long id) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.PENDING_SHIP);
-        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -285,7 +278,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO shipOrder(Long id, String courier, String trackingNumber) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.SHIPPED);
-        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.SHIPPED.getCode(), null, courier, trackingNumber, LocalDateTime.now());
+        orderMapper.updateStatus(id, OrderStatusEnum.SHIPPED.getCode(), null, courier, trackingNumber, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -294,7 +287,7 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO finishOrder(Long id) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.FINISHED);
-        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.FINISHED.getCode(), null, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, OrderStatusEnum.FINISHED.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -303,13 +296,13 @@ public class OrderServiceImpl implements OrderService {
     public OrderVO cancelOrder(Long id) {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.CANCEL);
-        restoreStock(order.getId(), order.getShopId());
+        restoreStock(order.getId());
         // 已支付未发货（status 2/3）取消 → 自动生成退款售后单（整单退）
         if (OrderStatusEnum.PENDING_CONFIRM.getCode().equals(order.getOrderStatus())
                 || OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getOrderStatus())) {
-            autoRefundOnCancel(order, order.getShopId());
+            autoRefundOnCancel(order);
         }
-        orderMapper.updateStatus(id, order.getShopId(), OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
+        orderMapper.updateStatus(id, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -318,7 +311,7 @@ public class OrderServiceImpl implements OrderService {
     public void deleteOrder(Long id) {
         // 软删：只校验存在 + 归属（不校验状态，任何状态的订单都能删）；is_deleted=1 后列表不再返回
         Order order = getOwnedOrder(id);
-        orderMapper.delete(id, order.getShopId(), LocalDateTime.now());
+        orderMapper.delete(id, LocalDateTime.now());
     }
 
     @Override
@@ -334,14 +327,14 @@ public class OrderServiceImpl implements OrderService {
         List<Order> expired = orderMapper.findExpiredPendingPay(OrderStatusEnum.PENDING_PAY.getCode(), threshold);
         for (Order order : expired) {
             // 二次确认仍是待付款，避免与支付并发时误取消已付款订单
-            Order latest = orderMapper.findById(order.getId(), order.getShopId());
+            Order latest = orderMapper.findById(order.getId());
             if (latest == null || !latest.getOrderStatus().equals(OrderStatusEnum.PENDING_PAY.getCode())) {
                 continue;
             }
-            restoreStock(order.getId(), order.getShopId());
+            restoreStock(order.getId());
             // 只改状态为取消，不软删除：待付款订单是有效订单记录，超时关闭只是状态流转（pending_pay → cancel），
             // 保留下来用户才能在订单列表看到「这笔订单超时取消了」
-            orderMapper.updateStatus(order.getId(), order.getShopId(), OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
+            orderMapper.updateStatus(order.getId(), OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
         }
         if (!expired.isEmpty()) {
             log.info("超时关闭待付款订单 {} 条", expired.size());
@@ -368,7 +361,7 @@ public class OrderServiceImpl implements OrderService {
         for (Order order : candidates) {
             try {
                 // 二次确认仍是待付款，避免扫描后刚好支付/取消
-                Order latest = orderMapper.findById(order.getId(), order.getShopId());
+                Order latest = orderMapper.findById(order.getId());
                 if (latest == null
                         || !OrderStatusEnum.PENDING_PAY.getCode().equals(latest.getOrderStatus())) {
                     continue;
@@ -379,13 +372,13 @@ public class OrderServiceImpl implements OrderService {
                     continue;
                 }
                 // 一次性订阅消息需要 openid
-                String openid = userMapper.findOpenidById(latest.getUserId(), latest.getShopId());
+                String openid = userMapper.findOpenidById(latest.getUserId());
                 if (openid == null || openid.isBlank()) {
                     log.warn("未支付提醒跳过：用户无 openid, orderNo={}", latest.getOrderNo());
                     continue;
                 }
 
-                List<OrderItem> items = orderItemMapper.listByOrderId(latest.getId(), latest.getShopId());
+                List<OrderItem> items = orderItemMapper.listByOrderId(latest.getId());
                 String productName = buildNotifyProductName(items);
 
                 SendResult result = weChatSubscribeMessageClient.sendUnpaidReminder(
@@ -393,7 +386,7 @@ public class OrderServiceImpl implements OrderService {
 
                 // 成功或永久失败（用户拒收/无配额等）都标记，避免每分钟重试
                 if (result == SendResult.SUCCESS || result == SendResult.PERMANENT_FAIL) {
-                    orderMapper.markUnpaidNotifySent(latest.getId(), latest.getShopId(), LocalDateTime.now());
+                    orderMapper.markUnpaidNotifySent(latest.getId(), LocalDateTime.now());
                 }
             } catch (Exception e) {
                 // 单笔失败不影响其他订单
@@ -419,12 +412,12 @@ public class OrderServiceImpl implements OrderService {
         List<Order> shipped = orderMapper.findExpiredShipped(OrderStatusEnum.SHIPPED.getCode(), threshold);
         for (Order order : shipped) {
             // 二次确认仍是已发货，避免与手动确认收货/其它流转并发时误改
-            Order latest = orderMapper.findById(order.getId(), order.getShopId());
+            Order latest = orderMapper.findById(order.getId());
             if (latest == null || !latest.getOrderStatus().equals(OrderStatusEnum.SHIPPED.getCode())) {
                 continue;
             }
             // 自动完成：已发货 → 已完成，sign_status=auto 与用户主动签收(signed)区分
-            orderMapper.autoConfirm(order.getId(), order.getShopId(), LocalDateTime.now());
+            orderMapper.autoConfirm(order.getId(), LocalDateTime.now());
         }
         if (!shipped.isEmpty()) {
             log.info("自动确认收货订单 {} 条", shipped.size());
@@ -434,7 +427,7 @@ public class OrderServiceImpl implements OrderService {
     // ==================== 内部工具 ====================
 
     private Order getOwnedOrder(Long id) {
-        Order order = orderMapper.findById(id, currentShopId());
+        Order order = orderMapper.findById(id);
         if (order == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "订单不存在");
         }
@@ -442,12 +435,6 @@ public class OrderServiceImpl implements OrderService {
             throw new BusinessException(HttpStatus.FORBIDDEN, "无权操作该订单");
         }
         return order;
-    }
-
-    // 当前店铺：C 端 user 令牌带 shopId（多租户隔离键），无 shopId 时回退模板店
-    private Long currentShopId() {
-        Long shopId = UserContext.getShopId();
-        return shopId == null ? TEMPLATE_SHOP_ID : shopId;
     }
 
     private void checkTransition(Order order, OrderStatusEnum target) {
@@ -458,34 +445,33 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    private void restoreStock(Long orderId, Long shopId) {
-        List<OrderItem> items = orderItemMapper.listByOrderId(orderId, shopId);
+    private void restoreStock(Long orderId) {
+        List<OrderItem> items = orderItemMapper.listByOrderId(orderId);
         for (OrderItem item : items) {
-            productMapper.restoreStock(item.getProductId(), item.getQuantity(), shopId);
+            productMapper.restoreStock(item.getProductId(), item.getQuantity());
         }
     }
 
     /** 取消订单自动退款：生成 refunded 售后单（整单退，退款跟着原订单 pay_at 归属营业额） */
-    private void autoRefundOnCancel(Order order, Long shopId) {
+    private void autoRefundOnCancel(Order order) {
         // 已有售后单则跳过（退款已走售后流程，不重复退）
-        if (afterSaleRefundMapper.countAfterSale(order.getId(), shopId) > 0) {
+        if (afterSaleRefundMapper.countAfterSale(order.getId()) > 0) {
             return;
         }
-        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId(), shopId);
+        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId());
         if (items.isEmpty()) {
             return;
         }
         LocalDateTime now = LocalDateTime.now();
         Map<String, Object> params = new HashMap<>();
-        params.put("shopId", shopId);
         params.put("orderId", order.getId());
         params.put("orderNo", order.getOrderNo());
         params.put("afterSaleNo", "AS" + now.format(AFTER_SALE_NO_FORMATTER));
         params.put("now", now);
         afterSaleRefundMapper.insertAfterSale(params);
         Long afterSaleId = ((Number) params.get("id")).longValue();
-        afterSaleRefundMapper.insertItems(shopId, afterSaleId, items, now);
-        afterSaleRefundMapper.insertOnlyRefund(shopId, afterSaleId, now);
+        afterSaleRefundMapper.insertItems(afterSaleId, items, now);
+        afterSaleRefundMapper.insertOnlyRefund(afterSaleId, now);
     }
 
     private String generateOrderNo() {
@@ -610,10 +596,10 @@ public class OrderServiceImpl implements OrderService {
     private OrderVO toVO(Order order) {
         OrderStatusEnum status = OrderStatusEnum.fromCode(order.getOrderStatus());
         PayTypeEnum payType = PayTypeEnum.fromCode(order.getPayType());
-        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId(), order.getShopId());
+        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId());
         // 是否已评价：仅已完成订单可能有评价记录，其余状态直接 false（省去无谓查询）
         boolean reviewed = OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())
-                && productReviewMapper.findByOrderId(order.getId(), order.getShopId()) != null;
+                && productReviewMapper.findByOrderId(order.getId()) != null;
         // courier 存英文 key，转中文返回（照旧 Node 后端）
         CourierEnum courierEnum = CourierEnum.fromCode(order.getCourier());
         String courierDesc = courierEnum != null ? courierEnum.getDesc() : order.getCourier();

@@ -15,7 +15,6 @@
 
 ```text
 auth-service/target/auth-service-0.0.1-SNAPSHOT.jar        -> /www/java/auth-service/auth-service.jar
-shop-service/target/shop-service-0.0.1-SNAPSHOT.jar        -> /www/java/shop-service/shop-service.jar
 product-service/target/product-service-0.0.1-SNAPSHOT.jar  -> /www/java/product-service/product-service.jar
 order-service/target/order-service-0.0.1-SNAPSHOT.jar      -> /www/java/order-service/order-service.jar
 aftersale-service/target/aftersale-service-*.jar           -> /www/java/aftersale-service/aftersale-service.jar
@@ -48,7 +47,6 @@ deploy/README.md          -> /www/java/README.md（可选）
 ├── auth-service/
 │   ├── Dockerfile
 │   └── auth-service.jar
-├── shop-service/
 ├── product-service/
 ├── order-service/
 ├── aftersale-service/
@@ -65,7 +63,7 @@ cd /www/java
 mkdir -p upload
 cp .env.example .env
 # 编辑 .env 填真实值
-for d in auth-service shop-service product-service order-service aftersale-service user-service file-service gateway; do
+for d in auth-service product-service order-service aftersale-service user-service file-service gateway; do
   cp Dockerfile "$d/Dockerfile"
 done
 ```
@@ -170,7 +168,7 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 
 ## 8. 后台管理端（过几天）
 
-后端 `auth-service` / `shop-service` 已经一起起来了，到时只需要：
+后端 `auth-service` 已经起来了，到时只需要：
 
 - 构建 `e-commerce` 的 `dist`
 - 宝塔建站 `admin.jiemids.com`
@@ -181,13 +179,13 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 
 - Python 推荐服务没有包含；`product-service` 调不到 9009 时会自动走热销兜底，首页不会白屏。需要个性化推荐再单独加容器。
 - `file-service` 目前是空骨架，不影响主链路；不想跑可以把它从 `docker-compose.yml` 和 `gateway` 的 `depends_on` 里删掉。
-- 后台管理端过几天部署，后端 `auth-service` / `shop-service` 已经在这里一起起来了。
+- 后台管理端过几天部署，后端 `auth-service` 已经在这里一起起来了。
 
 ## 10. 必查清单
 
 - [ ] `JWT_SECRET` 所有服务一致
 - [ ] `SILICONFLOW_API_KEY` 是真实 key（Python `ai-service` 使用）
-- [ ] `.env` 有 `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE` / `SHOP_ID`，`ai-service` 能读到商品
+- [ ] `.env` 有 `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE`，`ai-service` 能读到商品
 - [ ] `docker logs ai-service` 无报错；网关 `/api/agent/chat/stream` 能逐块返回
 - [ ] `WECHAT_SECRET` 正确
 - [ ] `DB_URL` 指向正确的库，且库里有表和数据
@@ -209,8 +207,8 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 
 ### 首次配置
 
-1. 腾讯云控制台 → 容器镜像服务 TCR → 个人版，创建命名空间（如 `jiemi-ecommerce`），为 8 个 Java 服务和 1 个 Python 服务各建一个仓库（共 9 个）：
-   `auth-service`、`shop-service`、`product-service`、`order-service`、`aftersale-service`、`user-service`、`file-service`、`gateway`、`ai-service`。
+1. 腾讯云控制台 → 容器镜像服务 TCR → 个人版，创建命名空间（如 `jiemi-ecommerce`），为 7 个 Java 服务和 1 个 Python 服务各建一个仓库（共 8 个）：
+   `auth-service`、`product-service`、`order-service`、`aftersale-service`、`user-service`、`file-service`、`gateway`、`ai-service`。
 2. TCR 控制台 → 访问凭证。个人版通常只有一个读写凭证；如果能单独创建只读凭证，服务器用只读的。
 3. 本地登录并首次发布（`docker login` 交互输入密码，不要写进脚本）：
 
@@ -254,8 +252,8 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 
 ```bash
 ./deploy/release.sh order-service                 # 改了一个服务
-./deploy/release.sh order-service shop-service    # 改了多个
-./deploy/release.sh all                           # 全部（8 个 Java + ai-service）
+./deploy/release.sh order-service product-service # 改了多个
+./deploy/release.sh all                           # 全部（7 个 Java + ai-service）
 ./deploy/release.sh --no-ai all                   # 不发布 Python ai-service
 ./deploy/release.sh --no-deploy order-service     # 只构建推送，不部署
 ./deploy/release.sh --dry-run all                 # 只看会执行什么

@@ -1,3 +1,4 @@
+-- 已废弃（2026-10-29 单店化）：多租户沙箱机制已下线，勿在新环境执行。
 -- 多租户沙箱迁移：user 表加 shop_id，C 端用户按店隔离
 -- 执行方式：mysql -u e_commerce_db -p --default-character-set=utf8mb4 e_commerce_db < docs/sql/sandbox-migrate.sql
 -- 说明：幂等不保证（ADD COLUMN 重复执行会报错），只执行一次；执行前请确认无并发的 C 端写入。

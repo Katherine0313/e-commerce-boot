@@ -6,7 +6,7 @@ import ecommerce.order.vo.ReviewVO;
 /**
  * 商品评价 Service。
  * <p>
- * 评价绑定「已完成」订单：一个订单只允许评一次，当前登录用户从 UserContext 取，店铺固定模板店（shopId=1）。
+ * 评价绑定「已完成」订单：一个订单只允许评一次，当前登录用户从 UserContext 取（单店模式）。
  */
 public interface ReviewService {
 

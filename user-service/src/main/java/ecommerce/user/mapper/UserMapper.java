@@ -17,15 +17,14 @@ public interface UserMapper extends BaseMapper<User> {
      * 返回 [{bucket: '...', cnt: N}] 升序，缺失桶由 Service 补 0。
      */
     @Select("SELECT DATE_FORMAT(create_time, #{format}) AS bucket, COUNT(*) AS cnt " +
-            "FROM `user` WHERE shop_id = #{shopId} AND is_deleted = 0 " +
+            "FROM `user` WHERE is_deleted = 0 " +
             "AND create_time >= #{start} AND create_time < #{end} " +
             "GROUP BY DATE_FORMAT(create_time, #{format}) ORDER BY bucket ASC")
-    List<Map<String, Object>> countNewUsersByBucket(@Param("shopId") Long shopId,
-                                                    @Param("start") LocalDateTime start,
+    List<Map<String, Object>> countNewUsersByBucket(@Param("start") LocalDateTime start,
                                                     @Param("end") LocalDateTime end,
                                                     @Param("format") String format);
 
-    /** 当前店铺用户总量（工作台统计卡用） */
-    @Select("SELECT COUNT(*) FROM `user` WHERE shop_id = #{shopId} AND is_deleted = 0")
-    long countTotalUsers(@Param("shopId") Long shopId);
+    /** 用户总量（工作台统计卡用） */
+    @Select("SELECT COUNT(*) FROM `user` WHERE is_deleted = 0")
+    long countTotalUsers();
 }

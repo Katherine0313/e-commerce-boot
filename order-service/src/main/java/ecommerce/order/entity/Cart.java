@@ -13,7 +13,6 @@ import java.time.LocalDateTime;
 @Builder
 public class Cart {
     private Long id;
-    private Long shopId;
     private Long userId;
     private Long productId;
     private Integer quantity;

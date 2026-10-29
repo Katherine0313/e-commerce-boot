@@ -1,11 +1,10 @@
 -- orders / order_items 补业务索引（配合订单模块设计文档 5.3，幂等可重复执行）
 --
--- 背景：设计文档要求 3 个索引优化查询——
---   1. idx_orders_status_created(order_status, created_at)：优化超时订单扫描（findExpiredPendingPay）
---   2. idx_orders_shop_user(shop_id, user_id)：优化用户订单列表（listByUser）
---   3. idx_order_shop(order_id, shop_id)：优化订单明细查询（listByOrderId）
---   docs/sql/order.sql 建表脚本已同步加这 3 个索引（新环境建表即有）；
+-- 背景：优化超时订单扫描（findExpiredPendingPay）——
+--   idx_orders_status_created(order_status, created_at)
+--   docs/sql/order.sql 建表脚本已同步加该索引（新环境建表即有）；
 --   本脚本用于给【已有库】补索引——order.sql 是 CREATE TABLE IF NOT EXISTS，改脚本不会改已有表。
+--   多租户 shop_id 已下线（2026-10-29），原 idx_orders_shop_user / idx_order_shop 不再创建。
 --
 -- 执行方式（Windows 记得加 --default-character-set=utf8mb4）：
 --   服务连的是 Docker MySQL（127.0.0.1:3307），必须打 3307，别打成默认的 3306 本机实例：
@@ -32,16 +31,14 @@ END$$
 DELIMITER ;
 
 CALL add_index_if_not_exists('orders', 'idx_orders_status_created', '(order_status, created_at)');
-CALL add_index_if_not_exists('orders', 'idx_orders_shop_user', '(shop_id, user_id)');
-CALL add_index_if_not_exists('order_items', 'idx_order_shop', '(order_id, shop_id)');
 
 DROP PROCEDURE IF EXISTS add_index_if_not_exists;
 
--- 自检：三个索引应都能查到（列出索引名 + 列顺序）
+-- 自检：索引应能查到（列出索引名 + 列顺序）
 SELECT TABLE_NAME, INDEX_NAME, GROUP_CONCAT(COLUMN_NAME ORDER BY SEQ_IN_INDEX) AS columns
   FROM information_schema.STATISTICS
  WHERE TABLE_SCHEMA = DATABASE()
-   AND TABLE_NAME IN ('orders', 'order_items')
-   AND INDEX_NAME IN ('idx_orders_status_created', 'idx_orders_shop_user', 'idx_order_shop')
+   AND TABLE_NAME = 'orders'
+   AND INDEX_NAME = 'idx_orders_status_created'
  GROUP BY TABLE_NAME, INDEX_NAME
  ORDER BY TABLE_NAME, INDEX_NAME;

@@ -6,7 +6,7 @@ import ecommerce.user.vo.WxLoginVO;
 import org.springframework.web.multipart.MultipartFile;
 
 public interface UserService {
-    WxLoginVO login(String code, Long shopId);
+    WxLoginVO login(String code);
 
     /**
      * 获取用户资料：头像、昵称、基础信息一次返回

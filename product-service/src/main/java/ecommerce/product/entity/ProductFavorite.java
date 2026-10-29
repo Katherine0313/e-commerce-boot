@@ -19,7 +19,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class ProductFavorite {
     private Long id;
-    private Long shopId;
     private Long userId;
     private Long productId;
     private LocalDateTime createdAt;

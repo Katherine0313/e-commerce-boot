@@ -18,7 +18,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class Stock {
     private Long id;
-    private Long shopId;
     private Long productId;
     /** 预警是否启用：1 启用 0 禁用 */
     private Integer alertEnabled;

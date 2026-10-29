@@ -32,7 +32,6 @@
 | 商品 product-service | `http://localhost:8080/product-service/v3/api-docs` |
 | 订单/地址 order-service | `http://localhost:8080/order-service/v3/api-docs` |
 | 售后 aftersale-service | `http://localhost:8080/aftersale-service/v3/api-docs` |
-| 店铺 shop-service | `http://localhost:8080/shop-service/v3/api-docs` |
 | 文件 file-service | `http://localhost:8080/file-service/v3/api-docs` |
 
 **导入方式**

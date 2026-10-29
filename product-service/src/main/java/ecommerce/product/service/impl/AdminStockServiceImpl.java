@@ -7,7 +7,6 @@ import ecommerce.product.mapper.StockMapper;
 import ecommerce.product.service.AdminStockService;
 import ecommerce.product.vo.StockStatusVO;
 import ecommerce.product.vo.StockVO;
-import ecommerce.utils.UserContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -30,17 +29,9 @@ public class AdminStockServiceImpl implements AdminStockService {
         this.stockMapper = stockMapper;
     }
 
-    private Long requireShopId() {
-        Long shopId = UserContext.getShopId();
-        if (shopId == null) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "无权访问：缺少店铺上下文");
-        }
-        return shopId;
-    }
-
     @Override
     public List<StockVO> list(String search) {
-        return stockMapper.listWithProducts(search, requireShopId());
+        return stockMapper.listWithProducts(search);
     }
 
     @Override
@@ -53,15 +44,13 @@ public class AdminStockServiceImpl implements AdminStockService {
 
     @Override
     public void create(AdminStockDTO dto) {
-        Long shopId = requireShopId();
         validate(dto);
-        Stock existing = stockMapper.findByProductId(dto.getProductId(), shopId);
+        Stock existing = stockMapper.findByProductId(dto.getProductId());
         LocalDateTime now = LocalDateTime.now();
         if (existing != null) {
             // product_id 重复 → 更新（动态 set，null 字段保留原值）
             Stock update = new Stock();
             update.setId(existing.getId());
-            update.setShopId(shopId);
             update.setAlertEnabled(dto.getAlertEnabled());
             update.setMinStock(dto.getMinStock());
             update.setMaxStock(dto.getMaxStock());
@@ -69,7 +58,6 @@ public class AdminStockServiceImpl implements AdminStockService {
             stockMapper.update(update);
         } else {
             Stock s = new Stock();
-            s.setShopId(shopId);
             s.setProductId(dto.getProductId());
             s.setAlertEnabled(dto.getAlertEnabled());
             s.setMinStock(dto.getMinStock());

@@ -6,7 +6,6 @@ import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.service.ReportService;
 import ecommerce.order.vo.*;
-import ecommerce.utils.UserContext;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.poi.ss.usermodel.Row;
@@ -51,27 +50,17 @@ public class ReportServiceImpl implements ReportService {
         this.orderItemMapper = orderItemMapper;
     }
 
-    private Long requireShopId() {
-        Long shopId = UserContext.getShopId();
-        if (shopId == null) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "无权访问：缺少店铺上下文");
-        }
-        return shopId;
-    }
-
     @Override
     public TurnoverVO getTurnoverStats(String period) {
-        Long shopId = requireShopId();
         PeriodRange range = resolvePeriod(period);
         return TurnoverVO.builder()
-                .turnover(turnoverOf(shopId, range.begin(), range.end()))
+                .turnover(turnoverOf(range.begin(), range.end()))
                 .timeDesc(range.timeDesc())
                 .build();
     }
 
     @Override
     public TurnoverReportVO getTurnoverReport(String period) {
-        Long shopId = requireShopId();
         PeriodRange range = resolvePeriod(period);
         List<LocalDate> dates = getDateList(range.begin(), range.end());
 
@@ -80,8 +69,8 @@ public class ReportServiceImpl implements ReportService {
         LocalDateTime end = range.end().plusDays(1).atStartOfDay();
 
         // 实收/退款按天分组 → Map<日期, 金额>，逐日相减，缺失日期补 0
-        Map<String, BigDecimal> paidMap = toDateAmountMap(orderMapper.sumPaidAmountByDay(shopId, start, end));
-        Map<String, BigDecimal> refundMap = toDateAmountMap(orderMapper.sumRefundAmountByDay(shopId, start, end));
+        Map<String, BigDecimal> paidMap = toDateAmountMap(orderMapper.sumPaidAmountByDay(start, end));
+        Map<String, BigDecimal> refundMap = toDateAmountMap(orderMapper.sumRefundAmountByDay(start, end));
 
         DateTimeFormatter dayFmt = DateTimeFormatter.ofPattern("yyyy-MM-dd");
         List<String> dateList = new ArrayList<>();
@@ -102,18 +91,16 @@ public class ReportServiceImpl implements ReportService {
 
     @Override
     public List<SalesRankingItemVO> getSalesRanking(String period, int limit) {
-        Long shopId = requireShopId();
         PeriodRange range = resolvePeriod(period);
         // 限制返回条数，避免前端传大值拖垮查询
         int safeLimit = Math.min(Math.max(limit, 1), 20);
         LocalDateTime start = range.begin().atStartOfDay();
         LocalDateTime end = range.end().plusDays(1).atStartOfDay();
-        return orderItemMapper.sumSalesRanking(shopId, start, end, safeLimit);
+        return orderItemMapper.sumSalesRanking(start, end, safeLimit);
     }
 
     @Override
     public DashboardStatsVO getDashboardStats() {
-        Long shopId = requireShopId();
         LocalDate today = LocalDate.now();
         LocalDateTime todayStart = today.atStartOfDay();
         LocalDateTime tomorrowStart = todayStart.plusDays(1);
@@ -121,22 +108,21 @@ public class ReportServiceImpl implements ReportService {
 
         return DashboardStatsVO.builder()
                 // 营业额与 /turnover 同口径：pay_at 区间实收 − 退款
-                .todayTurnover(turnoverOf(shopId, today, today))
-                .yesterdayTurnover(turnoverOf(shopId, today.minusDays(1), today.minusDays(1)))
+                .todayTurnover(turnoverOf(today, today))
+                .yesterdayTurnover(turnoverOf(today.minusDays(1), today.minusDays(1)))
                 // 订单量按 created_at，排除已取消（与工作台原前端口径一致）
-                .todayOrders(orderMapper.countCreatedBetween(shopId, todayStart, tomorrowStart))
-                .yesterdayOrders(orderMapper.countCreatedBetween(shopId, yesterdayStart, todayStart))
+                .todayOrders(orderMapper.countCreatedBetween(todayStart, tomorrowStart))
+                .yesterdayOrders(orderMapper.countCreatedBetween(yesterdayStart, todayStart))
                 // 待发货 = 状态 3
-                .pendingShip(orderMapper.countByStatus(shopId, OrderStatusEnum.PENDING_SHIP.getCode()))
+                .pendingShip(orderMapper.countByStatus(OrderStatusEnum.PENDING_SHIP.getCode()))
                 .build();
     }
 
     @Override
     public HeadlineVO getHeadline() {
-        Long shopId = requireShopId();
         // 累计口径与营业额报表一致：全时段实收 − 退款，不受订单分页影响
-        BigDecimal paid = orderMapper.sumPaidAmountAll(shopId);
-        BigDecimal refund = orderMapper.sumRefundAmountAll(shopId);
+        BigDecimal paid = orderMapper.sumPaidAmountAll();
+        BigDecimal refund = orderMapper.sumRefundAmountAll();
         BigDecimal safePaid = paid == null ? BigDecimal.ZERO : paid;
         BigDecimal safeRefund = refund == null ? BigDecimal.ZERO : refund;
         return HeadlineVO.builder()
@@ -144,13 +130,12 @@ public class ReportServiceImpl implements ReportService {
                 .totalRefund(safeRefund)
                 .netAmount(safePaid.subtract(safeRefund))
                 // 累计订单量：全时段、排除已取消，不受分页影响
-                .totalOrders(orderMapper.countAllCounted(shopId))
+                .totalOrders(orderMapper.countAllCounted())
                 .build();
     }
 
     @Override
     public OperationReportVO getOperationReport() {
-        Long shopId = requireShopId();
         LocalDate end = LocalDate.now();
         // 本月：月初至今天（含）
         LocalDate begin = end.withDayOfMonth(1);
@@ -159,18 +144,18 @@ public class ReportServiceImpl implements ReportService {
 
         // 一次取齐 6 组按天聚合，避免循环 30 次查库
         Map<String, BigDecimal> paidMap = toDateAmountMap(
-                orderMapper.sumPaidAmountByDay(shopId, start, endExclusive));
+                orderMapper.sumPaidAmountByDay(start, endExclusive));
         Map<String, BigDecimal> refundMap = toDateAmountMap(
-                orderMapper.sumRefundAmountByDay(shopId, start, endExclusive));
+                orderMapper.sumRefundAmountByDay(start, endExclusive));
         Map<String, Long> effectivePaidMap = toDateCountMap(
-                orderMapper.countEffectivePaidByDay(shopId, start, endExclusive));
+                orderMapper.countEffectivePaidByDay(start, endExclusive));
         Map<String, Long> createdMap = toDateCountMap(
-                orderMapper.countCreatedByDay(shopId, start, endExclusive));
+                orderMapper.countCreatedByDay(start, endExclusive));
         Map<String, Long> createdPaidMap = toDateCountMap(
-                orderMapper.countCreatedPaidByDay(shopId, start, endExclusive));
+                orderMapper.countCreatedPaidByDay(start, endExclusive));
         Map<String, Long> newUserMap = toDateCountMap(
-                orderMapper.countNewUsersByDay(shopId, start, endExclusive));
-        long totalRefundOrders = orderMapper.countRefundOrders(shopId, start, endExclusive);
+                orderMapper.countNewUsersByDay(start, endExclusive));
+        long totalRefundOrders = orderMapper.countRefundOrders(start, endExclusive);
 
         List<OperationReportRowVO> rows = new ArrayList<>(end.getDayOfMonth());
         BigDecimal totalSales = BigDecimal.ZERO;
@@ -342,11 +327,11 @@ public class ReportServiceImpl implements ReportService {
     /**
      * 单区间营业额 = 实收 − 退款（日期闭区间 → [begin 0点, end 次日 0点)，JVM 本地时区与 pay_at 同基准）
      */
-    private BigDecimal turnoverOf(Long shopId, LocalDate begin, LocalDate end) {
+    private BigDecimal turnoverOf(LocalDate begin, LocalDate end) {
         LocalDateTime start = begin.atStartOfDay();
         LocalDateTime endExclusive = end.plusDays(1).atStartOfDay();
-        BigDecimal paid = orderMapper.sumPaidAmount(shopId, start, endExclusive);
-        BigDecimal refund = orderMapper.sumRefundAmount(shopId, start, endExclusive);
+        BigDecimal paid = orderMapper.sumPaidAmount(start, endExclusive);
+        BigDecimal refund = orderMapper.sumRefundAmount(start, endExclusive);
         return (paid == null ? BigDecimal.ZERO : paid).subtract(refund == null ? BigDecimal.ZERO : refund);
     }
 

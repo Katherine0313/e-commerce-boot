@@ -26,9 +26,6 @@ import java.util.Map;
 @Service
 public class CartServiceImpl implements CartService {
 
-    /** 模板店（杰米小店）：多租户沙箱接入前固定为 1 */
-    private static final Long TEMPLATE_SHOP_ID = 1L;
-
     private final CartMapper cartMapper;
     private final ProductMapper productMapper;
     private final ObjectMapper objectMapper;
@@ -41,12 +38,12 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public List<CartVO> getCart() {
-        return toVOList(cartMapper.listByUser(currentUserId(), currentShopId()));
+        return toVOList(cartMapper.listByUser(currentUserId()));
     }
 
     @Override
     public int getCount() {
-        return cartMapper.countQuantity(currentUserId(), currentShopId());
+        return cartMapper.countQuantity(currentUserId());
     }
 
     @Override
@@ -61,12 +58,12 @@ public class CartServiceImpl implements CartService {
         Long userId = currentUserId();
 
         // 商品必须存在（且属于模板店），否则 404；同时拿快照字段
-        Product product = productMapper.findById(dto.getProductId(), currentShopId());
+        Product product = productMapper.findById(dto.getProductId());
         if (product == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
 
-        Cart existing = cartMapper.findByUserAndProduct(userId, dto.getProductId(), currentShopId());
+        Cart existing = cartMapper.findByUserAndProduct(userId, dto.getProductId());
 
         // 库存校验：购物车已有数量 + 本次加购不能超过库存
         int stock = product.getStock() == null ? 0 : product.getStock();
@@ -87,7 +84,6 @@ public class CartServiceImpl implements CartService {
             cartMapper.update(existing);
         } else {
             Cart cart = Cart.builder()
-                    .shopId(currentShopId())
                     .userId(userId)
                     .productId(dto.getProductId())
                     .quantity(quantity)
@@ -108,13 +104,13 @@ public class CartServiceImpl implements CartService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "quantity 不能为空");
         }
         Long userId = currentUserId();
-        Cart existing = cartMapper.findByUserAndProduct(userId, productId, currentShopId());
+        Cart existing = cartMapper.findByUserAndProduct(userId, productId);
         if (existing == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不在购物车中");
         }
 
         // 库存校验：目标数量不能超过库存
-        Product product = productMapper.findById(productId, currentShopId());
+        Product product = productMapper.findById(productId);
         int stock = product == null ? 0 : (product.getStock() == null ? 0 : product.getStock());
         int target = Math.max(1, quantity);
         if (target > stock) {
@@ -127,27 +123,21 @@ public class CartServiceImpl implements CartService {
 
     @Override
     public void removeItem(Long productId) {
-        cartMapper.deleteByProduct(currentUserId(), productId, currentShopId());
+        cartMapper.deleteByProduct(currentUserId(), productId);
     }
 
     @Override
     public void clear(List<Long> productIds) {
         Long userId = currentUserId();
         if (productIds != null && !productIds.isEmpty()) {
-            cartMapper.deleteByProducts(userId, productIds, currentShopId());
+            cartMapper.deleteByProducts(userId, productIds);
         } else {
-            cartMapper.clear(userId, currentShopId());
+            cartMapper.clear(userId);
         }
     }
 
     private Long currentUserId() {
         return UserContext.getUserId();
-    }
-
-    // 当前店铺：C 端 user 令牌带 shopId（多租户隔离键），无 shopId 时回退模板店
-    private Long currentShopId() {
-        Long shopId = UserContext.getShopId();
-        return shopId == null ? TEMPLATE_SHOP_ID : shopId;
     }
 
     private List<CartVO> toVOList(List<Cart> carts) {

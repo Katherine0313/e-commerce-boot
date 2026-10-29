@@ -6,12 +6,12 @@
 
     <!-- 批量插入售后明细（快照字段由 service 从订单项复制） -->
     <insert id="insertBatch">
-        INSERT INTO after_sale_items (shop_id, after_sale_id, order_item_id, product_id, product_name, image,
+        INSERT INTO after_sale_items (after_sale_id, order_item_id, product_id, product_name, image,
                                       sales_price, quantity, refund_amount, insurance_detail, insurance_fee,
                                       is_deleted, created_at, updated_at)
         VALUES
         <foreach collection="items" item="item" separator=",">
-            (#{item.shopId}, #{item.afterSaleId}, #{item.orderItemId}, #{item.productId}, #{item.productName}, #{item.image},
+            (#{item.afterSaleId}, #{item.orderItemId}, #{item.productId}, #{item.productName}, #{item.image},
              #{item.salesPrice}, #{item.quantity}, #{item.refundAmount}, #{item.insuranceDetail}, #{item.insuranceFee},
              0, #{item.createdAt}, #{item.updatedAt})
         </foreach>
@@ -19,10 +19,10 @@
 
     <!-- 查某售后单的明细 -->
     <select id="listByAfterSaleId" resultType="ecommerce.aftersale.entity.AfterSaleItem">
-        SELECT id, shop_id, after_sale_id, order_item_id, product_id, product_name, image,
+        SELECT id, after_sale_id, order_item_id, product_id, product_name, image,
                sales_price, quantity, refund_amount, insurance_detail, insurance_fee, is_deleted, created_at, updated_at
         FROM after_sale_items
-        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId} AND is_deleted = 0
+        WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
         ORDER BY id ASC
     </select>
 
@@ -30,7 +30,7 @@
     <update id="softDelete">
         UPDATE after_sale_items
         SET is_deleted = 1, updated_at = #{now}
-        WHERE after_sale_id = #{afterSaleId} AND shop_id = #{shopId}
+        WHERE after_sale_id = #{afterSaleId}
     </update>
 
 </mapper>

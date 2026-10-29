@@ -132,8 +132,6 @@ public OrderVO createOrder(CreateOrderDTO dto) {
 
 ```java
 private OrderVO doCreateOrder(CreateOrderDTO dto, Long userId) {
-    Long shopId = TEMPLATE_SHOP_ID;
-
     // 逐个查商品，校验库存，组装明细，算总额（略，与原 createOrder 一致）
     // ...
     // 扣库存（乐观锁 stock >= quantity 防超卖）

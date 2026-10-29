@@ -18,7 +18,6 @@ import java.time.LocalDateTime;
 @Builder
 public class Product {
     private Long id;
-    private Long shopId;
     private Long categoryId;
     private Long tagId;
     private String name;

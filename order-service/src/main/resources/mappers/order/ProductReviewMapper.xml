@@ -6,18 +6,18 @@
 
     <!-- 插入评价：created_at 由 Java 传参（不用 NOW()，避免数据库时区差 8 小时），status/is_deleted 默认 1/0 -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO product_reviews (shop_id, order_id, user_id, product_id, product_name, product_image,
+        INSERT INTO product_reviews (order_id, user_id, product_id, product_name, product_image,
                                      rating, tag, content, images, status, is_deleted, created_at)
-        VALUES (#{shopId}, #{orderId}, #{userId}, #{productId}, #{productName}, #{productImage},
+        VALUES (#{orderId}, #{userId}, #{productId}, #{productName}, #{productImage},
                 #{rating}, #{tag}, #{content}, #{images}, 1, 0, #{createdAt})
     </insert>
 
     <!-- 查某订单的评价（不含软删除），用于「是否已评价」标记与防重复提交 -->
     <select id="findByOrderId" resultType="ecommerce.order.entity.ProductReview">
-        SELECT id, shop_id, order_id, user_id, product_id, product_name, product_image,
+        SELECT id, order_id, user_id, product_id, product_name, product_image,
                rating, tag, content, images, status, is_deleted, created_at, updated_at
         FROM product_reviews
-        WHERE order_id = #{orderId} AND shop_id = #{shopId} AND is_deleted = 0
+        WHERE order_id = #{orderId} AND is_deleted = 0
     </select>
 
 </mapper>

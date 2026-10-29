@@ -15,8 +15,8 @@ public interface AfterSaleItemMapper {
     int insertBatch(@Param("items") List<AfterSaleItem> items);
 
     // 查某售后单的明细（不含软删除）
-    List<AfterSaleItem> listByAfterSaleId(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId);
+    List<AfterSaleItem> listByAfterSaleId(@Param("afterSaleId") Long afterSaleId);
 
     // 软删除某售后单的明细
-    int softDelete(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId, @Param("now") LocalDateTime now);
+    int softDelete(@Param("afterSaleId") Long afterSaleId, @Param("now") LocalDateTime now);
 }

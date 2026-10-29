@@ -13,8 +13,7 @@ import java.util.Map;
  * WebSocket 握手鉴权拦截器。
  * <p>
  * 浏览器 new WebSocket 不能带自定义 header，token 走 query 参数 `?token=xxx`；
- * 握手阶段解析并校验 admin 令牌，把 shopId 存进 attributes 供后续按店铺分组。
- * 校验失败返回 false 拒绝握手，前端收到连接错误后按需重新登录。
+ * 握手阶段解析并校验 admin 令牌。校验失败返回 false 拒绝握手，前端收到连接错误后按需重新登录。
  */
 public class AuthHandshakeInterceptor implements HandshakeInterceptor {
 
@@ -34,15 +33,7 @@ public class AuthHandshakeInterceptor implements HandshakeInterceptor {
         try {
             Claims claims = jwtUtil.parseToken(token);
             // 只允许后台管理员连接
-            if (!JwtUtil.TYPE_ADMIN.equals(claims.get("type", String.class))) {
-                return false;
-            }
-            Object shopId = claims.get("shopId");
-            if (!(shopId instanceof Number)) {
-                return false;
-            }
-            attributes.put("shopId", ((Number) shopId).longValue());
-            return true;
+            return JwtUtil.TYPE_ADMIN.equals(claims.get("type", String.class));
         } catch (Exception e) {
             return false;
         }

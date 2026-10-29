@@ -29,32 +29,22 @@ public class AdminTagServiceImpl implements AdminTagService {
         this.tagMapper = tagMapper;
     }
 
-    private Long requireShopId() {
-        Long shopId = UserContext.getShopId();
-        if (shopId == null) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "无权访问：缺少店铺上下文");
-        }
-        return shopId;
-    }
-
     @Override
     public List<TagVO> list() {
-        return tagMapper.listTags(requireShopId()).stream()
+        return tagMapper.listTags().stream()
                 .map(this::toVO)
                 .collect(Collectors.toList());
     }
 
     @Override
     public TagVO create(AdminTagDTO dto) {
-        Long shopId = requireShopId();
         if (dto.getName() == null || dto.getName().isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "标签名称不能为空");
         }
-        checkCodeUnique(dto.getCode(), null, shopId);
+        checkCodeUnique(dto.getCode(), null);
         Long operatorId = UserContext.getUserId();
         LocalDateTime now = LocalDateTime.now();
         Tag t = new Tag();
-        t.setShopId(shopId);
         t.setName(dto.getName());
         t.setCode(dto.getCode());
         t.setType(dto.getType() == null ? "custom" : dto.getType());
@@ -66,19 +56,17 @@ public class AdminTagServiceImpl implements AdminTagService {
         t.setUpdateTime(now);
         t.setUpdatedBy(operatorId);
         tagMapper.insert(t);
-        return toVO(tagMapper.findById(t.getId(), shopId));
+        return toVO(tagMapper.findById(t.getId()));
     }
 
     @Override
     public TagVO update(Long id, AdminTagDTO dto) {
-        Long shopId = requireShopId();
-        if (tagMapper.findById(id, shopId) == null) {
+        if (tagMapper.findById(id) == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "标签不存在");
         }
-        checkCodeUnique(dto.getCode(), id, shopId);
+        checkCodeUnique(dto.getCode(), id);
         Tag t = new Tag();
         t.setId(id);
-        t.setShopId(shopId);
         t.setName(dto.getName());
         t.setCode(dto.getCode());
         t.setType(dto.getType());
@@ -88,12 +76,12 @@ public class AdminTagServiceImpl implements AdminTagService {
         t.setUpdateTime(LocalDateTime.now());
         t.setUpdatedBy(UserContext.getUserId());
         tagMapper.update(t);
-        return toVO(tagMapper.findById(id, shopId));
+        return toVO(tagMapper.findById(id));
     }
 
     @Override
     public void delete(Long id) {
-        int rows = tagMapper.delete(id, requireShopId());
+        int rows = tagMapper.delete(id);
         if (rows == 0) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "标签不存在");
         }
@@ -101,52 +89,48 @@ public class AdminTagServiceImpl implements AdminTagService {
 
     @Override
     public List<Product> listTagProducts(Long tagId) {
-        Long shopId = requireShopId();
-        if (tagMapper.findById(tagId, shopId) == null) {
+        if (tagMapper.findById(tagId) == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "标签不存在");
         }
-        return tagMapper.listProductsByTag(tagId, shopId);
+        return tagMapper.listProductsByTag(tagId);
     }
 
     @Override
     public void bindProductsToTag(Long tagId, List<Long> productIds) {
-        Long shopId = requireShopId();
-        if (tagMapper.findById(tagId, shopId) == null) {
+        if (tagMapper.findById(tagId) == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "标签不存在");
         }
         if (productIds == null || productIds.isEmpty()) {
             return;
         }
-        tagMapper.bindProductsToTag(tagId, productIds, LocalDateTime.now(), shopId);
-        tagMapper.refreshProductCounts(shopId);
+        tagMapper.bindProductsToTag(tagId, productIds, LocalDateTime.now());
+        tagMapper.refreshProductCounts();
     }
 
     @Override
     public void unbindProductTag(Long productId, Long tagId) {
-        Long shopId = requireShopId();
-        tagMapper.unbindProductTag(productId, tagId, LocalDateTime.now(), shopId);
-        tagMapper.refreshProductCounts(shopId);
+        tagMapper.unbindProductTag(productId, tagId, LocalDateTime.now());
+        tagMapper.refreshProductCounts();
     }
 
     @Override
     public void unbindTagProducts(Long tagId, List<Long> productIds) {
-        Long shopId = requireShopId();
-        if (tagMapper.findById(tagId, shopId) == null) {
+        if (tagMapper.findById(tagId) == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "标签不存在");
         }
         if (productIds == null || productIds.isEmpty()) {
             return;
         }
-        tagMapper.unbindTagProducts(tagId, productIds, LocalDateTime.now(), shopId);
-        tagMapper.refreshProductCounts(shopId);
+        tagMapper.unbindTagProducts(tagId, productIds, LocalDateTime.now());
+        tagMapper.refreshProductCounts();
     }
 
     /** code 唯一校验：排除当前标签自身（编辑时 code 不变不误报） */
-    private void checkCodeUnique(String code, Long excludeId, Long shopId) {
+    private void checkCodeUnique(String code, Long excludeId) {
         if (code == null || code.isBlank()) {
             return;
         }
-        Tag existing = tagMapper.findByCode(code, shopId);
+        Tag existing = tagMapper.findByCode(code);
         if (existing != null && !existing.getId().equals(excludeId)) {
             throw new BusinessException(HttpStatus.CONFLICT, "标签编码已存在");
         }

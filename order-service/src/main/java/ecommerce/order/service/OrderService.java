@@ -9,7 +9,7 @@ import java.util.List;
 /**
  * 订单 Service。
  * <p>
- * 当前登录用户从 UserContext.getUserId() 取，店铺固定模板店（shopId=1）。
+ * 当前登录用户从 UserContext.getUserId() 取（单店模式）。
  * 状态机流转规则见 OrderStatusEnum。
  */
 public interface OrderService {

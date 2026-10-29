@@ -14,12 +14,12 @@ public interface AfterSaleOnlyRefundMapper {
     int insertPlaceholder(AfterSaleOnlyRefund onlyRefund);
 
     // 按售后单查子表（不含软删除）
-    AfterSaleOnlyRefund findByAfterSaleId(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId);
+    AfterSaleOnlyRefund findByAfterSaleId(@Param("afterSaleId") Long afterSaleId);
 
     // 后台审核：更新指定时间戳列（列名由 STATUS_COLUMN_MAP 白名单保证）
-    int updateTimestamp(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId,
+    int updateTimestamp(@Param("afterSaleId") Long afterSaleId,
                         @Param("column") String column, @Param("now") LocalDateTime now);
 
     // 软删除子表
-    int softDelete(@Param("afterSaleId") Long afterSaleId, @Param("shopId") Long shopId, @Param("now") LocalDateTime now);
+    int softDelete(@Param("afterSaleId") Long afterSaleId, @Param("now") LocalDateTime now);
 }

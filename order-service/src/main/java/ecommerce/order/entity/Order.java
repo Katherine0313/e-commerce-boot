@@ -19,7 +19,6 @@ import java.time.LocalDateTime;
 @AllArgsConstructor
 public class Order {
     private Long id;
-    private Long shopId;
     private Long userId;
     private String orderNo;
     private Integer isDeleted;

@@ -26,17 +26,11 @@ import java.util.Objects;
 import java.util.stream.Collectors;
 
 /**
- * 商品浏览 Service。
- * <p>
- * 小程序首页的商品来自模板店（shopId=1）。多租户沙箱（按 token 解析 shopId）后续接入，
- * 届时把 TEMPLATE_SHOP_ID 换成从上下文取真实 shopId 即可，mapper 查询已按 shopId 参数化。
+ * 商品浏览 Service（单店模式，不再区分店铺）。
  */
 @Slf4j
 @Service
 public class ProductServiceImpl implements ProductService {
-
-    /** 模板店（杰米小店）：小程序首页展示的数据源，多租户沙箱接入前固定为 1 */
-    private static final Long TEMPLATE_SHOP_ID = 1L;
 
     /** 一级父分类 id 索引缓存 key，value 为 [父id...] 数组 */
     private static final String CATEGORY_PARENT_IDS_KEY = "category:parent:ids";
@@ -63,7 +57,7 @@ public class ProductServiceImpl implements ProductService {
     // 获取上架的全量商品：仅供推荐兜底用，不缓存（前端分类页已改懒加载，不再拉全量）
     @Override
     public List<ProductVO> listProducts() {
-        return productMapper.listOnSale(TEMPLATE_SHOP_ID).stream()
+        return productMapper.listOnSale().stream()
                 .map(this::toVO)
                 .toList();
     }
@@ -71,7 +65,7 @@ public class ProductServiceImpl implements ProductService {
     // 按一级分类（父类）查上架商品（不缓存）
     @Override
     public List<ProductVO> listProductsByCategory(Long categoryId) {
-        return productMapper.listOnSaleByCategory(categoryId, TEMPLATE_SHOP_ID).stream()
+        return productMapper.listOnSaleByCategory(categoryId).stream()
                 .map(this::toVO)
                 .toList();
     }
@@ -79,7 +73,7 @@ public class ProductServiceImpl implements ProductService {
     // 按关键词搜索上架商品（商品名/副标题/品牌模糊匹配）
     @Override
     public List<ProductVO> searchProducts(String keyword) {
-        return productMapper.searchOnSale(keyword, TEMPLATE_SHOP_ID).stream()
+        return productMapper.searchOnSale(keyword).stream()
                 .map(this::toVO)
                 .toList();
     }
@@ -89,14 +83,14 @@ public class ProductServiceImpl implements ProductService {
     public List<ProductVO> listRandomProducts(int limit, List<Long> excludeIds) {
         // 兜住异常入参，避免 LIMIT 负数/过大
         int size = Math.max(1, Math.min(limit, 50));
-        return productMapper.listRandomOnSale(TEMPLATE_SHOP_ID, size, excludeIds).stream()
+        return productMapper.listRandomOnSale(size, excludeIds).stream()
                 .map(this::toVO)
                 .toList();
     }
 
     @Override
     public ProductVO getProduct(Long id) {
-        Product product = productMapper.findById(id, TEMPLATE_SHOP_ID);
+        Product product = productMapper.findById(id);
         if (product == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
@@ -108,7 +102,7 @@ public class ProductServiceImpl implements ProductService {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        return productMapper.listOnSaleByIds(ids, TEMPLATE_SHOP_ID).stream()
+        return productMapper.listOnSaleByIds(ids).stream()
                 .map(this::toVO)
                 .toList();
     }
@@ -139,14 +133,14 @@ public class ProductServiceImpl implements ProductService {
         } catch (RuntimeException e) {
             // 连接超时/拒绝、序列化失败等都回源查库，保证首页和分类页仍可用
             log.warn("分类缓存不可用，降级直接查库", e);
-            return buildTree(categoryMapper.listCategories(TEMPLATE_SHOP_ID));
+            return buildTree(categoryMapper.listCategories());
         }
     }
 
     /** 索引/父分类树缺失时全量重建：写 ids + 每棵父分类树 */
     private List<CategoryTreeVO> rebuildCategoryCache() {
         log.info("部分缓存缺失，现在全部重建：");
-        List<Category> categories = categoryMapper.listCategories(TEMPLATE_SHOP_ID);
+        List<Category> categories = categoryMapper.listCategories();
         List<CategoryTreeVO> tree = buildTree(categories);
         List<Long> parentIds = tree.stream().map(CategoryTreeVO::getId).collect(Collectors.toList());
         stringRedisTemplate.opsForValue().set(CATEGORY_PARENT_IDS_KEY, toJson(parentIds), CACHE_TTL);
@@ -214,7 +208,7 @@ public class ProductServiceImpl implements ProductService {
 
     @Override
     public List<TagVO> listTags() {
-        return tagMapper.listTags(TEMPLATE_SHOP_ID).stream()
+        return tagMapper.listTags().stream()
                 .map(this::toVO)
                 .toList();
     }

@@ -22,14 +22,12 @@ public class OrderWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        Long shopId = (Long) session.getAttributes().get("shopId");
-        sessionRegistry.add(shopId, session);
+        sessionRegistry.add(session);
     }
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        Long shopId = (Long) session.getAttributes().get("shopId");
-        sessionRegistry.remove(shopId, session);
+        sessionRegistry.remove(session);
     }
 
     /** 心跳：前端每 25 秒发一次 {"type":"ping"}，回 pong 防止网关/中间设备因空闲断开 */
