@@ -24,6 +24,12 @@ public interface ProductService {
     List<ProductVO> searchProducts(String keyword);
 
     /**
+     * 随机取上架商品：首页下拉刷新「换一批」用。excludeIds 排除当前已展示的商品，
+     * 避免刷新后和上一批大量重复；排除后不足则返回实际数量。
+     */
+    List<ProductVO> listRandomProducts(int limit, List<Long> excludeIds);
+
+    /**
      * 商品详情；商品不存在时抛 404
      */
     ProductVO getProduct(Long id);

@@ -43,6 +43,13 @@ public class ProductController {
                 : productService.listProductsByCategory(categoryId));
     }
 
+    @Operation(summary = "随机商品（首页下拉刷新换一批，excludeIds 排除当前已展示的）")
+    @GetMapping("/products/random")
+    public Result<List<ProductVO>> randomProducts(@RequestParam(defaultValue = "10") Integer limit,
+                                                  @RequestParam(required = false) List<Long> excludeIds) {
+        return Result.success(productService.listRandomProducts(limit, excludeIds));
+    }
+
     @Operation(summary = "商品详情")
     @GetMapping("/products/{id}")
     public Result<ProductVO> getProduct(@PathVariable Long id) {

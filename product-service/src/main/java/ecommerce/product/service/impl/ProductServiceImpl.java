@@ -84,6 +84,16 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
     }
 
+    // 随机取上架商品：首页下拉刷新换一批（排除当前已展示的 id）
+    @Override
+    public List<ProductVO> listRandomProducts(int limit, List<Long> excludeIds) {
+        // 兜住异常入参，避免 LIMIT 负数/过大
+        int size = Math.max(1, Math.min(limit, 50));
+        return productMapper.listRandomOnSale(TEMPLATE_SHOP_ID, size, excludeIds).stream()
+                .map(this::toVO)
+                .toList();
+    }
+
     @Override
     public ProductVO getProduct(Long id) {
         Product product = productMapper.findById(id, TEMPLATE_SHOP_ID);

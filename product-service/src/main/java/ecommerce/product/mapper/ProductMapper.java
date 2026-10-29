@@ -21,6 +21,10 @@ public interface ProductMapper {
     // 按关键词搜索上架商品：name/sub_title/brand 模糊匹配（不含 body/cost_price）
     List<Product> searchOnSale(@Param("keyword") String keyword, @Param("shopId") Long shopId);
 
+    // 随机取上架商品（首页下拉刷新「换一批」用）；excludeIds 排除当前已展示的，避免刷新后大量重复
+    List<Product> listRandomOnSale(@Param("shopId") Long shopId, @Param("limit") int limit,
+                                   @Param("excludeIds") List<Long> excludeIds);
+
     // ==================== 后台管理（/api/admin/**） ====================
 
     // 后台商品列表：含下架、含成本价与图文详情（编辑回填需要）；分页 + 可选关键词/分类筛选
