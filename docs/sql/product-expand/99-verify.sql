@@ -3,11 +3,11 @@
 -- =====================================================================
 SET NAMES utf8mb4;
 
-SELECT COUNT(*) AS top_count FROM categories WHERE parent_id IS NULL;            -- 期望 8
-SELECT COUNT(*) AS child_count FROM categories WHERE parent_id IS NOT NULL;      -- 期望 21
-SELECT COUNT(*) AS product_count FROM products;                                  -- 期望 300
+SELECT COUNT(*) AS top_count FROM categories WHERE parent_id IS NULL;            -- 期望 8（生产可能有额外空分类）
+SELECT COUNT(*) AS child_count FROM categories WHERE parent_id IS NOT NULL;      -- 期望 21（生产可能多一个）
+SELECT COUNT(*) AS product_count FROM products;                                  -- 期望 126
 
--- 每个叶子 14~15
+-- 每个叶子目标 6 个
 SELECT c.id, c.name, COUNT(p.id) AS cnt
 FROM categories c
 LEFT JOIN products p ON p.category_id = c.id AND p.listing_status = 1
@@ -15,14 +15,15 @@ WHERE c.parent_id IS NOT NULL
 GROUP BY c.id, c.name
 ORDER BY c.id;
 
--- 一级汇总：30/43/29/43/29/14/56/56
+-- 一级汇总
 SELECT COALESCE(c.parent_id, c.id) AS top_id, COUNT(*) AS cnt
 FROM products p JOIN categories c ON p.category_id = c.id
 GROUP BY top_id
 ORDER BY top_id;
 
--- 种子商品与 specs
-SELECT COUNT(*) AS seed_count FROM products WHERE id BETWEEN 51 AND 300 AND product_code LIKE 'SEED-%';
-SELECT COUNT(*) AS specs_null FROM products WHERE specs IS NULL;
-SELECT COUNT(*) AS legacy_specs FROM products WHERE id <= 50 AND specs IS NOT NULL;
+-- 种子商品、specs、名称唯一性
+SELECT COUNT(*) AS seed_count FROM products WHERE product_code LIKE 'SEED-%';     -- 期望 76
+SELECT COUNT(*) AS specs_null FROM products WHERE specs IS NULL;                  -- 期望 0
+SELECT COUNT(*) AS legacy_specs FROM products WHERE id <= 50 AND specs IS NOT NULL; -- 期望 50
+SELECT COUNT(*) AS total_names, COUNT(DISTINCT name) AS distinct_names FROM products;
 SELECT id, name, category_id, specs FROM products ORDER BY id LIMIT 3;

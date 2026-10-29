@@ -32,6 +32,9 @@ UPDATE categories SET sort_order = 1 WHERE id = 501;
 UPDATE categories SET sort_order = 2 WHERE id = 502;
 UPDATE categories SET sort_order = 1 WHERE id = 601;
 
+-- 首页热门推荐使用的重点二级分类（与本地一致）
+UPDATE categories SET recommend = 1 WHERE id IN (101, 102, 201, 301, 501, 601);
+
 -- 3. 新增二级：先父后子（INSERT IGNORE 保证重复执行不报错）
 INSERT IGNORE INTO categories (id, name, parent_id, sort_order, status, recommend, image)
 VALUES

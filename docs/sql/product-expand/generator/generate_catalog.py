@@ -1,17 +1,19 @@
 #!/usr/bin/env python3
-"""生成商品扩容 SQL 与图片（不直接写数据库）。
+"""生成商品种子 SQL 与唯一占位图（不直接写数据库）。
+
+目标：每个叶子分类补齐到 6 个商品（型号不重复），现有 50 个真实商品保留。
+新增商品 id 从 51 开始连续，图片 `/image/upload/{id}.webp`。
 
 产物：
-  docs/sql/product-expand/03-backfill-specs.sql   # 现有 50 个商品补 specs
-  docs/sql/product-expand/04-products-51-300.sql  # 250 个新商品
-  upload/image/upload/51.webp ~ 300.webp
-  upload/image/opt/upload/51.webp ~ 300.webp
+  docs/sql/product-expand/03a-remove-old-seed.sql
+  docs/sql/product-expand/03-backfill-specs.sql
+  docs/sql/product-expand/04-products-seed.sql
+  upload/image/upload/51.webp ...（新种子）
+  upload/image/opt/upload/51.webp ...
 
-运行（需 pymysql + Pillow，可用 recommender-python/.venv 的解释器）：
+运行（需 pymysql + Pillow，用 recommender-python/.venv 的解释器）：
   DB_USERNAME=e_commerce_db DB_PASSWORD=123456 \
-  python generate_catalog.py
-
-只读数据库，用于读取现有 50 个商品；所有写入都输出成 SQL 文件。
+  ../recommender-python/.venv/Scripts/python.exe generate_catalog.py
 """
 
 import json
@@ -41,53 +43,117 @@ DB = dict(
     cursorclass=pymysql.cursors.DictCursor,
 )
 
-# 叶子类目：id -> (价格下限, 价格上限, 品牌, 型号)
+# 每个叶子目标商品数（现有 50 个保留，不够的补到 6）
+TARGET_PER_LEAF = 6
+SEED_ID_START = 51
+
+# 叶子类目 -> (价格下限, 价格上限, [(品牌, 型号), ...])
 LEAVES = {
-    101: (5999, 12999, ["苹果"], ["iPhone 15", "iPhone 15 Pro", "iPhone 16", "iPhone 16 Pro", "iPhone 16 Pro Max"]),
-    102: (1999, 7999, ["华为", "小米", "OPPO", "vivo", "荣耀"], ["Mate 70", "小米15", "Find X8", "X200", "Magic7"]),
-    201: (6999, 15999, ["联想", "华硕", "戴尔", "惠普"], ["拯救者Y9000P", "ROG魔霸9", "游匣G16", "暗影精灵11"]),
-    202: (7999, 14999, ["联想", "戴尔", "惠普", "华为"], ["ThinkPad X1 Carbon", "Latitude 7455", "EliteBook 840", "MateBook B7"]),
-    203: (4999, 10999, ["苹果", "华为", "小米", "联想"], ["MacBook Air M3", "MateBook X Pro", "RedmiBook Pro 16", "小新Pro 14"]),
-    301: (2999, 8999, ["苹果"], ["iPad Air", "iPad Pro", "iPad mini", "iPad 11"]),
-    302: (1499, 4999, ["华为", "小米", "三星", "联想"], ["MatePad Pro", "平板7 Pro", "Tab S10", "拯救者Y700"]),
-    401: (899, 3999, ["索尼", "Bose", "苹果", "华为"], ["WH-1000XM5", "QC45", "AirPods Max", "FreeBuds Studio"]),
-    402: (299, 1999, ["苹果", "华为", "小米", "索尼"], ["AirPods Pro 2", "FreeBuds Pro 4", "Buds 5 Pro", "WF-1000XM5"]),
-    403: (299, 2999, ["索尼", "JBL", "华为", "小米"], ["SRS-XB33", "Charge 5", "Sound Joy", "Sound Pro"]),
-    501: (999, 3999, ["苹果", "华为", "小米", "OPPO"], ["Watch Series 10", "Watch 4 Pro", "Watch S4", "Watch X"]),
-    502: (499, 2999, ["华为", "佳明", "小米", "高驰"], ["Watch GT 5", "Forerunner 265", "Watch S4 Sport", "Pace 3"]),
-    601: (4999, 29999, ["索尼", "佳能", "尼康", "富士"], ["A7C II", "EOS R8", "Z6III", "X-T5"]),
-    701: (29, 499, ["苹果", "华为", "小米", "绿联"], ["MagSafe手机壳", "硅胶保护壳", "素皮手机壳", "防摔壳"]),
-    702: (49, 999, ["罗技", "联想", "绿联", "小米"], ["MX Master 3S", "USB-C扩展坞", "HDMI线", "无线鼠标"]),
-    703: (99, 1999, ["三星", "闪迪", "金士顿", "西部数据"], ["T7移动固态", "Extreme Pro SD卡", "U盘", "移动硬盘"]),
-    704: (39, 599, ["Anker", "小米", "绿联", "苹果"], ["65W氮化镓充电器", "移动电源3", "充电头", "数据线"]),
-    801: (199, 1999, ["小米", "华为", "苹果", "天猫精灵"], ["Sound Pro", "Sound X", "HomePod mini", "智能音箱"]),
-    802: (199, 2999, ["小米", "萤石", "华为", "360"], ["智能摄像头", "C6摄像头", "智选摄像头", "可视门铃"]),
-    803: (49, 999, ["小米", "Yeelight", "飞利浦", "欧普"], ["米家台灯", "吸顶灯", "Hue智能灯", "智能灯泡"]),
-    804: (999, 4999, ["石头", "科沃斯", "小米", "追觅"], ["G20扫拖机器人", "T30扫地机", "扫拖机器人", "X40扫地机"]),
-}
-
-# 新商品 id 段（每个叶子的新增数量与 04 方案一致）
-RANGES = {
-    101: (51, 61), 102: (62, 70), 201: (71, 81), 202: (82, 91), 203: (92, 101),
-    301: (102, 112), 302: (113, 123), 401: (124, 134), 402: (135, 145), 403: (146, 156),
-    501: (157, 167), 502: (168, 177), 601: (178, 188),
-    701: (189, 202), 702: (203, 216), 703: (217, 230), 704: (231, 244),
-    801: (245, 258), 802: (259, 272), 803: (273, 286), 804: (287, 300),
-}
-
-# 新商品图片代表图（复用现有 1~50 中同品类图）
-REP_IMAGE = {
-    101: 8, 102: 3, 201: 35, 202: 10, 203: 15, 301: 14, 302: 44,
-    401: 19, 402: 18, 403: 21, 501: 47, 502: 48, 601: 50,
-    701: 7, 702: 9, 703: 36, 704: 37,
-    801: 21, 802: 45, 803: 46, 804: 49,
-}
-
-VARIANTS = ["标准版", "增强版", "Plus版", "Ultra版", "2025款", "尊享版"]
-
-CHIP = {
-    "苹果": "A18 Pro", "华为": "麒麟9010", "小米": "骁龙8 Gen3",
-    "OPPO": "天玑9400", "vivo": "天玑9400", "荣耀": "骁龙8 Gen3",
+    101: (5999, 12999, [
+        ("苹果", "iPhone 15"), ("苹果", "iPhone 15 Pro"), ("苹果", "iPhone 15 Pro Max"),
+        ("苹果", "iPhone 16"), ("苹果", "iPhone 16 Pro"), ("苹果", "iPhone 16 Pro Max"),
+        ("苹果", "iPhone 14"), ("苹果", "iPhone 14 Pro"), ("苹果", "iPhone 13"), ("苹果", "iPhone SE 3"),
+    ]),
+    102: (1999, 7999, [
+        ("华为", "Mate 70"), ("华为", "Mate 70 Pro"), ("华为", "Pura 70"), ("华为", "Pura 70 Pro"),
+        ("小米", "15 Ultra"), ("小米", "红米K80 Pro"), ("OPPO", "Find X8"), ("vivo", "X200 Pro"),
+        ("荣耀", "Magic7 Pro"), ("一加", "13"),
+    ]),
+    201: (6999, 15999, [
+        ("联想", "拯救者Y9000P"), ("联想", "拯救者Y7000P"), ("华硕", "ROG魔霸9"), ("华硕", "ROG枪神8"),
+        ("华硕", "天选5 Pro"), ("戴尔", "游匣G16"), ("惠普", "暗影精灵10"), ("惠普", "暗影精灵11"),
+        ("宏碁", "掠夺者擎Neo"), ("雷神", "ZERO"),
+    ]),
+    202: (7999, 14999, [
+        ("苹果", "MacBook Pro 14"), ("苹果", "MacBook Pro 16"), ("联想", "ThinkPad X1 Carbon"),
+        ("联想", "ThinkPad T14p"), ("戴尔", "Latitude 7455"), ("戴尔", "灵越14 Plus"),
+        ("惠普", "EliteBook 840"), ("惠普", "战66七代"), ("华为", "MateBook B7"), ("联想", "昭阳X7"),
+    ]),
+    203: (4999, 10999, [
+        ("苹果", "MacBook Air 15"), ("苹果", "MacBook Air M3"), ("华为", "MateBook X Pro"),
+        ("小米", "RedmiBook Pro 16"), ("联想", "小新Pro 14"), ("联想", "ThinkBook 14+"),
+        ("华硕", "无畏Pro15"), ("惠普", "星Book Pro 14"), ("机械革命", "无界14"), ("荣耀", "MagicBook Art 14"),
+    ]),
+    301: (2999, 8999, [
+        ("苹果", "iPad Air"), ("苹果", "iPad Pro 12.9"), ("苹果", "iPad 10th Gen"), ("苹果", "iPad mini 7"),
+        ("苹果", "iPad Pro 11 M4"), ("苹果", "iPad Air M2"), ("苹果", "iPad 9"), ("苹果", "iPad mini 6"),
+        ("苹果", "iPad Pro 13 M4"), ("苹果", "iPad 10.9"),
+    ]),
+    302: (1499, 4999, [
+        ("联想", "Tab P12"), ("联想", "Y700 2024"), ("华为", "MatePad Pro"), ("华为", "MatePad 11.5"),
+        ("小米", "平板7 Pro"), ("小米", "平板6S Pro"), ("三星", "Tab S10+"), ("OPPO", "Pad3 Pro"),
+        ("vivo", "Pad3 Pro"), ("荣耀", "平板V9"),
+    ]),
+    401: (899, 3999, [
+        ("索尼", "WH-1000XM5"), ("索尼", "WH-1000XM4"), ("索尼", "WH-CH720N"), ("苹果", "AirPods Max"),
+        ("Bose", "QC45"), ("Bose", "QC Ultra"), ("华为", "FreeBuds Studio"), ("漫步者", "STAX SPIRIT S5"),
+        ("森海塞尔", "Momentum 4"), ("铁三角", "ATH-M50xBT2"),
+    ]),
+    402: (299, 1999, [
+        ("苹果", "AirPods Pro"), ("苹果", "AirPods 4"), ("索尼", "LinkBuds S"), ("索尼", "WF-1000XM5"),
+        ("索尼", "WF-C700N"), ("华为", "FreeBuds Pro 4"), ("小米", "Buds 5 Pro"), ("OPPO", "Enco X3"),
+        ("vivo", "TWS 4 Pro"), ("荣耀", "Earbuds 3 Pro"),
+    ]),
+    403: (299, 2999, [
+        ("索尼", "SRS-XB33"), ("索尼", "SRS-XG300"), ("哈曼卡顿", "Aura Studio 4"), ("JBL", "Charge 5"),
+        ("JBL", "Flip 6"), ("Bose", "SoundLink Flex"), ("华为", "Sound Joy"), ("小米", "Sound Pro"),
+        ("Marshall", "Emberton II"), ("B&O", "Beosound A1"),
+    ]),
+    501: (999, 3999, [
+        ("苹果", "Watch Series 9"), ("苹果", "Watch Series 10"), ("苹果", "Watch Ultra 2"), ("华为", "Watch 4 Pro"),
+        ("华为", "Watch GT 5"), ("三星", "Galaxy Watch7"), ("小米", "Watch S3"), ("OPPO", "Watch X"),
+        ("vivo", "Watch 3"), ("荣耀", "Watch 5"),
+    ]),
+    502: (499, 2999, [
+        ("苹果", "Watch Ultra"), ("华为", "Watch Ultimate"), ("华为", "Watch Fit 3"), ("华为", "Watch GT 4"),
+        ("小米", "Watch S4 Sport"), ("佳明", "Forerunner 265"), ("佳明", "Forerunner 965"),
+        ("佳明", "Instinct 2"), ("高驰", "Pace 3"), ("高驰", "Apex 2 Pro"),
+    ]),
+    601: (4999, 29999, [
+        ("尼康", "Z8"), ("尼康", "Zf"), ("尼康", "Z6III"), ("索尼", "A7C II"), ("索尼", "A7 IV"),
+        ("索尼", "A6700"), ("佳能", "EOS R8"), ("佳能", "EOS R6 II"), ("佳能", "EOS R50"),
+        ("富士", "X-T5"), ("富士", "X-S20"), ("富士", "X100VI"),
+    ]),
+    701: (29, 499, [
+        ("苹果", "MagSafe手机壳"), ("华为", "硅胶保护壳"), ("华为", "素皮手机壳"), ("小米", "防摔壳"),
+        ("小米", "透明壳"), ("绿联", "磁吸壳"), ("绿联", "皮革壳"), ("绿联", "支架壳"),
+        ("绿联", "液态硅胶壳"), ("绿联", "磨砂壳"),
+    ]),
+    702: (49, 999, [
+        ("罗技", "MX Master 3S"), ("罗技", "无线鼠标"), ("罗技", "机械键盘"), ("罗技", "蓝牙键盘"),
+        ("联想", "USB-C扩展坞"), ("联想", "USB Hub"), ("联想", "笔记本支架"), ("绿联", "HDMI线"),
+        ("绿联", "鼠标垫"), ("小米", "摄像头"),
+    ]),
+    703: (99, 1999, [
+        ("三星", "T7移动固态"), ("三星", "PSSD"), ("闪迪", "Extreme Pro SD卡"), ("闪迪", "TF卡"),
+        ("金士顿", "U盘"), ("金士顿", "读卡器"), ("西部数据", "移动硬盘"), ("西部数据", "硬盘盒"),
+        ("英睿达", "NVMe SSD"), ("闪迪", "内存卡"),
+    ]),
+    704: (39, 599, [
+        ("Anker", "65W氮化镓充电器"), ("Anker", "多口充电器"), ("Anker", "车载充电器"),
+        ("小米", "移动电源3"), ("小米", "充电宝"), ("小米", "磁吸充电宝"), ("小米", "充电头"),
+        ("绿联", "数据线"), ("绿联", "快充线"), ("苹果", "无线充电器"),
+    ]),
+    801: (199, 1999, [
+        ("小米", "Sound Pro"), ("小米", "小爱音箱Pro"), ("华为", "Sound X"), ("华为", "Sound Joy"),
+        ("苹果", "HomePod mini"), ("天猫精灵", "X6"), ("百度", "小度智能音箱"), ("漫步者", "花再"),
+        ("JBL", "音乐金砖"), ("索尼", "智能音箱"),
+    ]),
+    802: (199, 2999, [
+        ("小米", "智能摄像头"), ("小米", "室外摄像头"), ("小米", "门磁传感器"), ("小米", "人体传感器"),
+        ("萤石", "C6摄像头"), ("萤石", "云台摄像头"), ("萤石", "智能猫眼"), ("萤石", "报警器"),
+        ("华为", "智选摄像头"), ("360", "可视门铃"),
+    ]),
+    803: (49, 999, [
+        ("小米", "米家台灯"), ("小米", "智能灯泡"), ("小米", "智能灯带"), ("小米", "智能开关"),
+        ("Yeelight", "吸顶灯"), ("Yeelight", "氛围灯"), ("飞利浦", "Hue智能灯"), ("飞利浦", "筒灯"),
+        ("欧普", "射灯"), ("欧普", "护眼台灯"),
+    ]),
+    804: (999, 4999, [
+        ("石头", "G20扫拖机器人"), ("石头", "P10"), ("科沃斯", "T30扫地机"), ("科沃斯", "T20"),
+        ("小米", "扫拖机器人"), ("小米", "扫拖2"), ("追觅", "X40扫地机"), ("追觅", "S30"),
+        ("云鲸", "J4"), ("添可", "芙万"),
+    ]),
 }
 
 
@@ -96,11 +162,10 @@ def spec(name, value):
 
 
 def build_specs(category_id, brand, price, rng):
-    """按叶子类目生成 5~7 个参数，保证类目语义。"""
     if category_id in (101, 102):
         return [
             spec("屏幕尺寸", rng.choice(["6.1英寸", "6.7英寸", "6.8英寸"])),
-            spec("处理器", CHIP.get(brand, "骁龙8 Gen3")),
+            spec("处理器", {"苹果": "A18 Pro", "华为": "麒麟9010", "小米": "骁龙8 Gen3"}.get(brand, "骁龙8 Gen3")),
             spec("运行内存", rng.choice(["8GB", "12GB", "16GB"])),
             spec("机身存储", rng.choice(["128GB", "256GB", "512GB", "1TB"])),
             spec("后置摄像头", rng.choice(["4800万像素", "5000万像素", "1亿像素"])),
@@ -108,14 +173,11 @@ def build_specs(category_id, brand, price, rng):
             spec("网络", "5G"),
         ]
     if category_id in (201, 202, 203):
-        gpu = "RTX 4060" if category_id == 201 else "核显"
-        if category_id == 201:
-            gpu = rng.choice(["RTX 4060", "RTX 4070", "RTX 4080"])
-        cpu = rng.choice(["i7-14650HX", "i9-14900HX", "Ryzen 9 8945HS", "Ultra 7 155H", "M3 Pro"])
-        weight = rng.choice(["1.25kg", "1.45kg", "1.65kg", "2.2kg", "2.6kg"]) if category_id != 201 else rng.choice(["2.2kg", "2.4kg", "2.6kg"])
+        gpu = rng.choice(["RTX 4060", "RTX 4070", "RTX 4080"]) if category_id == 201 else "核显"
+        weight = rng.choice(["2.2kg", "2.4kg", "2.6kg"]) if category_id == 201 else rng.choice(["1.25kg", "1.45kg", "1.65kg"])
         return [
             spec("屏幕尺寸", rng.choice(["14英寸", "15.6英寸", "16英寸"])),
-            spec("处理器", cpu),
+            spec("处理器", rng.choice(["i7-14650HX", "i9-14900HX", "Ryzen 9 8945HS", "Ultra 7 155H", "M3 Pro"])),
             spec("显卡", gpu),
             spec("内存", rng.choice(["16GB", "32GB", "64GB"])),
             spec("硬盘", rng.choice(["512GB SSD", "1TB SSD", "2TB SSD"])),
@@ -141,10 +203,8 @@ def build_specs(category_id, brand, price, rng):
         ]
     if category_id == 403:
         return [
-            spec("类型", "便携蓝牙音箱"),
-            spec("功率", rng.choice(["20W", "30W", "40W", "60W"])),
-            spec("蓝牙", "5.3"),
-            spec("防水", rng.choice(["IPX4", "IPX7", "IP67"])),
+            spec("类型", "便携蓝牙音箱"), spec("功率", rng.choice(["20W", "30W", "40W", "60W"])),
+            spec("蓝牙", "5.3"), spec("防水", rng.choice(["IPX4", "IPX7", "IP67"])),
             spec("续航", rng.choice(["12小时", "18小时", "24小时"])),
         ]
     if category_id in (501, 502):
@@ -152,8 +212,7 @@ def build_specs(category_id, brand, price, rng):
             spec("屏幕", rng.choice(["1.4英寸AMOLED", "1.5英寸AMOLED", "1.9英寸OLED"])),
             spec("续航", rng.choice(["2天", "7天", "14天", "30天"])),
             spec("防水", rng.choice(["5ATM", "IP68", "10ATM"])),
-            spec("健康监测", "心率/血氧/睡眠"),
-            spec("表壳材质", rng.choice(["铝合金", "不锈钢", "钛金属"])),
+            spec("健康监测", "心率/血氧/睡眠"), spec("表壳材质", rng.choice(["铝合金", "不锈钢", "钛金属"])),
         ]
     if category_id == 601:
         return [
@@ -161,8 +220,7 @@ def build_specs(category_id, brand, price, rng):
             spec("像素", rng.choice(["2420万", "3300万", "6100万"])),
             spec("视频", rng.choice(["4K 60p", "4K 120p", "6K 30p"])),
             spec("连拍", rng.choice(["10张/秒", "20张/秒", "30张/秒"])),
-            spec("防抖", "机身五轴防抖"),
-            spec("重量", rng.choice(["485g", "530g", "670g"])),
+            spec("防抖", "机身五轴防抖"), spec("重量", rng.choice(["485g", "530g", "670g"])),
         ]
     if category_id in (701, 702):
         return [
@@ -227,49 +285,88 @@ def specs_json(specs):
     return json.dumps(specs, ensure_ascii=False, separators=(",", ":"))
 
 
-def new_product(pid, category_id, index):
-    low, high, brands, models = LEAVES[category_id]
+def make_product(pid, category_id, brand, model, existing_names):
+    low, high, _ = LEAVES[category_id]
+    name = f"{brand}{model}"
+    if name in existing_names:
+        return None
     rng = random.Random(pid)
-    brand = brands[index % len(brands)]
-    model = models[index % len(models)]
-    variant = VARIANTS[index % len(VARIANTS)]
-    name = f"{brand}{model} {variant}"
     price = round(rng.uniform(low, high), 2)
     market = round(price * rng.uniform(1.02, 1.15), 2)
     cost = round(price * rng.uniform(0.85, 0.92), 2)
     specs = build_specs(category_id, brand, price, rng)
     highlight = " / ".join(s["value"] for s in specs[:2])
     return dict(
-        id=pid, category_id=category_id, tag_id=None, name=name,
+        id=pid, category_id=category_id, brand=brand, name=name,
         sub_title=highlight,
-        brand=brand, description=f"{name}，{highlight}，正品保障，支持七天无理由退换。",
-        image=f"/image/upload/{pid}.webp", body=None, sales_mode="spot",
-        listing_status=1, sales_price=price, market_price=market, cost_price=cost,
-        product_code=f"SEED-{pid}", stock=rng.randint(50, 500),
-        weight=None, volume=None, specs=specs_json(specs),
-        create_time="2026-10-01 10:00:00", update_time="2026-10-01 10:00:00",
+        description=f"{name}，{highlight}，正品保障，支持七天无理由退换。",
+        image=f"/image/upload/{pid}.webp", price=price, market=market, cost=cost,
+        stock=rng.randint(50, 500), specs=specs_json(specs), code=f"SEED-{pid}",
     )
 
 
-def generate_inserts():
+def generate(conn):
+    with conn.cursor() as cur:
+        cur.execute("SELECT id, name, brand, category_id, sales_price FROM products WHERE id <= 50 ORDER BY id")
+        existing = cur.fetchall()
+    existing_names = {r["name"] for r in existing}
+    existing_count = {}
+    for r in existing:
+        existing_count[r["category_id"]] = existing_count.get(r["category_id"], 0) + 1
+
     rows = []
-    for category_id, (start, end) in RANGES.items():
-        for i, pid in enumerate(range(start, end + 1)):
-            rows.append(new_product(pid, category_id, i))
+    pid = SEED_ID_START
+    for category_id, (low, high, pairs) in LEAVES.items():
+        need = max(0, TARGET_PER_LEAF - existing_count.get(category_id, 0))
+        used_models = set()
+        for brand, model in pairs:
+            if need <= 0:
+                break
+            # 型号已存在（现有商品的名称里包含该型号）或已生成，跳过，避免近似重复
+            if any(model in name for name in existing_names) or model in used_models:
+                continue
+            product = make_product(pid, category_id, brand, model, existing_names)
+            if product is None:
+                continue
+            rows.append(product)
+            existing_names.add(product["name"])
+            used_models.add(model)
+            pid += 1
+            need -= 1
+
+    # 现有 50 个补 specs（只补空值）
+    backfill = ["-- 现有 50 个商品补 specs（只补空值，重复执行不会覆盖人工修改）", "SET NAMES utf8mb4;", ""]
+    for r in existing:
+        category_id = r["category_id"] or 101
+        rng = random.Random(r["id"])
+        specs = build_specs(category_id, r["brand"] or "", float(r["sales_price"] or 0), rng)
+        backfill.append(
+            "UPDATE products SET specs = {} WHERE id = {} AND specs IS NULL;".format(
+                sql_str(specs_json(specs)), r["id"]
+            )
+        )
+
+    # 清理旧种子（先清引用，再删商品）
+    cleanup = [
+        "-- 删除旧的 51 开头种子商品（旧版有伪变体重复）；先清购物车/库存引用",
+        "SET NAMES utf8mb4;",
+        "DELETE FROM cart WHERE product_id BETWEEN 51 AND 300;",
+        "DELETE FROM stock WHERE product_id BETWEEN 51 AND 300;",
+        "DELETE FROM products WHERE id BETWEEN 51 AND 300 AND product_code LIKE 'SEED-%';",
+    ]
+
+    # 新商品 INSERT
     chunks = []
-    for start in range(0, len(rows), 50):
-        part = rows[start:start + 50]
+    for start in range(0, len(rows), 40):
+        part = rows[start:start + 40]
         values = []
         for r in part:
             values.append(
-                "({},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{},{})".format(
-                    r["id"], r["category_id"], sql_str(r["tag_id"]), sql_str(r["name"]),
-                    sql_str(r["sub_title"]), sql_str(r["brand"]), sql_str(r["description"]),
-                    sql_str(r["image"]), sql_str(r["body"]), sql_str(r["sales_mode"]),
-                    r["listing_status"], r["sales_price"], r["market_price"], r["cost_price"],
-                    sql_str(r["product_code"]), r["stock"], sql_str(r["weight"]),
-                    sql_str(r["volume"]), sql_str(r["specs"]), sql_str(r["create_time"]),
-                    sql_str(r["update_time"]),
+                "({},{},NULL,{},{},{},{},{},NULL,'spot',1,{},{},{},{},{},NULL,NULL,{},'2026-10-01 10:00:00','2026-10-01 10:00:00')".format(
+                    r["id"], r["category_id"], sql_str(r["name"]), sql_str(r["sub_title"]),
+                    sql_str(r["brand"]), sql_str(r["description"]), sql_str(r["image"]),
+                    r["price"], r["market"], r["cost"], sql_str(r["code"]), r["stock"],
+                    sql_str(r["specs"]),
                 )
             )
         chunks.append(
@@ -277,60 +374,46 @@ def generate_inserts():
             "sales_mode, listing_status, sales_price, market_price, cost_price, product_code, stock, weight, volume, "
             "specs, create_time, update_time) VALUES\n" + ",\n".join(values) + ";"
         )
-    return chunks
 
-
-def generate_backfill(conn):
-    with conn.cursor() as cur:
-        cur.execute("SELECT id, name, brand, category_id, sales_price FROM products WHERE id <= 50 ORDER BY id")
-        rows = cur.fetchall()
-    lines = ["-- 现有 50 个商品补 specs（只补空值，重复执行不会覆盖人工修改）", "SET NAMES utf8mb4;", ""]
-    for r in rows:
-        category_id = r["category_id"] or 101
-        rng = random.Random(r["id"])
-        specs = build_specs(category_id, r["brand"] or "", float(r["sales_price"] or 0), rng)
-        lines.append(
-            "UPDATE products SET specs = {} WHERE id = {} AND specs IS NULL;".format(
-                sql_str(specs_json(specs)), r["id"]
-            )
-        )
-    return "\n".join(lines) + "\n"
+    return backfill, cleanup, chunks, rows
 
 
 def load_font(size):
-    for path in ("C:/Windows/Fonts/arial.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
+    for path in ("C:/Windows/Fonts/msyh.ttc", "C:/Windows/Fonts/arial.ttf",
+                 "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"):
         if os.path.exists(path):
             return ImageFont.truetype(path, size)
     return ImageFont.load_default()
 
 
-def generate_images():
+def generate_images(rows):
     IMG_DIR.mkdir(parents=True, exist_ok=True)
     OPT_DIR.mkdir(parents=True, exist_ok=True)
-    font_big = load_font(120)
-    font_small = load_font(40)
-    missing = []
-    for category_id, (start, end) in RANGES.items():
-        rep = REP_IMAGE.get(category_id, 1)
-        src = IMG_DIR / f"{rep}.webp"
-        if not src.exists():
-            missing.append(str(src))
-            base = Image.new("RGB", (2048, 2048), (245, 245, 245))
-        else:
-            base = Image.open(src).convert("RGB")
-        for pid in range(start, end + 1):
-            img = base.copy()
-            draw = ImageDraw.Draw(img)
-            draw.rectangle([0, img.height - 260, img.width, img.height], fill=(0, 0, 0))
-            draw.text((60, img.height - 210), f"SEED-{pid}", font=font_big, fill=(255, 255, 255))
-            img.save(IMG_DIR / f"{pid}.webp", "WEBP", quality=85)
-            opt = img.resize((400, 400), Image.Resampling.LANCZOS)
-            opt_draw = ImageDraw.Draw(opt)
-            opt_draw.rectangle([0, opt.height - 60, opt.width, opt.height], fill=(0, 0, 0))
-            opt_draw.text((12, opt.height - 50), f"SEED-{pid}", font=font_small, fill=(255, 255, 255))
-            opt.save(OPT_DIR / f"{pid}.webp", "WEBP", quality=80)
-    if missing:
-        print("警告：以下代表图不存在，已用纯色占位：", missing)
+    # 清掉旧种子图（51~300），新商品会重新生成
+    for base in (IMG_DIR, OPT_DIR):
+        for i in range(51, 301):
+            p = base / f"{i}.webp"
+            if p.exists():
+                p.unlink()
+
+    font_big = load_font(72)
+    font_small = load_font(28)
+    for r in rows:
+        rng = random.Random(r["id"])
+        # 每个商品一个不同的底色，避免图片看起来重复
+        r0, g0, b0 = rng.randint(30, 200), rng.randint(30, 200), rng.randint(30, 200)
+        img = Image.new("RGB", (800, 800), (r0, g0, b0))
+        draw = ImageDraw.Draw(img)
+        # 底部深色信息区
+        draw.rectangle([0, 560, 800, 800], fill=(20, 20, 20))
+        draw.text((40, 600), r["brand"], font=font_big, fill=(255, 255, 255))
+        # 型号行去掉开头的品牌，避免图上「苹果 / 苹果iPhone」重复
+        model_text = r["name"][len(r["brand"]):] if r["name"].startswith(r["brand"]) else r["name"]
+        draw.text((40, 690), model_text, font=font_small, fill=(235, 235, 235))
+        draw.text((40, 735), f"SEED-{r['id']}", font=font_small, fill=(180, 180, 180))
+        img.save(IMG_DIR / f"{r['id']}.webp", "WEBP", quality=85)
+        opt = img.resize((400, 400), Image.Resampling.LANCZOS)
+        opt.save(OPT_DIR / f"{r['id']}.webp", "WEBP", quality=80)
 
 
 def main():
@@ -338,23 +421,19 @@ def main():
         sys.exit("请通过环境变量 DB_PASSWORD 提供数据库密码")
     conn = pymysql.connect(**DB)
     try:
-        backfill = generate_backfill(conn)
+        backfill, cleanup, chunks, rows = generate(conn)
     finally:
         conn.close()
 
-    (OUT_DIR / "03-backfill-specs.sql").write_text(backfill, encoding="utf-8")
-    inserts = generate_inserts()
-    (OUT_DIR / "04-products-51-300.sql").write_text(
-        "-- 250 个种子商品（id 51~300，product_code=SEED-xxx）\nSET NAMES utf8mb4;\n\n"
-        + "\n\n".join(inserts) + "\n",
+    (OUT_DIR / "03-backfill-specs.sql").write_text("\n".join(backfill) + "\n", encoding="utf-8")
+    (OUT_DIR / "03a-remove-old-seed.sql").write_text("\n".join(cleanup) + "\n", encoding="utf-8")
+    (OUT_DIR / "04-products-seed.sql").write_text(
+        "-- 按型号去重后的种子商品（现有一件型号只保留一件）；id 从 51 开始\nSET NAMES utf8mb4;\n\n"
+        + "\n\n".join(chunks) + "\n",
         encoding="utf-8",
     )
-    generate_images()
-    print("已生成：")
-    print(" ", OUT_DIR / "03-backfill-specs.sql")
-    print(" ", OUT_DIR / "04-products-51-300.sql")
-    print(" ", IMG_DIR / "51.webp ~ 300.webp")
-    print(" ", OPT_DIR / "51.webp ~ 300.webp")
+    generate_images(rows)
+    print(f"新种子商品 {len(rows)} 个，id {SEED_ID_START}~{SEED_ID_START + len(rows) - 1}")
 
 
 if __name__ == "__main__":

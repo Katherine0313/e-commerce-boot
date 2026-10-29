@@ -293,11 +293,11 @@ ecommerce
 ### 商品属性 / 分类扩容 / C 端分页（2026-10-29）
 - `products.specs`：JSON **有序数组** `[{"name":"屏幕","value":"6.1英寸"}]`；实体 `String`，VO/DTO 用 `List<SpecItemVO/DTO>`，`ProductSpecsCodec` 编解码；与 `description`（文案）、`body`（富文本）并列，不合并。
 - 分类重构为 **8 个一级 / 21 个二级**：id=4 改名「耳机音箱」；新增 7「数码配件」（701~704）、8「智能家居」（801~804）；`listOnSaleByCategory` 改为 `category_id IN (SELECT id ... id=? OR parent_id=?)`，一级/二级都能过滤。
-- 商品扩到 **300**：现有 50 个补 specs，新增 id 51~300（`SEED-{id}`，显式 id，图片 `{id}.webp`）；每个叶子 14~15 个；脚本在 `docs/sql/product-expand/`，生成器 `generator/generate_catalog.py`。
+- 商品整理为 **126 件**：现有 50 个保留并补 specs，新增 id 51~126（`SEED-{id}`，按型号去重，图片 `{id}.webp`）；每个叶子 6 个；旧版 51~300 的「标准版/增强版」伪变体通过 `03a-remove-old-seed.sql` 清理；脚本在 `docs/sql/product-expand/`，生成器 `generator/generate_catalog.py`。
 - 新接口 `GET /api/products/page?page=&pageSize=&categoryId=&keyword=&brand=&minPrice=&maxPrice=&sort=`，返回 `PageVO<ProductVO>`；pageSize clamp 60，sort 白名单（default/newest/price_asc/price_desc）；旧 `/api/products` 仍返回数组，仅分类过滤增强，兼容小程序/PC。
 - 后台 `listAdmin/countAdmin` 分类筛选也支持一级/二级；`AdminProductVO/DTO` 增加 specs（实际是驼峰，勿加 SnakeCase）。
 - 分类缓存新增 `CategoryCacheEvictor`，后台分类/商品写操作后清 `category:parent:*`。
-- 本地已执行数据脚本并验证：8/21/300、每叶子 14~15、specs 无空值、分页/筛选/排序/后台 specs 读写均通过。生产待发布。
+- 本地与生产均已执行数据脚本并验证：8/21/126、每叶子 6、商品名全唯一、specs 无空值、分页/筛选/排序/后台 specs 读写均通过。生产备份 `/www/backup/e_commerce_db_before_product_expand_2026-10-29_1935.sql`；生产额外有一个空的「家电 / 电冰箱」分类，用户自行删除。
 
 ### PC 商城 Web 端（ecommerce-mall，2026-10-29）
 - 独立前端 `D:\study\my-workspace\wechat-workspace\ecommerce-mall`：Vue 3 + Vite + Pinia + Router + Axios + Element Plus，SPA；替换原静态企业站。
