@@ -4,6 +4,7 @@ import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 后台商品新增/编辑请求体（/api/admin/products）。
@@ -45,4 +46,6 @@ public class AdminProductDTO {
     private BigDecimal weight;
     @Schema(description = "体积")
     private BigDecimal volume;
+    @Schema(description = "规格参数（有序键值对，非 SKU）")
+    private List<SpecItemDTO> specs;
 }

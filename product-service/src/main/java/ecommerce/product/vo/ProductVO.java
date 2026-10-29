@@ -7,6 +7,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
+import java.util.List;
 
 /**
  * 商品 VO（C 端浏览）。
@@ -52,4 +53,6 @@ public class ProductVO {
     private BigDecimal weight;
     @Schema(description = "体积")
     private BigDecimal volume;
+    @Schema(description = "规格参数（有序键值对，非 SKU）")
+    private List<SpecItemVO> specs;
 }

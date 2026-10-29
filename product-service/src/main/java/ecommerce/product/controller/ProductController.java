@@ -1,5 +1,6 @@
 package ecommerce.product.controller;
 
+import ecommerce.common.PageVO;
 import ecommerce.common.Result;
 import ecommerce.product.service.ProductService;
 import ecommerce.product.vo.CategoryTreeVO;
@@ -13,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 /**
@@ -55,6 +57,20 @@ public class ProductController {
     public Result<List<ProductVO>> hotProducts(@RequestParam(defaultValue = "8") Integer limit,
                                                @RequestParam(required = false) List<Long> excludeIds) {
         return Result.success(productService.listHotProducts(limit, excludeIds));
+    }
+
+    @Operation(summary = "商品分页列表（分类/关键词/品牌/价格区间/排序）")
+    @GetMapping("/products/page")
+    public Result<PageVO<ProductVO>> pageProducts(@RequestParam(defaultValue = "1") int page,
+                                                  @RequestParam(defaultValue = "12") int pageSize,
+                                                  @RequestParam(required = false) Long categoryId,
+                                                  @RequestParam(required = false) String keyword,
+                                                  @RequestParam(required = false) String brand,
+                                                  @RequestParam(required = false) BigDecimal minPrice,
+                                                  @RequestParam(required = false) BigDecimal maxPrice,
+                                                  @RequestParam(defaultValue = "default") String sort) {
+        return Result.success(productService.pageProducts(
+                page, pageSize, categoryId, keyword, brand, minPrice, maxPrice, sort));
     }
 
     @Operation(summary = "商品详情")

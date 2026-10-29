@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS `products` (
     `stock`          INT           NOT NULL DEFAULT 0      COMMENT '库存',
     `weight`         DECIMAL(10,3) DEFAULT NULL            COMMENT '重量',
     `volume`         DECIMAL(10,3) DEFAULT NULL            COMMENT '体积',
+    `specs`          JSON          DEFAULT NULL            COMMENT '规格参数(JSON数组，非SKU)',
     `create_time`    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
     `update_time`    DATETIME      DEFAULT NULL            COMMENT '更新时间',
     PRIMARY KEY (`id`),

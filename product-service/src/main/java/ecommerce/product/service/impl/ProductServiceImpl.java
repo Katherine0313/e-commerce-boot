@@ -1,5 +1,6 @@
 package ecommerce.product.service.impl;
 
+import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
 import ecommerce.product.entity.Category;
 import ecommerce.product.entity.Product;
@@ -8,6 +9,7 @@ import ecommerce.product.mapper.CategoryMapper;
 import ecommerce.product.mapper.ProductMapper;
 import ecommerce.product.mapper.TagMapper;
 import ecommerce.product.service.ProductService;
+import ecommerce.product.support.ProductSpecsCodec;
 import ecommerce.product.vo.CategoryTreeVO;
 import ecommerce.product.vo.ProductVO;
 import ecommerce.product.vo.TagVO;
@@ -17,6 +19,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
+import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -44,14 +47,17 @@ public class ProductServiceImpl implements ProductService {
     private final TagMapper tagMapper;
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
+    private final ProductSpecsCodec specsCodec;
 
     public ProductServiceImpl(ProductMapper productMapper, CategoryMapper categoryMapper, TagMapper tagMapper,
-                              StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper) {
+                              StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper,
+                              ProductSpecsCodec specsCodec) {
         this.productMapper = productMapper;
         this.categoryMapper = categoryMapper;
         this.tagMapper = tagMapper;
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
+        this.specsCodec = specsCodec;
     }
 
     // 获取上架的全量商品：仅供推荐兜底用，不缓存（前端分类页已改懒加载，不再拉全量）
@@ -76,6 +82,39 @@ public class ProductServiceImpl implements ProductService {
         return productMapper.searchOnSale(keyword).stream()
                 .map(this::toVO)
                 .toList();
+    }
+
+    // C 端分页列表：参数归一化后交给 Mapper；旧 list/search 接口保持数组结构不变
+    @Override
+    public PageVO<ProductVO> pageProducts(int page, int pageSize, Long categoryId, String keyword,
+                                          String brand, BigDecimal minPrice, BigDecimal maxPrice, String sort) {
+        int safePage = Math.max(1, page);
+        int safePageSize = Math.min(60, Math.max(1, pageSize));
+        String safeKeyword = normalize(keyword);
+        String safeBrand = normalize(brand);
+        if (minPrice != null && minPrice.signum() < 0 || maxPrice != null && maxPrice.signum() < 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "价格不能为负数");
+        }
+        if (minPrice != null && maxPrice != null && minPrice.compareTo(maxPrice) > 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "最低价不能大于最高价");
+        }
+        String sortInput = sort == null ? "default" : sort;
+        String safeSort = switch (sortInput) {
+            case "price_asc", "price_desc", "newest", "default" -> sortInput;
+            default -> "default";
+        };
+        long offsetLong = (long) (safePage - 1) * safePageSize;
+        int offset = offsetLong > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) offsetLong;
+
+        List<ProductVO> list = productMapper
+                .pageOnSale(categoryId, safeKeyword, safeBrand, minPrice, maxPrice, safeSort, offset, safePageSize)
+                .stream().map(this::toVO).toList();
+        long total = productMapper.countOnSale(categoryId, safeKeyword, safeBrand, minPrice, maxPrice);
+        return new PageVO<>(list, total, safePage, safePageSize);
+    }
+
+    private static String normalize(String value) {
+        return value == null || value.isBlank() ? null : value.trim();
     }
 
     // 随机取上架商品：首页下拉刷新换一批（排除当前已展示的 id）
@@ -257,6 +296,7 @@ public class ProductServiceImpl implements ProductService {
                 .productCode(p.getProductCode())
                 .weight(p.getWeight())
                 .volume(p.getVolume())
+                .specs(specsCodec.decode(p.getSpecs()))
                 .build();
     }
 

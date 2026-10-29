@@ -1,6 +1,7 @@
 package ecommerce.product.service.impl;
 
 import ecommerce.exception.BusinessException;
+import ecommerce.product.cache.CategoryCacheEvictor;
 import ecommerce.product.dto.AdminCategoryDTO;
 import ecommerce.product.entity.Category;
 import ecommerce.product.mapper.CategoryMapper;
@@ -27,9 +28,11 @@ import java.util.stream.Collectors;
 public class AdminCategoryServiceImpl implements AdminCategoryService {
 
     private final CategoryMapper categoryMapper;
+    private final CategoryCacheEvictor categoryCacheEvictor;
 
-    public AdminCategoryServiceImpl(CategoryMapper categoryMapper) {
+    public AdminCategoryServiceImpl(CategoryMapper categoryMapper, CategoryCacheEvictor categoryCacheEvictor) {
         this.categoryMapper = categoryMapper;
+        this.categoryCacheEvictor = categoryCacheEvictor;
     }
 
     @Override
@@ -61,6 +64,7 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
         c.setImage(dto.getImage());
         c.setSortOrder(nextSortOrder(dto.getParentId()));
         categoryMapper.insert(c);
+        categoryCacheEvictor.evictAll();
         return toVO(categoryMapper.findById(c.getId()));
     }
 
@@ -81,6 +85,7 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
         c.setRecommend(dto.getRecommend());
         c.setImage(dto.getImage());
         categoryMapper.update(c);
+        categoryCacheEvictor.evictAll();
         return toVO(categoryMapper.findById(id));
     }
 
@@ -90,6 +95,7 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
         if (rows == 0) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "分类不存在");
         }
+        categoryCacheEvictor.evictAll();
     }
 
     @Override
@@ -124,6 +130,7 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
         for (int i = 0; i < siblings.size(); i++) {
             categoryMapper.updateSortOrder(siblings.get(i).getId(), i + 1);
         }
+        categoryCacheEvictor.evictAll();
     }
 
     /** 同级最大 sort_order + 1，让新分类排到同级末尾 */

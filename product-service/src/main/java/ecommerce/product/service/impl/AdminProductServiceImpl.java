@@ -2,10 +2,12 @@ package ecommerce.product.service.impl;
 
 import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.product.cache.CategoryCacheEvictor;
 import ecommerce.product.dto.AdminProductDTO;
 import ecommerce.product.entity.Product;
 import ecommerce.product.mapper.ProductMapper;
 import ecommerce.product.service.AdminProductService;
+import ecommerce.product.support.ProductSpecsCodec;
 import ecommerce.product.vo.AdminProductVO;
 import ecommerce.product.vo.DashboardVO;
 import lombok.extern.slf4j.Slf4j;
@@ -24,9 +26,14 @@ import java.util.List;
 public class AdminProductServiceImpl implements AdminProductService {
 
     private final ProductMapper productMapper;
+    private final ProductSpecsCodec specsCodec;
+    private final CategoryCacheEvictor categoryCacheEvictor;
 
-    public AdminProductServiceImpl(ProductMapper productMapper) {
+    public AdminProductServiceImpl(ProductMapper productMapper, ProductSpecsCodec specsCodec,
+                                   CategoryCacheEvictor categoryCacheEvictor) {
         this.productMapper = productMapper;
+        this.specsCodec = specsCodec;
+        this.categoryCacheEvictor = categoryCacheEvictor;
     }
 
     @Override
@@ -67,6 +74,7 @@ public class AdminProductServiceImpl implements AdminProductService {
         p.setCreateTime(now);
         p.setUpdateTime(now);
         productMapper.insert(p);
+        categoryCacheEvictor.evictAll();
         // 回查一次拿到 DB 默认值（如 tag_id），保证返回体与库一致
         return toVO(productMapper.findByIdAdmin(p.getId()));
     }
@@ -81,6 +89,7 @@ public class AdminProductServiceImpl implements AdminProductService {
         applyDto(p, dto);
         p.setUpdateTime(LocalDateTime.now());
         productMapper.update(p);
+        categoryCacheEvictor.evictAll();
         return toVO(productMapper.findByIdAdmin(id));
     }
 
@@ -90,6 +99,7 @@ public class AdminProductServiceImpl implements AdminProductService {
         if (rows == 0) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
+        categoryCacheEvictor.evictAll();
     }
 
     @Override
@@ -120,6 +130,8 @@ public class AdminProductServiceImpl implements AdminProductService {
         if (dto.getStock() != null) p.setStock(dto.getStock());
         if (dto.getWeight() != null) p.setWeight(dto.getWeight());
         if (dto.getVolume() != null) p.setVolume(dto.getVolume());
+        // specs 传 null 不修改；传 [] 清空
+        if (dto.getSpecs() != null) p.setSpecs(specsCodec.encode(dto.getSpecs()));
     }
 
     private AdminProductVO toVO(Product p) {
@@ -142,6 +154,7 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .stock(p.getStock())
                 .weight(p.getWeight())
                 .volume(p.getVolume())
+                .specs(specsCodec.decode(p.getSpecs()))
                 .createdAt(p.getCreateTime())
                 .updatedAt(p.getUpdateTime())
                 .build();

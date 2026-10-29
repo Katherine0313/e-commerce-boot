@@ -1,9 +1,11 @@
 package ecommerce.product.service;
 
+import ecommerce.common.PageVO;
 import ecommerce.product.vo.CategoryTreeVO;
 import ecommerce.product.vo.ProductVO;
 import ecommerce.product.vo.TagVO;
 
+import java.math.BigDecimal;
 import java.util.List;
 
 public interface ProductService {
@@ -22,6 +24,12 @@ public interface ProductService {
      * 按关键词搜索上架商品：匹配商品名 / 副标题 / 品牌
      */
     List<ProductVO> searchProducts(String keyword);
+
+    /**
+     * C 端分页商品列表：categoryId 支持一级/二级，另支持关键词、品牌、价格区间、排序白名单。
+     */
+    PageVO<ProductVO> pageProducts(int page, int pageSize, Long categoryId, String keyword,
+                                   String brand, BigDecimal minPrice, BigDecimal maxPrice, String sort);
 
     /**
      * 随机取上架商品：首页下拉刷新「换一批」用。excludeIds 排除当前已展示的商品，

@@ -3,6 +3,8 @@ package ecommerce.product.mapper;
 import ecommerce.product.entity.Product;
 import ecommerce.product.vo.DashboardVO;
 import org.apache.ibatis.annotations.Param;
+
+import java.math.BigDecimal;
 import java.util.List;
 
 public interface ProductMapper {
@@ -28,6 +30,17 @@ public interface ProductMapper {
     // 随机取「推荐分类」下的上架商品：分类自身或父分类 recommend=1（首页热门推荐优先用）
     List<Product> listRandomOnSaleByRecommendedCategory(@Param("limit") int limit,
                                                         @Param("excludeIds") List<Long> excludeIds);
+
+    // C 端分页商品列表：分类支持一级/二级、关键词、品牌、价格区间、排序白名单
+    List<Product> pageOnSale(@Param("categoryId") Long categoryId, @Param("keyword") String keyword,
+                             @Param("brand") String brand, @Param("minPrice") BigDecimal minPrice,
+                             @Param("maxPrice") BigDecimal maxPrice, @Param("sort") String sort,
+                             @Param("offset") int offset, @Param("pageSize") int pageSize);
+
+    // C 端分页总数：筛选条件与 pageOnSale 一致
+    long countOnSale(@Param("categoryId") Long categoryId, @Param("keyword") String keyword,
+                     @Param("brand") String brand, @Param("minPrice") BigDecimal minPrice,
+                     @Param("maxPrice") BigDecimal maxPrice);
 
     // ==================== 后台管理（/api/admin/**） ====================
 

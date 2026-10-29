@@ -119,4 +119,4 @@ fi
 # 只保留最近 N 份备份
 run ssh "$SERVER" "ls -1dt '$WEB_ROOT'.bak.* 2>/dev/null | tail -n +$((KEEP_BACKUPS + 1)) | xargs -r rm -rf"
 
-echo "==> 完成：https://www.jiemids.com"
+echo "==> 完成：$WEB_ROOT（https://$(basename "$WEB_ROOT")）"

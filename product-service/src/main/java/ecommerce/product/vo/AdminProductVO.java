@@ -9,6 +9,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 后台商品 VO（/api/admin/**）。
@@ -57,6 +58,8 @@ public class AdminProductVO {
     private BigDecimal weight;
     @Schema(description = "体积")
     private BigDecimal volume;
+    @Schema(description = "规格参数（有序键值对，非 SKU）")
+    private List<SpecItemVO> specs;
     @Schema(description = "创建时间")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;

@@ -78,6 +78,10 @@
 - [✓] Redis 分类树缓存（按一级父分类一棵树一个 key）
 - [✓] 图片上传：后台 `/api/admin/upload`、C 端 `/api/upload`（type 分流目录）
 - [✓] 首页热门推荐 `GET /api/products/hot`（2026-10-29）：推荐分类优先 + 随机补足 + excludeIds
+- [✓] 商品 `specs` 属性（有序 JSON 数组，非 SKU）+ 详情/列表/后台返回
+- [✓] 分类重构 8 一级 / 21 二级；一级/二级都支持商品过滤
+- [✓] 商品扩容到 300（种子 id 51~300，每叶子 14~15）
+- [✓] C 端分页 `GET /api/products/page`（分类/关键词/品牌/价格/排序），旧接口保持数组兼容
 - [ ] parameters 表 + 参数组/参数项
 - [ ] 促销 `business_onsale` 表 + 活动 CRUD（含定时下架）
 - **状态：** in_progress
@@ -207,6 +211,16 @@
 - [ ] RabbitMQ fanout 跨实例广播来单提醒（替代单机内存注册表）
 - [ ] 生产 compose 增加 rabbitmq 服务 + 凭据
 - **状态：** in_progress（仅 demo）
+
+### 阶段 14：PC 商城 Web 端（ecommerce-mall，2026-10-29）
+- [✓] 新建 Vue 3 + Vite SPA，替换原静态企业站，上线 xiaojiecpn.com
+- [✓] Nginx 同源代理 `/api`、`/image`、`/upload` + SPA 回退
+- [✓] P0：布局、路由、请求层、首页/列表/详情/搜索接真实数据
+- [ ] P1：轮播、分类导航、热门推荐、骨架屏/空态
+- [ ] P2：C 端 demo 登录（user-service，dev profile，13800138000）+ 购物车 + 地址
+- [ ] P3：下单/模拟支付/订单中心
+- [ ] P4：收藏、评价列表、售后、AI 客服
+- **状态：** in_progress（首版已上线，交易链路未接）
 
 ## 风险与待确认
 

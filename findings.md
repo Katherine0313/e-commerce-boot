@@ -290,6 +290,24 @@ ecommerce
 - 收藏唯一键 `(user_id, product_id)`，`ON DUPLICATE KEY UPDATE id=id` 幂等；下架商品仍返回（前端打标）。
 - 反馈类型白名单 suggestion/product/order/other，内容 5~1000 字，截图最多 6 张且必须是 `/image/feedback/` 相对路径。
 
+### 商品属性 / 分类扩容 / C 端分页（2026-10-29）
+- `products.specs`：JSON **有序数组** `[{"name":"屏幕","value":"6.1英寸"}]`；实体 `String`，VO/DTO 用 `List<SpecItemVO/DTO>`，`ProductSpecsCodec` 编解码；与 `description`（文案）、`body`（富文本）并列，不合并。
+- 分类重构为 **8 个一级 / 21 个二级**：id=4 改名「耳机音箱」；新增 7「数码配件」（701~704）、8「智能家居」（801~804）；`listOnSaleByCategory` 改为 `category_id IN (SELECT id ... id=? OR parent_id=?)`，一级/二级都能过滤。
+- 商品扩到 **300**：现有 50 个补 specs，新增 id 51~300（`SEED-{id}`，显式 id，图片 `{id}.webp`）；每个叶子 14~15 个；脚本在 `docs/sql/product-expand/`，生成器 `generator/generate_catalog.py`。
+- 新接口 `GET /api/products/page?page=&pageSize=&categoryId=&keyword=&brand=&minPrice=&maxPrice=&sort=`，返回 `PageVO<ProductVO>`；pageSize clamp 60，sort 白名单（default/newest/price_asc/price_desc）；旧 `/api/products` 仍返回数组，仅分类过滤增强，兼容小程序/PC。
+- 后台 `listAdmin/countAdmin` 分类筛选也支持一级/二级；`AdminProductVO/DTO` 增加 specs（实际是驼峰，勿加 SnakeCase）。
+- 分类缓存新增 `CategoryCacheEvictor`，后台分类/商品写操作后清 `category:parent:*`。
+- 本地已执行数据脚本并验证：8/21/300、每叶子 14~15、specs 无空值、分页/筛选/排序/后台 specs 读写均通过。生产待发布。
+
+### PC 商城 Web 端（ecommerce-mall，2026-10-29）
+- 独立前端 `D:\study\my-workspace\wechat-workspace\ecommerce-mall`：Vue 3 + Vite + Pinia + Router + Axios + Element Plus，SPA；替换原静态企业站。
+- 线上 https://www.xiaojiecpn.com ，站点根 `/www/wwwroot/xiaojiecpn.com`；Nginx 配置 `extension/xiaojiecpn.com/mall.conf`（源文件 `ecommerce-mall/deploy/xiaojiecpn-mall.conf`）：`/api`、`/image`、`/upload` 同源代理到 `127.0.0.1:8080` + `try_files $uri $uri/ /index.html`。
+- 已上线：首页（分类 + 猜你喜欢）、商品列表/分类、商品详情、搜索，均接真实 C 端接口；游客可浏览。
+- 发布：`npm run build` 后，在 e-commerce-boot 里 `export WEB_DIR=.../ecommerce-mall`、`export WEB_ROOT=/www/wwwroot/xiaojiecpn.com`、`./deploy/release-web.sh --no-build`（脚本会留 `.bak.<时间戳>` 备份）。`release-web.sh` 的完成提示已改为按实际 `WEB_ROOT` 输出。
+- 约定：单店 B2C、不做商家入驻、不做 SKU；登录后置，首页/浏览不登录，加购/购买再登录。
+- **Web 登录缺口**：`/api/auth/phone-login` 是后台 admin 登录，签 admin 令牌，C 端接口会拒绝；P2 需在 user-service 加 dev 专用 demo 登录（手机号 13800138000 → user 令牌）。
+- 文档：`ecommerce-mall/README.md`（决策、P0-P5 checklist、发布步骤）。
+
 ### WebSocket 来单提醒
 - `order-service /ws/order`，握手 query `?token=` 只校验 admin 类型；单店模式用单 `Set<WebSocketSession>` 注册表，支付成功 `broadcast` `{type,orderId,content}`。
 - 前端登录后自动连，弹窗 + 语音 + 25s 心跳 + 断线重连；多实例广播计划用 RabbitMQ fanout（见下）。
@@ -335,10 +353,11 @@ ecommerce
 | 项目 | 本地路径 | 说明 |
 |---|---|---|
 | 小程序 | `D:\study\my-workspace\wechat-workspace\e-commerce-uniapp` | C 端，对应 `/api/**` |
+| PC 商城 | `D:\study\my-workspace\wechat-workspace\ecommerce-mall` | Vue3 + Vite SPA，https://www.xiaojiecpn.com |
 | 后台前端 | `D:\study\my-workspace\wechat-workspace\e-commerce` | Vue3 + ant-design-vue |
 | Python AI | `D:\study\my-workspace\wechat-workspace\recommender-python` | 导购机器人 |
 | 后端 | `D:\study\my-workspace\wechat-workspace\e-commerce-boot` | Spring Cloud 多模块 |
 
-- API：`https://api.jiemids.com`；后台：`https://www.jiemids.com`
+- API：`https://api.jiemids.com`；后台：`https://www.jiemids.com`；PC 商城：`https://www.xiaojiecpn.com`
 - 接口文档：网关 `/swagger-ui.html`，各服务 `/v3/api-docs`（`SPRINGDOC_ENABLED=true`）
 - 本地配置：`application-dev.yml`（gitignored）；生产配置：`/www/java/.env`
