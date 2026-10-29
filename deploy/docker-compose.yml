@@ -65,6 +65,8 @@ services:
       - ./upload:/app/upload
     environment:
       JAVA_OPTS: "-Xms128m -Xmx384m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -Xss256k -XX:+UseSerialGC -Duser.timezone=Asia/Shanghai"
+      # Python 推荐服务在 Docker 内网的名字
+      RECOMMEND_BASE_URL: "http://ai-service:8000"
     networks:
       - my-net
 

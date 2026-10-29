@@ -13,8 +13,19 @@ DELIMITER $$
 -- 断言：18 张表已无 shop_id <> 1 的数据，否则中止
 DROP PROCEDURE IF EXISTS _single_shop_assert_clean$$
 CREATE PROCEDURE _single_shop_assert_clean()
-BEGIN
+assert_clean: BEGIN
   DECLARE c BIGINT DEFAULT 0;
+  -- 已经删过列的库直接跳过（保证脚本可重复执行）
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.COLUMNS
+    WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = 'shop_id'
+      AND TABLE_NAME IN ('address','admin','after_sale_exchange_returns','after_sale_items',
+                         'after_sale_only_refunds','after_sale_returns','after_sales','cart',
+                         'categories','feedback','order_items','orders','product_favorites',
+                         'product_reviews','products','stock','tags','user')
+  ) THEN
+    LEAVE assert_clean;
+  END IF;
   SELECT
       (SELECT COUNT(*) FROM `address` WHERE shop_id <> 1)
     + (SELECT COUNT(*) FROM `admin` WHERE shop_id <> 1)

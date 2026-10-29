@@ -65,7 +65,8 @@ logging:
 
 # Python 推荐服务地址（猜你喜欢）；超时毫秒，防止慢调用拖垮商品浏览
 recommend:
-  base-url: http://127.0.0.1:9009
+  # Python 推荐服务地址；Docker 内由 compose 的 RECOMMEND_BASE_URL 覆盖为 http://ai-service:8000
+  base-url: ${RECOMMEND_BASE_URL:http://127.0.0.1:8000}
   # 首页场景宁可快速兜底，也不让 Python 慢调用拖住首屏
   connect-timeout: 300
   read-timeout: 500

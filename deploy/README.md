@@ -177,7 +177,7 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 
 ## 9. 说明
 
-- Python 推荐服务没有包含；`product-service` 调不到 9009 时会自动走热销兜底，首页不会白屏。需要个性化推荐再单独加容器。
+- `product-service` 通过 `RECOMMEND_BASE_URL`（Docker 内为 `http://ai-service:8000`）调 Python 推荐服务；调不到时自动走热销兜底，首页不会白屏。
 - `file-service` 目前是空骨架，不影响主链路；不想跑可以把它从 `docker-compose.yml` 和 `gateway` 的 `depends_on` 里删掉。
 - 后台管理端过几天部署，后端 `auth-service` 已经在这里一起起来了。
 
