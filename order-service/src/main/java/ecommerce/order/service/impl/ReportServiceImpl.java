@@ -39,7 +39,9 @@ import java.util.Map;
 @Service
 public class ReportServiceImpl implements ReportService {
 
-    /** 运营数据报表模板预置的明细行数（一个月最多 31 天） */
+    /**
+     * 运营数据报表模板预置的明细行数（一个月最多 31 天）
+     */
     private static final int OPERATION_REPORT_MAX_ROWS = 31;
 
     private final OrderMapper orderMapper;
@@ -137,11 +139,9 @@ public class ReportServiceImpl implements ReportService {
     @Override
     public OperationReportVO getOperationReport() {
         LocalDate end = LocalDate.now();
-        // 本月：月初至今天（含）
         LocalDate begin = end.withDayOfMonth(1);
         LocalDateTime start = begin.atStartOfDay();
         LocalDateTime endExclusive = end.plusDays(1).atStartOfDay();
-
         // 一次取齐 6 组按天聚合，避免循环 30 次查库
         Map<String, BigDecimal> paidMap = toDateAmountMap(
                 orderMapper.sumPaidAmountByDay(start, endExclusive));
@@ -156,6 +156,13 @@ public class ReportServiceImpl implements ReportService {
         Map<String, Long> newUserMap = toDateCountMap(
                 orderMapper.countNewUsersByDay(start, endExclusive));
         long totalRefundOrders = orderMapper.countRefundOrders(start, endExclusive);
+
+
+
+
+
+
+
 
         List<OperationReportRowVO> rows = new ArrayList<>(end.getDayOfMonth());
         BigDecimal totalSales = BigDecimal.ZERO;
@@ -266,12 +273,16 @@ public class ReportServiceImpl implements ReportService {
         }
     }
 
-    /** 比率：分母为 0 时返回 0，避免除零 */
+    /**
+     * 比率：分母为 0 时返回 0，避免除零
+     */
     private static double rate(long numerator, long denominator) {
         return denominator == 0 ? 0d : (double) numerator / denominator;
     }
 
-    /** 客单价：分母为 0 时返回 0，保留两位小数 */
+    /**
+     * 客单价：分母为 0 时返回 0，保留两位小数
+     */
     private static BigDecimal average(BigDecimal amount, long count) {
         if (count == 0) {
             return BigDecimal.ZERO;
@@ -279,7 +290,9 @@ public class ReportServiceImpl implements ReportService {
         return amount.divide(BigDecimal.valueOf(count), 2, RoundingMode.HALF_UP);
     }
 
-    /** 分组查询结果 [{date_key, cnt}] 转 Map<日期, 数量> */
+    /**
+     * 分组查询结果 [{date_key, cnt}] 转 Map<日期, 数量>
+     */
     private Map<String, Long> toDateCountMap(List<Map<String, Object>> rows) {
         Map<String, Long> map = new HashMap<>();
         if (rows == null) {

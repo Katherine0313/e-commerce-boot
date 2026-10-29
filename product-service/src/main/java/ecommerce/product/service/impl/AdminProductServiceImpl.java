@@ -12,6 +12,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -50,8 +51,18 @@ public class AdminProductServiceImpl implements AdminProductService {
 
     @Override
     public AdminProductVO create(AdminProductDTO dto) {
+        if (dto.getName() == null || dto.getName().isBlank()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "商品名称不能为空");
+        }
         Product p = new Product();
         applyDto(p, dto);
+        // 后台新增表单没有销售模式字段，且部分 NOT NULL 列插 NULL 会覆盖库默认值，这里统一兜底
+        if (p.getSalesMode() == null) p.setSalesMode("spot");
+        if (p.getListingStatus() == null) p.setListingStatus(1);
+        if (p.getSubTitle() == null) p.setSubTitle("");
+        if (p.getBrand() == null) p.setBrand("");
+        if (p.getSalesPrice() == null) p.setSalesPrice(BigDecimal.ZERO);
+        if (p.getStock() == null) p.setStock(0);
         LocalDateTime now = LocalDateTime.now();
         p.setCreateTime(now);
         p.setUpdateTime(now);
