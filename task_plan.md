@@ -53,6 +53,8 @@
 
 ## 各阶段
 
+> 勾选规则：`[✓]` 已完成；`[ ]` 未完成；备注里写「待验证」表示代码/部署已完成，只差线上验证。
+
 ### 阶段 0：基础设施 + 版本兼容验证
 - [✓] Maven 多模块父工程 + `common` 框架层（Result/异常/JwtUtil/UserContext/JwtInterceptor）
 - [✓] Spring Cloud + SCA + Nacos + Gateway 搭建，Boot 4.1 兼容性验证通过，网关路由打通
@@ -85,7 +87,7 @@
 - [✓] C 端分页 `GET /api/products/page`（分类/关键词/品牌/价格/排序），旧接口保持数组兼容
 - [✓] `products.description` 重命名为 `title`（主标题），商品 title 改为 SEO 长标题；`sub_title` 保留
 - [✓] 商品 `sub_title` 淘宝风格化：营销销量/加购 + 可开发票 + 品类口碑，一句话 17~24 字（2026-10-29）
-- [ ] 前端接 specs / 分类侧边栏（**分页已完成 2026-10-30**：小程序分类/搜索、PC 列表/搜索均走 `/api/products/page`）
+- [ ] 前端接 specs / 分类侧边栏（**小程序已完成**：详情页渲染 specs、分类页/分类面板已接；**PC 待接**：详情 specs、首页分类/轮播仍是占位。分页已完成 2026-10-30：小程序分类/搜索、PC 列表/搜索均走 `/api/products/page`）
 - [ ] parameters 表 + 参数组/参数项
 - [✓] 促销模块（2026-10-30）：`promotion/promotion_item/promotion_rule/promotion_usage` + 后台 CRUD/提前结束/效果统计 + `common` 算价引擎（直减/满减叠加、互斥）+ 订单优惠快照与确认页报价；定时下架不需要（按时间窗实时判定）；DB 脚本已在本地/生产执行
 - **状态：** in_progress
@@ -99,8 +101,8 @@
 - [✓] 订单未支付一次性订阅消息（2026-10-25）：提交订单时授权 → 下单写入 `is_subscribe_unpaid` → 第 20 分钟推送 → 点击跳 `pending-pay?orderNo`；access_token 改为 Redis 全局共享
 - [✓] 物流轨迹过滤未来时间（2026-10-26）：`buildLogistics` 只返回当前时间之前已发生的轨迹（`addTraceIfPast`）
 - [✓] 工作台累计销售额/订单量改后端聚合（`/api/admin/report/headline`），新增本月运营数据报表 Excel 导出（`/api/admin/report/export`，2026-10-26，2026-10-27 由近 30 天改为本月）
-- [ ] 运营数据导出验证：order-service 与后台 `dist` 均已发布；待验证 xlsx 下载
-- [ ] 订阅消息上线：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，order/user 已随 TCR 部署；待小程序发行后验证推送
+- [ ] 运营数据导出验证（**代码/部署完成，待验证**）：order-service 与后台 `dist` 均已发布；待实际下载一次 xlsx
+- [ ] 订阅消息上线（**代码/库/部署完成，待验证**）：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，order/user 已随 TCR 部署；待小程序发行后验证推送
 - [✓] ~~后台管理端 `dist` 重新构建上传（sandboxVisitor、订单金额标签）~~：沙箱已下线，后台 dist 已多次发布（2026-10-30）
 - [ ] 购物车加购校验上架状态（`ProductMapper.findById` 无 `listing_status` 过滤）
 - [ ] 购物车 5 接口端到端验证
@@ -131,7 +133,7 @@
 - [✓] AI 迁移上线（2026-10-26）：网关 `/api/agent/**` → `http://ai-service:8000`；线上 `/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）
 - [✓] 发布切 TCR 镜像（2026-10-28）：初始 9 个仓库，2026-10-29 移除 shop-service 后为 8 个（7 Java + ai-service）；compose 加 `image:`；`deploy/release.sh` 支持构建/推送/回滚；服务器已切 `image:` + `--no-build`
 - [✓] 后台管理端一键发布（2026-10-28）：`deploy/release-web.sh` 构建 `../e-commerce` → rsync 到 `/www/wwwroot/jiemids.com`，保留运行时文件，支持 `--no-build` / `--dry-run` / `--rollback`
-- [ ] 分类图收尾：webp 已上传、生产库已改 `.webp`；product/user 已多次发布（含 2026-10-30 全量）；待清 CF 缓存
+- [ ] 分类图收尾（**仅剩清 CF 缓存**）：webp 已上传、生产库已改 `.webp`；product/user 已多次发布（含 2026-10-30 全量）
 - [✓] 线上问题修复（2026-10-25）：小程序审核白屏（上传了 `dist/dev`，接口地址是 127.0.0.1 → 改传 `dist/build`）、分类接口 Redis 降级 + Redis 容器化、用户头像 http→https（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg（iOS 兼容）
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + 后台三个域名（request/uploadFile/downloadFile）
 - [ ] 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分/协议死链已于 2026-10-28 用功能开关隐藏）
@@ -175,14 +177,9 @@
 - [ ] 事件补齐：发货、新售后单
 - **状态：** in_progress
 
-### 阶段 12：微信支付接入（真实支付）
-- [ ] `payOrder` 改 JSAPI 下单（拿 `prepay_id`，此时不改订单状态）
-- [ ] 支付回调 `POST /api/pay/notify`：验签 → 幂等 → **金额校验** → 推进状态 + 落流水
-- [ ] 主动查单兜底：前端支付成功跳回时先查单确认
-- [ ] 定时查单/日终对账（扫「已扣款未回调」订单）
-- [ ] `pay_record` 支付流水表
-- [ ] 微信支付凭据走环境变量（`docs/env.md`）
-- **状态：** pending（当前 `payOrder` 仍是 mock 状态流转）
+### 阶段 12：微信支付接入（真实支付）——已取消
+> **2026-10-30 用户决定不接入真实支付**：继续使用 mock 支付（`payOrder` 直接推进订单状态），不实现 JSAPI 下单、回调验签/金额校验、主动查单、日终对账、`pay_record` 流水和支付凭据。
+- **状态：** canceled（不接真实支付，保留 mock）
 
 ## 定时任务规划（Spring Task）
 
@@ -205,7 +202,7 @@
 | 清理过期临时文件 / 失效购物车 | file-service / order-service | file-service 未做 |
 | 会员到期提醒 + 营销消息推送 | user-service | 会员等级表 + 订阅消息模板 |
 | 第三方物流状态同步 | order-service | 接物流 API（当前假数据） |
-| 微信支付主动查单/对账 | order-service | 阶段 12 + `pay_record` |
+| ~~微信支付主动查单/对账~~ | — | ❌ 不接真实支付（2026-10-30） |
 
 > 库存预警不需要定时任务（实时 join `products`）。
 > `@Scheduled` 单机执行，将来多实例需加分布式锁（Redis SETNX 占位）。
@@ -242,13 +239,13 @@
 
 ### 阶段 16：会员 / 积分体系（会员 v1 已完成，积分待做）
 
-> 后台「经营工具 → 会员」已上线。优惠券的等级门槛已接入；积分、生日券、付费 VIP 仍未做。
+> 后台「经营工具 → 会员」已上线。优惠券的等级门槛已接入；积分、生日券仍未做；付费 VIP 因不接真实支付已取消。
 - [✓] 会员等级 `member_level`（4 档 0/500/2000/5000）+ `user` 会员字段 + 成长值重算（2026-10-30）
 - [✓] C 端会员中心 + 后台会员列表/等级配置 + 优惠券最低会员等级门槛（2026-10-30）
 - [ ] 积分账户 + 积分流水（购物返积分、评价/晒单奖励、退款扣回）
 - [ ] 生日券 / 每月等级券自动发放（复用优惠券定向发放）
 - [ ] 积分抵现 / 积分兑券（订单级，排在券之后）
-- [ ] 付费 VIP（依赖微信支付）
+- ~~付费 VIP（依赖微信支付）~~ ❌ 不做：不接真实支付（2026-10-30）
 - **状态：** in_progress（等级 v1 完成）
 
 ### 阶段 17：秒杀系统（规划，未开始）
