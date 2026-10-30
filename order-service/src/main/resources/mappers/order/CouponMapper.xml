@@ -1,0 +1,279 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.CouponMapper">
+
+    <sql id="templateColumns">
+        id, name, type, face_value, discount_rate, max_discount, threshold_amount,
+        scope_type, target_group, min_member_level, total_quantity, remain_quantity, per_user_limit,
+        receive_start, receive_end, valid_type, valid_start, valid_end, valid_days,
+        manual_status, is_deleted, description, create_time, update_time
+    </sql>
+
+    <!-- ==================== C 端 ==================== -->
+    <select id="listCenter" resultType="ecommerce.order.entity.CouponTemplate">
+        SELECT <include refid="templateColumns"/>
+        FROM coupon_template
+        WHERE is_deleted = 0
+          AND manual_status = 0
+          AND receive_start &lt;= #{now}
+          AND receive_end &gt; #{now}
+          AND remain_quantity &gt; 0
+        ORDER BY id DESC
+    </select>
+
+    <select id="listClaimedTemplateIds" resultType="long">
+        SELECT template_id FROM user_coupon WHERE user_id = #{userId}
+    </select>
+
+    <select id="findTemplateById" resultType="ecommerce.order.entity.CouponTemplate">
+        SELECT <include refid="templateColumns"/>
+        FROM coupon_template
+        WHERE id = #{id} AND is_deleted = 0
+    </select>
+
+    <select id="listScopesByTemplateIds" resultType="ecommerce.order.entity.CouponScope">
+        SELECT id, coupon_template_id, target_type, target_id
+        FROM coupon_scope
+        WHERE coupon_template_id IN
+        <foreach collection="templateIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <select id="findUserCouponById" resultType="ecommerce.order.entity.UserCoupon">
+        SELECT id, code, template_id, user_id, status, receive_time, start_time, end_time,
+               order_id, lock_time, used_time, source
+        FROM user_coupon
+        WHERE id = #{id}
+    </select>
+
+    <select id="findUserCouponByUserAndTemplate" resultType="ecommerce.order.entity.UserCoupon">
+        SELECT id, code, template_id, user_id, status, receive_time, start_time, end_time,
+               order_id, lock_time, used_time, source
+        FROM user_coupon
+        WHERE user_id = #{userId} AND template_id = #{templateId}
+    </select>
+
+    <insert id="insertUserCoupon" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO user_coupon (code, template_id, user_id, status, receive_time,
+                                 start_time, end_time, source)
+        VALUES (#{code}, #{templateId}, #{userId}, #{status}, #{receiveTime},
+                #{startTime}, #{endTime}, #{source})
+    </insert>
+
+    <update id="decreaseRemain">
+        UPDATE coupon_template
+        SET remain_quantity = remain_quantity - 1
+        WHERE id = #{templateId} AND remain_quantity &gt; 0
+    </update>
+
+    <update id="increaseRemain">
+        UPDATE coupon_template
+        SET remain_quantity = remain_quantity + 1
+        WHERE id = #{templateId} AND remain_quantity &lt; total_quantity
+    </update>
+
+    <select id="listUserCoupons" resultType="ecommerce.order.entity.UserCoupon">
+        SELECT id, code, template_id, user_id, status, receive_time, start_time, end_time,
+               order_id, lock_time, used_time, source
+        FROM user_coupon
+        WHERE user_id = #{userId}
+        ORDER BY id DESC
+    </select>
+
+    <select id="listAvailableUserCoupons" resultType="ecommerce.order.entity.UserCoupon">
+        SELECT id, code, template_id, user_id, status, receive_time, start_time, end_time,
+               order_id, lock_time, used_time, source
+        FROM user_coupon
+        WHERE user_id = #{userId}
+          AND status = 'UNUSED'
+          AND end_time &gt; #{now}
+        ORDER BY id DESC
+    </select>
+
+    <select id="listUserCouponsByOrder" resultType="ecommerce.order.entity.UserCoupon">
+        SELECT id, code, template_id, user_id, status, receive_time, start_time, end_time,
+               order_id, lock_time, used_time, source
+        FROM user_coupon
+        WHERE order_id = #{orderId}
+    </select>
+
+    <update id="lockCoupon">
+        UPDATE user_coupon
+        SET status = 'LOCKED', lock_time = #{now}
+        WHERE id = #{id} AND user_id = #{userId} AND status = 'UNUSED'
+    </update>
+
+    <update id="bindOrder">
+        UPDATE user_coupon SET order_id = #{orderId} WHERE id = #{id}
+    </update>
+
+    <update id="markUsedByOrder">
+        UPDATE user_coupon
+        SET status = 'USED', used_time = #{now}
+        WHERE order_id = #{orderId} AND status = 'LOCKED'
+    </update>
+
+    <update id="releaseLockedByOrder">
+        UPDATE user_coupon
+        SET status = 'UNUSED', order_id = NULL, lock_time = NULL
+        WHERE order_id = #{orderId} AND status = 'LOCKED'
+    </update>
+
+    <update id="releaseUsedByOrder">
+        UPDATE user_coupon
+        SET status = 'UNUSED', order_id = NULL, used_time = NULL, lock_time = NULL
+        WHERE order_id = #{orderId} AND status = 'USED' AND end_time &gt; #{now}
+    </update>
+
+    <!-- 商品所属分类 + 父分类（判断分类券适用范围） -->
+    <select id="listProductCategories" resultType="map">
+        SELECT p.id AS product_id, p.category_id, c.parent_id
+        FROM products p
+                 LEFT JOIN categories c ON c.id = p.category_id
+        WHERE p.id IN
+        <foreach collection="productIds" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <!-- ==================== 后台管理 ==================== -->
+    <sql id="adminWhere">
+        is_deleted = 0
+        <if test="keyword != null and keyword != ''">
+            AND name LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        <if test="status != null and status == 'PENDING'">
+            AND manual_status = 0 AND receive_start &gt; #{now}
+        </if>
+        <if test="status != null and status == 'ACTIVE'">
+            AND manual_status = 0 AND receive_start &lt;= #{now}
+            AND receive_end &gt; #{now} AND remain_quantity &gt; 0
+        </if>
+        <if test="status != null and status == 'ENDED'">
+            AND manual_status = 0 AND (receive_end &lt;= #{now} OR remain_quantity &lt;= 0)
+        </if>
+        <if test="status != null and status == 'STOPPED'">
+            AND manual_status = 1
+        </if>
+    </sql>
+
+    <select id="listAdmin" resultType="ecommerce.order.entity.CouponTemplate">
+        SELECT <include refid="templateColumns"/>
+        FROM coupon_template
+        WHERE <include refid="adminWhere"/>
+        ORDER BY id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM coupon_template
+        WHERE <include refid="adminWhere"/>
+    </select>
+
+    <select id="listScopes" resultType="ecommerce.order.entity.CouponScope">
+        SELECT id, coupon_template_id, target_type, target_id
+        FROM coupon_scope
+        WHERE coupon_template_id = #{templateId}
+        ORDER BY id ASC
+    </select>
+
+    <insert id="insertTemplate" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO coupon_template (name, type, face_value, discount_rate, max_discount, threshold_amount,
+                                     scope_type, target_group, min_member_level, total_quantity, remain_quantity, per_user_limit,
+                                     receive_start, receive_end, valid_type, valid_start, valid_end, valid_days,
+                                     manual_status, is_deleted, description, create_time)
+        VALUES (#{name}, #{type}, #{faceValue}, #{discountRate}, #{maxDiscount}, #{thresholdAmount},
+                #{scopeType}, #{targetGroup}, #{minMemberLevel}, #{totalQuantity}, #{remainQuantity}, #{perUserLimit},
+                #{receiveStart}, #{receiveEnd}, #{validType}, #{validStart}, #{validEnd}, #{validDays},
+                0, 0, #{description}, #{createTime})
+    </insert>
+
+    <update id="updateTemplate">
+        UPDATE coupon_template
+        SET name = #{name},
+            type = #{type},
+            face_value = #{faceValue},
+            discount_rate = #{discountRate},
+            max_discount = #{maxDiscount},
+            threshold_amount = #{thresholdAmount},
+            scope_type = #{scopeType},
+            target_group = #{targetGroup},
+            min_member_level = #{minMemberLevel},
+            total_quantity = #{totalQuantity},
+            remain_quantity = #{remainQuantity},
+            per_user_limit = #{perUserLimit},
+            receive_start = #{receiveStart},
+            receive_end = #{receiveEnd},
+            valid_type = #{validType},
+            valid_start = #{validStart},
+            valid_end = #{validEnd},
+            valid_days = #{validDays},
+            description = #{description},
+            update_time = #{updateTime}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="softDelete">
+        UPDATE coupon_template
+        SET is_deleted = 1, update_time = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="stopNow">
+        UPDATE coupon_template
+        SET manual_status = 1, update_time = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <delete id="deleteScopes">
+        DELETE FROM coupon_scope WHERE coupon_template_id = #{templateId}
+    </delete>
+
+    <insert id="insertScopes">
+        INSERT INTO coupon_scope (coupon_template_id, target_type, target_id)
+        VALUES
+        <foreach collection="scopes" item="s" separator=",">
+            (#{s.couponTemplateId}, #{s.targetType}, #{s.targetId})
+        </foreach>
+    </insert>
+
+    <select id="countIssued" resultType="long">
+        SELECT COUNT(*) FROM user_coupon WHERE template_id = #{templateId}
+    </select>
+
+    <select id="countUsed" resultType="long">
+        SELECT COUNT(*) FROM user_coupon WHERE template_id = #{templateId} AND status = 'USED'
+    </select>
+
+    <select id="sumUsedDiscount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(o.coupon_amount), 0)
+        FROM orders o
+                 JOIN user_coupon u ON u.id = o.coupon_id
+        WHERE u.template_id = #{templateId}
+          AND o.is_deleted = 0
+          AND o.order_status &lt;&gt; 6
+    </select>
+
+    <select id="listRecords" resultType="ecommerce.order.vo.CouponRecordVO">
+        SELECT u.id, u.code, u.user_id, us.name AS user_name, us.phone, u.status,
+               u.receive_time, u.used_time, u.order_id
+        FROM user_coupon u
+                 LEFT JOIN `user` us ON us.id = u.user_id
+        WHERE u.template_id = #{templateId}
+        ORDER BY u.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countRecords" resultType="long">
+        SELECT COUNT(*) FROM user_coupon WHERE template_id = #{templateId}
+    </select>
+
+    <select id="listActiveUserIds" resultType="long">
+        SELECT id FROM `user` WHERE is_deleted = 0 ORDER BY id ASC
+    </select>
+
+</mapper>

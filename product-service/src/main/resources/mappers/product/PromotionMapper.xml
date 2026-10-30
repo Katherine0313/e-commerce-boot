@@ -1,0 +1,195 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.product.mapper.PromotionMapper">
+
+    <!-- ==================== C 端：当前生效活动 ==================== -->
+    <select id="listActive" resultType="ecommerce.product.entity.Promotion">
+        SELECT id, name, type, rule_type, target_group, scope_type, tag_name,
+               start_time, end_time, manual_status, is_deleted, create_time, update_time
+        FROM promotion
+        WHERE is_deleted = 0
+          AND manual_status = 0
+          AND start_time &lt;= #{now}
+          AND end_time &gt; #{now}
+        ORDER BY id ASC
+    </select>
+
+    <select id="listItemsByPromotionIds" resultType="ecommerce.product.entity.PromotionItem">
+        SELECT id, promotion_id, product_id, promotion_price
+        FROM promotion_item
+        WHERE promotion_id IN
+        <foreach collection="promotionIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+    </select>
+
+    <select id="listRulesByPromotionIds" resultType="ecommerce.product.entity.PromotionRule">
+        SELECT id, promotion_id, threshold_amount, discount_amount, discount_rate, sort_order
+        FROM promotion_rule
+        WHERE promotion_id IN
+        <foreach collection="promotionIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+        ORDER BY threshold_amount DESC
+    </select>
+
+    <!-- ==================== 后台：列表 / 详情 ==================== -->
+    <sql id="adminWhere">
+        p.is_deleted = 0
+        <if test="keyword != null and keyword != ''">
+            AND p.name LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        <if test="status != null and status == 'PENDING'">
+            AND p.manual_status = 0 AND p.start_time &gt; #{now}
+        </if>
+        <if test="status != null and status == 'ACTIVE'">
+            AND p.manual_status = 0 AND p.start_time &lt;= #{now} AND p.end_time &gt; #{now}
+        </if>
+        <if test="status != null and status == 'ENDED'">
+            AND p.manual_status = 0 AND p.end_time &lt;= #{now}
+        </if>
+        <if test="status != null and status == 'CANCELLED'">
+            AND p.manual_status = 1
+        </if>
+    </sql>
+
+    <select id="listAdmin" resultType="ecommerce.product.entity.Promotion">
+        SELECT p.id, p.name, p.type, p.rule_type, p.target_group, p.scope_type, p.tag_name,
+               p.start_time, p.end_time, p.manual_status, p.is_deleted, p.create_time, p.update_time
+        FROM promotion p
+        WHERE <include refid="adminWhere"/>
+        ORDER BY p.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM promotion p
+        WHERE <include refid="adminWhere"/>
+    </select>
+
+    <select id="findById" resultType="ecommerce.product.entity.Promotion">
+        SELECT id, name, type, rule_type, target_group, scope_type, tag_name,
+               start_time, end_time, manual_status, is_deleted, create_time, update_time
+        FROM promotion
+        WHERE id = #{id} AND is_deleted = 0
+    </select>
+
+    <!-- 活动商品：join products 带出名称与当前售价 -->
+    <select id="listItemsWithProduct" resultType="ecommerce.product.vo.PromotionItemVO">
+        SELECT pi.product_id      AS product_id,
+               p.name             AS product_name,
+               p.sales_price      AS sales_price,
+               pi.promotion_price AS promotion_price
+        FROM promotion_item pi
+                 LEFT JOIN products p ON p.id = pi.product_id
+        WHERE pi.promotion_id = #{promotionId}
+        ORDER BY pi.id ASC
+    </select>
+
+    <select id="listRules" resultType="ecommerce.product.entity.PromotionRule">
+        SELECT id, promotion_id, threshold_amount, discount_amount, discount_rate, sort_order
+        FROM promotion_rule
+        WHERE promotion_id = #{promotionId}
+        ORDER BY threshold_amount ASC
+    </select>
+
+    <!-- ==================== 后台：写操作 ==================== -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO promotion (name, type, rule_type, target_group, scope_type, tag_name,
+                               start_time, end_time, manual_status, is_deleted, create_time)
+        VALUES (#{name}, #{type}, #{ruleType}, #{targetGroup}, #{scopeType}, #{tagName},
+                #{startTime}, #{endTime}, 0, 0, #{createTime})
+    </insert>
+
+    <update id="update">
+        UPDATE promotion
+        SET name = #{name},
+            type = #{type},
+            rule_type = #{ruleType},
+            target_group = #{targetGroup},
+            scope_type = #{scopeType},
+            tag_name = #{tagName},
+            start_time = #{startTime},
+            end_time = #{endTime},
+            update_time = #{updateTime}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="softDelete">
+        UPDATE promotion
+        SET is_deleted = 1, update_time = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="endNow">
+        UPDATE promotion
+        SET manual_status = 1, update_time = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <delete id="deleteItems">
+        DELETE FROM promotion_item WHERE promotion_id = #{promotionId}
+    </delete>
+
+    <insert id="insertItems">
+        INSERT INTO promotion_item (promotion_id, product_id, promotion_price)
+        VALUES
+        <foreach collection="items" item="item" separator=",">
+            (#{item.promotionId}, #{item.productId}, #{item.promotionPrice})
+        </foreach>
+    </insert>
+
+    <delete id="deleteRules">
+        DELETE FROM promotion_rule WHERE promotion_id = #{promotionId}
+    </delete>
+
+    <insert id="insertRules">
+        INSERT INTO promotion_rule (promotion_id, threshold_amount, discount_amount, discount_rate, sort_order)
+        VALUES
+        <foreach collection="rules" item="r" separator=",">
+            (#{r.promotionId}, #{r.thresholdAmount}, #{r.discountAmount}, #{r.discountRate}, #{r.sortOrder})
+        </foreach>
+    </insert>
+
+    <!-- 直减类互斥：同商品 + 时间重叠的其他直减活动 -->
+    <select id="countOverlappingDirect" resultType="long">
+        SELECT COUNT(DISTINCT pi.product_id)
+        FROM promotion_item pi
+                 JOIN promotion p ON p.id = pi.promotion_id
+        WHERE p.is_deleted = 0
+          AND p.manual_status = 0
+          AND p.type = 'DIRECT'
+          AND pi.product_id IN
+        <foreach collection="productIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+          AND p.start_time &lt; #{end}
+          AND p.end_time &gt; #{start}
+        <if test="excludeId != null">
+            AND p.id != #{excludeId}
+        </if>
+    </select>
+
+    <select id="selectProductPrices" resultType="map">
+        SELECT id, sales_price
+        FROM products
+        WHERE id IN
+        <foreach collection="productIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+    </select>
+
+    <!-- 活动效果：使用记录聚合；支付单数按 orders.pay_at 非空统计 -->
+    <select id="stats" resultType="ecommerce.product.vo.PromotionStatsVO">
+        SELECT COUNT(DISTINCT u.order_id)                                              AS order_count,
+               COUNT(DISTINCT CASE WHEN o.pay_at IS NOT NULL THEN u.order_id END)      AS paid_order_count,
+               COALESCE(SUM(u.discount_amount), 0)                                     AS discount_amount
+        FROM promotion_usage u
+                 LEFT JOIN orders o ON o.id = u.order_id
+        WHERE u.promotion_id = #{promotionId}
+    </select>
+
+</mapper>

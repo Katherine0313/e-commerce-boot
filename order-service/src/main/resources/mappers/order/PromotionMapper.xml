@@ -1,0 +1,45 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.PromotionMapper">
+
+    <!-- 当前生效的活动：与 product-service 同一套时间口径 -->
+    <select id="listActive" resultType="ecommerce.order.entity.Promotion">
+        SELECT id, name, type, rule_type, target_group, scope_type, tag_name, start_time, end_time
+        FROM promotion
+        WHERE is_deleted = 0
+          AND manual_status = 0
+          AND start_time &lt;= #{now}
+          AND end_time &gt; #{now}
+        ORDER BY id ASC
+    </select>
+
+    <select id="listItemsByPromotionIds" resultType="ecommerce.order.entity.PromotionItem">
+        SELECT id, promotion_id, product_id, promotion_price
+        FROM promotion_item
+        WHERE promotion_id IN
+        <foreach collection="promotionIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+    </select>
+
+    <select id="listRulesByPromotionIds" resultType="ecommerce.order.entity.PromotionRule">
+        SELECT id, promotion_id, threshold_amount, discount_amount, discount_rate
+        FROM promotion_rule
+        WHERE promotion_id IN
+        <foreach collection="promotionIds" item="pid" open="(" separator="," close=")">
+            #{pid}
+        </foreach>
+        ORDER BY threshold_amount DESC
+    </select>
+
+    <insert id="insertUsages">
+        INSERT INTO promotion_usage (promotion_id, order_id, order_no, user_id, discount_amount, create_time)
+        VALUES
+        <foreach collection="usages" item="u" separator=",">
+            (#{u.promotionId}, #{u.orderId}, #{u.orderNo}, #{u.userId}, #{u.discountAmount}, #{u.createTime})
+        </foreach>
+    </insert>
+
+</mapper>
