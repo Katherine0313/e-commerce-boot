@@ -391,7 +391,7 @@ ecommerce
 - 已上线：首页（分类 + 猜你喜欢）、商品列表/分类、商品详情、搜索，均接真实 C 端接口；游客可浏览。
 - 发布：`npm run build` 后，在 e-commerce-boot 里 `export WEB_DIR=.../ecommerce-mall`、`export WEB_ROOT=/www/wwwroot/xiaojiecpn.com`、`./deploy/release-web.sh --no-build`（脚本会留 `.bak.<时间戳>` 备份）。`release-web.sh` 的完成提示已改为按实际 `WEB_ROOT` 输出。
 - 约定：单店 B2C、不做商家入驻、不做 SKU；登录后置，首页/浏览不登录，加购/购买再登录。
-- **Web 登录缺口**：后台 admin 手机号登录已于 2026-10-30 移除，改为账号密码 + 图形验证码；PC 商城若要 demo 登录，仍需在 user-service 加 dev 专用接口（手机号 → user 令牌），不能复用后台 admin 登录。
+- **Web 登录（2026-10-30，代码完成待联调）**：不复用后台 admin 登录，user-service 新增 `POST /api/user/login|register|send-code|login-code`：手机号+密码（BCrypt）、手机号+6 位验证码（Redis 5 分钟、60 秒限频；暂不接短信，接口直接返回模拟码；未注册自动建号）。`user.openid` 是 NOT NULL + 唯一键，PC 账号用 `pc_<uuid>` 占位；`phone` 历史数据可能重复，不建唯一索引，注册查重走服务层。迁移脚本 `docs/sql/user-pc-auth.sql`（新增 `password` 列 + `idx_user_phone`）待执行。PC 端新增全局 `LoginModal`（登录/注册 tab，登录内密码/验证码切换），详情页加购/立即购买、购物车入口未登录时先弹框，登录成功自动继续原操作；401 改为派发 `auth-expired` 事件弹框，不再跳不存在的 `/login`。
 - 文档：`ecommerce-mall/README.md`（决策、P0-P5 checklist、发布步骤）。
 
 ### WebSocket 来单提醒

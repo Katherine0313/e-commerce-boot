@@ -31,6 +31,11 @@
 			<groupId>com.alibaba.cloud</groupId>
 			<artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
 		</dependency>
+		<!-- PC 端密码加密：BCrypt（与后台登录保持一致，只引 crypto 不引完整 Spring Security） -->
+		<dependency>
+			<groupId>org.springframework.security</groupId>
+			<artifactId>spring-security-crypto</artifactId>
+		</dependency>
 		<!-- user 模块的实体/VO/DTO 用了 @Data/@Builder 等 -->
 		<dependency>
 			<groupId>org.projectlombok</groupId>

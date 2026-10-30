@@ -6,7 +6,7 @@
 
 网关已做聚合，**一个地址看全部服务**，页面顶部下拉切换：
 
-**http://localhost:8080/swagger-ui.html**
+**把**
 
 > 该地址会 302 跳转到 `/swagger-ui/index.html`（两者都已实测可用）；若浏览器没自动跟随跳转，直接用 http://localhost:8080/swagger-ui/index.html
 

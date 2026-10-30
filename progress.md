@@ -5,6 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
+  2026-10-30 PC 商城登录/注册（代码完成，待联调）：user-service 新增 `POST /api/user/login|register|send-code|login-code`（手机号+密码 BCrypt、手机号+6 位验证码；验证码存 Redis 5 分钟、60 秒限频，不接短信，接口直接返回模拟码；验证码登录未注册时自动建号）；`user` 表需新增 `password` 列与 `idx_user_phone`，迁移脚本 `docs/sql/user-pc-auth.sql` **待执行**；PC 端新增全局登录弹窗（默认登录 tab、可切注册；登录 tab 内密码/验证码切换），已接入详情页加购/立即购买、购物车入口，401 改为弹登录框而非跳转不存在的 `/login`。user-service 编译与前端 build 通过，待执行迁移并重启后联调登录→加购→下单。
   2026-10-30 商品实拍图替换（106~136，128 缺图）：桌面 `new` 的 90 张 2048² PNG（约 300MB）转 webp，主图 800²、缩略图 400²、详情图 1200²，合计 6.1MB；已放入 `upload/image/upload`、`opt/upload`、`body`，本地/生产均替换并写入 30 个商品的 `body`。主图 URL 加 `?v=20261030` 绕过 Cloudflare 一年缓存；生产备份 `/www/backup/product-images-replaced-20261030.tar.gz`。注意 `/image/**` 优先命中 `opt/`，所以主图 URL 实际返回 400² 缩略图。
   2026-10-30 商品标题/参数真实化：136 个商品的 title/specs 全部重新核对（126 个非机械表去掉「名称+卖点+随机参数」拼接，specs 按型号重写；机械表修正 127 天梭 80h、128 浪琴 64h、131 美度 80h、134 飞亚达 41mm；136 雷达 R30939102 查无型号，改为可核实的 R30939103）。本地与生产库均已执行 `12-fix-product-titles-specs.sql` / `13-fix-mechanical-watches.sql` 并验证：136 商品、0 空 specs、0 标题矛盾；生产备份 `/www/backup/products_before_title_fix_2026-10-30_175543.sql`。生成器改为优先读取 `product_curation.json`，不再把 specs 拼进标题。
   2026-10-30 后台 RBAC P1（菜单管理 + 令牌失效）：新增「系统管理 → 菜单管理」页面与 `/api/admin/system/menus/manage-tree|POST|PUT|DELETE` 接口（目录/菜单/按钮维护，父级/环/perms 唯一/删除保护）；common 新增 `AdminTokenRevocationStore`，`JwtInterceptor` 对 admin token 校验 Redis `auth:admin:invalid-before:{id}`，账号角色/状态、重置密码、角色菜单、菜单 perms/状态变更后旧 token 立即失效（超管排除、事务提交后写入、Redis 异常 fail-open）；前端守卫兼容旧 token（缺 permissions 自动清除）并修复缺权限时的重定向死循环；user/aftersale/file 补 Redis 配置。本地已用 admin/operator 实测：仅改姓名不踢、分配菜单/改菜单 perms/禁用账号均 401、重登恢复、超管不受影响；菜单 CRUD 正反用例全部通过，前端构建与菜单页冒烟通过。2026-10-30 已全量发布（product-service 因 yml 重复 timeout 首次启动失败，修复后单独重发），线上登录、菜单管理接口、前端 chunk 验证通过。菜单管理页 UI 同日定稿并发布：树表默认收起、图标以组件渲染在名称左侧、名称列左对齐固定 200px、类型列固定 90px、操作列 3 列对齐、表格自适应填满；管理员账号页操作列改为 编辑/重置密码/禁用(启用) 统一样式。
@@ -106,7 +107,7 @@
 - [x] 多租户沙箱彻底下线（2026-10-29，单店模式）；扫码进店/分享链接不再支持
 - [ ] WebSocket：RabbitMQ fanout 跨实例、发货/新售后事件（RabbitMQ 本地 demo 已完成）
 - [ ] 小程序重新上传：热门推荐（推荐分类优先）+ 单店化登录（不再传 shopId）
-- [ ] PC 商城 P2：后端补 C 端 demo 登录（user-service，dev profile，手机号 13800138000 换 user 令牌），再接购物车/下单
+- [ ] PC 商城 P2：登录/注册已实现（手机号+密码、手机号+模拟验证码；PC 登录弹窗），购物车/结算/模拟支付已接；待执行 `docs/sql/user-pc-auth.sql` 并重启 user-service 联调
 - [x] 商品扩容生产发布（2026-10-29）：SQL + 51~126 图片 + product-service 已上线
 - [ ] 商品扩容前端：小程序/后台/PC 接 specs、分类侧边栏（**分页已完成 2026-10-30**：小程序分类/搜索 + PC 列表/搜索均走 `/api/products/page`）
 - [ ] title 重命名生产收尾（本地已完成）：确认生产 `products.title` 已有值 → 部署 product-service/order-service 新代码 → 验证商品/库存/加购 → 执行 `06b-drop-description.sql` → 发布后台 `dist`

@@ -27,4 +27,12 @@ public interface UserMapper extends BaseMapper<User> {
     /** 用户总量（工作台统计卡用） */
     @Select("SELECT COUNT(*) FROM `user` WHERE is_deleted = 0")
     long countTotalUsers();
+
+    /**
+     * PC 端登录/注册查用户：按手机号取一条正常账号，并带出密码哈希。
+     * phone 没有唯一索引（历史数据可能重复），固定取最早注册的一条。
+     */
+    @Select("SELECT id, openid, name, phone, avatar, password FROM `user` " +
+            "WHERE phone = #{phone} AND is_deleted = 0 ORDER BY id ASC LIMIT 1")
+    User findForLoginByPhone(@Param("phone") String phone);
 }

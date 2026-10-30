@@ -20,10 +20,16 @@ import java.time.LocalDateTime;
 public class User {
     @TableId(type = IdType.AUTO)
     private Long id;
-    /** 所属店铺（模板店=1，多租户沙箱隔离键） */
+    /** 微信 openid；PC 账号没有微信身份，用 pc_ 前缀占位（该列 NOT NULL + 唯一键） */
     private String openid;
     private String name;
     private String phone;
+    /**
+     * PC 商城登录密码（BCrypt）。
+     * select=false：常规查询不把密文带到业务层，登录时由 UserMapper.findForLoginByPhone 单独读取。
+     */
+    @TableField(select = false)
+    private String password;
     private String sex;
     private String avatar;
     /** 会员等级 ID（member_level.id），默认 1 普通会员 */
