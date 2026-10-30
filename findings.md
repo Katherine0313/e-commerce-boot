@@ -325,6 +325,13 @@ ecommerce
 - 接口：C 端 `/api/coupons/center`、`/{templateId}/claim`、`/mine`、`/available`；后台 `/api/admin/coupons` CRUD + `/{id}/stop`、`/{id}/grant`、`/{id}/records`；`POST /api/orders/quote` 与下单 `couponId` 已接入。
 - 前端：后台 `pages/business/coupon/index.vue`（模板 CRUD、停止、定向/全量发券、领取记录），促销页迁到 `pages/business/promotion/index.vue`，菜单为「经营工具 → 促销活动 / 优惠券」；小程序新增「我的优惠券」「领券中心」，确认页自动选最优券并可切换，订单页展示优惠合计与券优惠；`utils/features.js` 的 `coupon` 已置 true。ecommerce-mall 本期未动。
 
+### 商品图片体积优化（2026-10-30）
+- 审计发现 `opt/upload` 缺 33~50 共 18 张缩略图（回落到 800px 原图，50.webp 186KB），另有 9/12/17/21/22/31/32 共 7 张 opt 超过 30KB。
+- 新增 `docs/sql/product-expand/generator/rebuild_opt_images.py`：从 `upload/image/upload/{id}.webp` 生成 400×400 白底 opt，quality 74、method 6；已补齐 18 张并重压 7 张，现在 136 张 opt 全部存在且均 ≤30KB（多数 5~18KB），50.webp 186KB → 8.6KB。图片已 scp 到生产 `/www/java/upload/image/opt/upload/`。
+- `WebMvcConfig` 图片缓存头由 `max-age=7d` 改为 `max-age=365d, immutable`（需重新发布 product-service 生效）。
+- 注意：Cloudflare 按 URL 缓存，33~50 之前缓存的是原图、7 张大图缓存的是旧 opt，**必须 Purge 这 25 个 URL** 后才会命中新文件；之后可 prewarm 全部图片。
+- 测速结论：内网 `/api/home` 79ms、`/api/products/hot` 13ms，公网均 ~1.4s；Cloudflare HIT 的 10.9KB 图片 TTFB 仍 1.65s → 瓶颈是 Cloudflare 香港跨境链路，不是后端/Redis。图片/API 若要明显变快，需图片走国内 CDN（COS+CDN 或 CDN 回源源站，源站 IP 仍隐藏），API 可评估 EdgeOne/全站加速或 Cloudflare China；灰云会暴露源站 IP，不采用。
+
 ### 库存预警表改名（2026-10-30）
 - `stock` 表只存库存预警配置（`min_stock/max_stock/alert_enabled`），当前库存仍在 `products.stock`；原名容易被误解为库存数量表，已改名为 **`stock_alert`**，唯一索引 `uk_stock_alert_product`、外键 `fk_stock_alert_product` 同步改名。
 - 脚本 `docs/sql/stock/01-rename-stock-alert.sql`（幂等）；本地与生产均已执行，生产备份 `/www/backup/e_commerce_db_before_stock_alert_2026-10-30_1020.sql`。

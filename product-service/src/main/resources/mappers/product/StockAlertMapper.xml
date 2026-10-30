@@ -27,7 +27,7 @@
         ORDER BY p.stock ASC, p.id ASC
     </select>
 
-    <select id="findByProductId" resultType="ecommerce.product.entity.Stock">
+    <select id="findByProductId" resultType="ecommerce.product.entity.StockAlert">
         SELECT id, product_id, alert_enabled, min_stock, max_stock, create_time, update_time
         FROM stock_alert
         WHERE product_id = #{productId}

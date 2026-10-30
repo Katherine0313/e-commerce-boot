@@ -5,6 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
+  2026-10-30 商品图体积优化：补齐 33~50 缺失的 400px opt 缩略图、重压 7 张 >30KB 的图，136 张 opt 全部 ≤30KB（50.webp 186KB→8.6KB），已同步生产；图片缓存头改 365d immutable（待发布 product-service）。Cloudflare 仍缓存旧图，需 Purge 25 个 URL 后生效。测速确认公网 ~1.4s 是 Cloudflare 香港跨境，Redis 不解决；后续图片走国内 CDN，API 再评估 EdgeOne/全站加速。
   2026-10-30 库存预警表改名 `stock` → `stock_alert`（它只存预警上下限/开关，当前库存在 `products.stock`）：本地+生产已迁移，索引/外键同步改名，代码实体/Mapper/XML 同步；种子文件原来 30 行全指向商品 1 的错误数据已按实际库重新导出为 `stock-alert-data.sql`。
   2026-10-30 会员 v1 完成（本地+生产已建表）：成长值等级制（0/500/2000/5000，后台可改），成长值=已支付实付−已退款、1 元=1 点、打开会员中心/我的页时重算回写，只升不降；后台「经营工具 → 会员」会员列表 + 等级配置；小程序会员卡 + 会员中心；优惠券支持「最低会员等级」门槛（领券/可用/核销校验）。不做积分/付费 VIP/会员价。生产备份 `/www/backup/e_commerce_db_before_member_2026-10-30_0951.sql`。
   2026-10-30 本地库单店化收尾：预检查无沙箱数据（18 表非主店计数全 0、跨店外键异常 0），执行 `single-shop-01-cleanup.sql` 与 `02-drop-shop-id.sql`，删除 18 表 `shop_id`、旧索引与 `shops` 表并重建单店唯一键；备份 `../backup_before_local_single_shop_2026-10-30.sql`。已与生产逐项核对：25 张表 / 292 个字段（名称/类型/可空）/ 89 条索引完全一致。同日促销与优惠券建表脚本在本地、生产均执行，生产备份 `/www/backup/e_commerce_db_before_promotion_coupon_2026-10-30_0939.sql`。

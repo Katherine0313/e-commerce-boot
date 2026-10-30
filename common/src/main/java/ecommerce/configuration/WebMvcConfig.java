@@ -62,12 +62,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addResourceHandler("/upload/**")
                 .addResourceLocations("file:upload/");
         // 商品图片：数据库 image 字段存 /image/upload/N.webp，映射到 upload/image/ 下的真实文件。
-        // opt/ 是压缩后的图片（分类 200px、商品 1024px、详情 1080px），优先命中；找不到再回落原图，
+        // opt/ 是压缩后的图片（分类 200px、商品主图 400px、详情图 1200px），优先命中；找不到再回落原图，
         // 这样不用改数据库里的历史路径，原图也保留可随时回滚。
         registry.addResourceHandler("/image/**")
                 .addResourceLocations("file:upload/image/opt/", "file:upload/image/")
-                // 图片内容按文件名固定，允许浏览器/小程序缓存；更新图片后需清 Cloudflare 缓存
-                .setCacheControl(CacheControl.maxAge(7, TimeUnit.DAYS).cachePublic());
+                // 图片内容按文件名固定，允许浏览器/小程序长期缓存；更新图片后需清 CDN 缓存
+                .setCacheControl(CacheControl.maxAge(365, TimeUnit.DAYS).cachePublic().immutable());
     }
 
 
