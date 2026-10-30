@@ -5,6 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
+  2026-10-30 C 端商品列表分页全接入：小程序分类页（scroll-view `@scrolltolower`，每页 12，首屏缓存 60s）/ 搜索页（`onReachBottom`，每页 12）、PC 商城列表/搜索（`加载更多`，每页 40）全部改用 `GET /api/products/page`；老 `/api/products` 保留兼容但三条 SQL 加 `LIMIT 200` 兜底。待发布：product-service（XML 上限）+ 小程序 `dist/build` + PC 商城 `dist`。
   2026-10-29 多租户彻底下线、退化为单店并**已完成生产迁移**：删除 shop-service 模块及网关路由/compose/release 项；JWT 不再签 shopId，`UserContext`/各服务 Mapper/XML/Service 全部去掉 `shop_id`；WebSocket 来单提醒改单集合广播；后台前端店铺名改静态配置 `src/utils/shop.js`；小程序登录不再传 SHOP_ID；AI 推荐服务同步去掉 `products.shop_id`，并补上生产 `.env` 的 `MYSQL_HOST=host.docker.internal`（此前 AI 商品查询一直连不上）。生产执行 01 清掉 2 家沙箱店（55/56）数据、按序发布 7 服务（auth 最后）、02 删除 18 表 `shop_id` 与 `shops` 表并重建唯一键；接口与 AI 商品读取验证通过，备份在服务器 `/www/backup/`。同日新增首页热门推荐接口（推荐分类优先、不足随机补）、修复后台新增商品 `sales_mode` 为空 500。另新建 PC 商城 `ecommerce-mall`（Vue3+Vite SPA），已替换原静态企业站上线 https://www.xiaojiecpn.com，Nginx 同源代理 `/api`、`/image`、`/upload` 到网关，首页/列表/详情/搜索接真实数据。后端商品扩容：`products.specs`（有序 JSON 数组）、分类重构为 8 个一级/21 个二级（原 502 运动手表并入 501，新增 503 机械普通手表）、商品整理为 126 件（保留 50 个现有 + 76 个按型号去重的种子 id 51~126，每叶子 6 件；后续新增 10 款机械/石英表 id 127~136，总数 136）、新增 `GET /api/products/page` 分页筛选接口；旧 `/api/products` 保持数组兼容。生产已执行 SQL、同步 51~126 唯一占位图并发布 product-service，线上验证 126 商品/分页/分类/specs 正常（生产额外有一个空的「家电」分类，用户自行删除）。同日 `products.description` 重命名为 `title`（主标题），`sub_title` 保留；主标题统一改为 SEO 长标题（名称+品牌型号+卖点+参数+官方正品），本地/生产数据与生成器已同步。
   2026-10-28 沙箱按浏览器复用（`shops.visitor_key` + 前端 UUID + 唯一索引，退出登录/401 不清 key，24h 内复用原店）；admin 用户名改 `admin_{shopId}`、`create_time` 改开店时间；订单金额注释/标签统一；软著三件套（TEST、源程序文档、用户手册）完成；发布切腾讯云 TCR 镜像（`ccr.ccs.tencentyun.com/jiemi-ecommerce`，9 个仓库，`deploy/release.sh` 一键发布/回滚），服务器 compose 已切 `image:` + `--no-build`，线上 9 容器 Up，网关直连与公网接口均 200。同日小程序提审被拒（VIP 入口点击无响应），新增 `utils/features.js` 功能开关，隐藏 VIP/优惠券/积分与用户协议/隐私政策死链，「联系我们」改跳已有客服页；新增 `deploy/release-web.sh`，后台管理端前端一条命令发布（npm build + rsync + 备份/回滚）；一键体验改为手机号验证码鉴权（`/api/admin/shops/sandbox`）；发布脚本修复多服务 tag 牵连（`docker-compose.override.yml` 固定各服务镜像 + `--no-deps` 部署）；面试演示确定走单店模式，登录页移除「一键体验」，恢复账号密码 / 手机号直接登录模板店，沙箱后端保留未使用。
   2026-10-27 运营报表导出改为模板式（黑马风格：Controller 3 行 + Service 读 `template/运营报表模板.xlsx` 写 response，删除旧 `OperationReportExcelWriter`）；同日运营报表统计口径由近 30 天改为本月（模板扩到 31 行，本月未过完时隐藏多余空行）；沙箱治理：user 克隆脱敏（假 openid、name 脱敏、phone/avatar 置 NULL）+ shop-service 每小时回收过期沙箱店 + 沙箱 token 24h 与店铺同寿命、前台到期强制登出。
@@ -49,6 +50,7 @@
   - Spring Cloud Gateway 5.x 默认移除 `X-Forwarded-*`，绝对 URL 的协议不能依赖它；对外 https 场景在 `UrlUtil` 兜底
 
 - **我做了什么？（近期）**
+  - 2026-10-30：商品真实图上线：51~105 共 165 张桌面原图转 WebP（522MB→9.3MB），主图 800/opt 400、详情图 1200；220 张已同步生产，`11-backfill-body-images.sql` 写入 55 个商品 body（本地+生产）
   - 2026-10-29：新增二级分类 503「机械普通手表」+ 10 款机械/石英表商品（id 127~136，天梭/浪琴/精工/卡西欧/美度/汉米尔顿/雪铁纳/飞亚达/西铁城/雷达），`10-mechanical-watches.sql` + `add_mechanical_watches.py` 占位图，本地已执行
   - 2026-10-29：分类合并：502「运动手表」并入 501「智能手表」（二级 21→20，手表下 12 件），`09-merge-watch-category.sql`，本地/生产均已执行并清分类缓存
   - 2026-10-29：副标题淘宝风格化：126 个商品 `sub_title` 改为「营销销量/加购 + 可开发票 + 品类口碑」一句话（` | ` 分隔，21~28 字），生成器 `fix_subtitles.py` + `07-fix-subtitles.sql`，本地/生产均已执行；同步修正 id=85（MX Master 3S 名称/标题/参数）与 id=76（title 脏字符），补生成器型号识别
@@ -89,13 +91,16 @@
 - [ ] 小程序重新上传：热门推荐（推荐分类优先）+ 单店化登录（不再传 shopId）
 - [ ] PC 商城 P2：后端补 C 端 demo 登录（user-service，dev profile，手机号 13800138000 换 user 令牌），再接购物车/下单
 - [x] 商品扩容生产发布（2026-10-29）：SQL + 51~126 图片 + product-service 已上线
-- [ ] 商品扩容前端：小程序/后台/PC 接 specs、分页、分类侧边栏
+- [ ] 商品扩容前端：小程序/后台/PC 接 specs、分类侧边栏（**分页已完成 2026-10-30**：小程序分类/搜索 + PC 列表/搜索均走 `/api/products/page`）
 - [ ] title 重命名生产收尾（本地已完成）：确认生产 `products.title` 已有值 → 部署 product-service/order-service 新代码 → 验证商品/库存/加购 → 执行 `06b-drop-description.sql` → 发布后台 `dist`
 - [ ] 删除生产多余的空「家电 / 电冰箱」分类（用户自行处理）
 - [ ] 后台新增商品 500 修复后的 product-service 需确认已发布到生产（代码已修，`sales_mode` 默认 spot）
 - [x] ~~个性化推荐/`/recommend`~~：用户决定近期不实现 Python recommend，继续销量兜底（2026-10-29）
-- [ ] 导购机器人后续能力：下单、RAG、商品卡片渲染（当前多轮对话 + 商品问答，已上线并加登录/限流）
-- [ ] 短信服务商：手机号登录目前仅演示号 13800138000 能收码，待接阿里云/腾讯云短信并关闭 `SMS_TEST_PHONE`
+- [ ] 导购机器人（阶段 8）：Function Calling 查库（search_products / check_stock / compare_price）+ 商品卡片渲染 + RAG（可选）；AI 下单闭环暂不做
+- [ ] RBAC 权限（role/permission/admin_role）+ 操作日志审计（AOP 切面，阶段 1）
+- [ ] 网关限流 + 接口防刷（IP/用户维度、下单频率、临时黑名单，阶段 10）
+- [ ] 消息通知中心（阶段 15）：模板/发送记录表、发货/退款/售后状态通知、站内信、短信
+- [ ] 短信服务商：手机号登录目前仅演示号 13800138000 能收码，待接阿里云/腾讯云短信并关闭 `SMS_TEST_PHONE`（并入阶段 15）
 - [ ] 微信支付接入（阶段 12）
 - [ ] 全链路端到端验证
 - [ ] `user.id_number` DB 空列待手动 DROP（代码已不引用，不阻塞）

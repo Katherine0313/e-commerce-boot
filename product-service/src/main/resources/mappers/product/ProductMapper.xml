@@ -3,7 +3,8 @@
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="ecommerce.product.mapper.ProductMapper">
-    <!-- 上架商品列表：不查 body（大字段）和 cost_price（C 端不下发成本价） -->
+    <!-- 上架商品列表：不查 body（大字段）和 cost_price（C 端不下发成本价）
+         安全上限 200：老接口不分页（前端已迁移到 /api/products/page），这里兜底防止全量返回拖垮小程序 -->
     <select id="listOnSale" resultType="ecommerce.product.entity.Product">
         SELECT id, category_id, tag_id, name, sub_title, brand, title, image,
                sales_mode, listing_status, sales_price, market_price, product_code, stock, weight, volume, specs,
@@ -11,6 +12,7 @@
         FROM products
         WHERE listing_status = 1
         ORDER BY id ASC
+        LIMIT 200
     </select>
 
     <!-- 商品详情：查 body，仍不下发 cost_price -->
@@ -46,6 +48,7 @@
               SELECT id FROM categories WHERE id = #{categoryId} OR parent_id = #{categoryId}
           )
         ORDER BY p.id ASC
+        LIMIT 200
     </select>
 
     <!-- 按关键词搜索上架商品：匹配商品名/副标题/品牌，不含 body/cost_price -->
@@ -59,6 +62,7 @@
                OR sub_title LIKE CONCAT('%', #{keyword}, '%')
                OR brand LIKE CONCAT('%', #{keyword}, '%'))
         ORDER BY id ASC
+        LIMIT 200
     </select>
 
     <!-- 随机取上架商品（首页下拉刷新「换一批」用）；excludeIds 排除当前已展示的，避免刷新后大量重复 -->

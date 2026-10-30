@@ -17,12 +17,14 @@
 | `08-fix-seed-data.sql` | 修正种子脏数据：id=76 title 去掉「c」、id=85 名称/标题/参数（生成器未识别 MX Master 3S） |
 | `09-merge-watch-category.sql` | 合并「运动手表」(502) 到「智能手表」(501) |
 | `10-mechanical-watches.sql` | 新增「机械普通手表」(503) + 10 款机械/石英表商品（id 127~136） |
+| `11-backfill-body-images.sql` | 为 id 51~105 商品写入图文详情 body（`/image/body/{id}-1.webp`、`{id}-2.webp`） |
 | `05-indexes.sql` | 分页/筛选索引（幂等） |
 | `06a-add-title.sql` | products 加 title 并复制 description（发新代码前） |
 | `06b-drop-description.sql` | 新代码上线后删除 description |
 | `99-verify.sql` | 数量/specs/图片校验 |
 | `generator/generate_catalog.py` | 重新生成 03/03a/04 和 51~126 唯一占位图 |
 | `generator/fix_subtitles.py` | 重新生成 `07-fix-subtitles.sql`（按 id 稳定生成营销数字） |
+| `generator/convert_product_images.py` | 桌面原图 PNG → WebP：`{id}.png` 主图（800/400 opt）、`{id}-1/2.png` 详情图（1200） |
 
 ## 执行顺序
 
@@ -46,6 +48,7 @@ mysql ... e_commerce_db < docs/sql/product-expand/07-fix-subtitles.sql
 mysql ... e_commerce_db < docs/sql/product-expand/08-fix-seed-data.sql
 mysql ... e_commerce_db < docs/sql/product-expand/09-merge-watch-category.sql
 mysql ... e_commerce_db < docs/sql/product-expand/10-mechanical-watches.sql
+mysql ... e_commerce_db < docs/sql/product-expand/11-backfill-body-images.sql
 mysql ... e_commerce_db < docs/sql/product-expand/99-verify.sql
 # 部署新 product-service / order-service 后：
 mysql ... e_commerce_db < docs/sql/product-expand/06b-drop-description.sql
@@ -61,7 +64,7 @@ redis-cli --scan --pattern 'category:parent:*' | xargs -r redis-cli DEL
 
 1. 备份数据库
 2. 上传 `product-expand/` 到服务器
-3. 依次执行 00/01/02/03/03a/04/05-indexes/06a/05-fix-titles/07-fix-subtitles/08-fix-seed-data/09-merge-watch-category/10-mechanical-watches/99（用 `deploy/run-sql-prod.sh`）
+3. 依次执行 00/01/02/03/03a/04/05-indexes/06a/05-fix-titles/07-fix-subtitles/08-fix-seed-data/09-merge-watch-category/10-mechanical-watches/11-backfill-body-images/99（用 `deploy/run-sql-prod.sh`）
 4. 同步图片：本机 `upload/image/upload/51~126.webp` 和 `upload/image/opt/upload/51~126.webp` → 服务器 `/www/java/upload/image/` 对应目录
 5. 清 Redis `category:parent:*`
 6. 部署 product-service / order-service（新代码只读写 `title`）

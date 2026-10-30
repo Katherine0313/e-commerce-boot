@@ -295,11 +295,13 @@ ecommerce
 - 分类重构为 **8 个一级 / 21 个二级**：id=4 改名「耳机音箱」；新增 7「数码配件」（701~704）、8「智能家居」（801~804）；`listOnSaleByCategory` 改为 `category_id IN (SELECT id ... id=? OR parent_id=?)`，一级/二级都能过滤。原 502「运动手表」与 501「智能手表」边界模糊（种子按叶子轮询，导致 Watch Ultra/Ultra 2、GT 4/GT 5 同系列拆开），已用 `09-merge-watch-category.sql` 合并到 501；随后用 `10-mechanical-watches.sql` 新增 503「机械普通手表」（传统指针表：机械/石英）和 10 款商品 id 127~136。
 - 商品整理为 **126 件**：现有 50 个保留并补 specs，新增 id 51~126（`SEED-{id}`，按型号去重，图片 `{id}.webp`）；每个叶子 6 个；旧版 51~300 的「标准版/增强版」伪变体通过 `03a-remove-old-seed.sql` 清理；脚本在 `docs/sql/product-expand/`，生成器 `generator/generate_catalog.py`。
 - 新接口 `GET /api/products/page?page=&pageSize=&categoryId=&keyword=&brand=&minPrice=&maxPrice=&sort=`，返回 `PageVO<ProductVO>`；pageSize clamp 60，sort 白名单（default/newest/price_asc/price_desc）；旧 `/api/products` 仍返回数组，仅分类过滤增强，兼容小程序/PC。
+- 2026-10-30 前端接入分页：小程序分类页（`@scrolltolower`，每页 12，首屏缓存 60s）与搜索页（`onReachBottom`，每页 12）、PC 商城列表/搜索（“加载更多”，每页 40）全部改用 `/api/products/page`；老 `/api/products` 的三条 SQL（`listOnSale`/`listOnSaleByCategory`/`searchOnSale`）统一加 `LIMIT 200` 兜底，避免旧客户端全量拉取。
 - 后台 `listAdmin/countAdmin` 分类筛选也支持一级/二级；`AdminProductVO/DTO` 增加 specs（实际是驼峰，勿加 SnakeCase）。
 - 分类缓存新增 `CategoryCacheEvictor`，后台分类/商品写操作后清 `category:parent:*`。
 - `products.description` 重命名为 `title`（中文叫**主标题**，`sub_title` 保留）；后端实体/VO/DTO/Mapper 全部改为 title，order-service 商品快照用 `title AS description` 兼容购物车表。
 - 主标题内容为 SEO 长标题：名称（含品牌+型号+品类）+ 卖家卖点 + 3 个关键参数 + 官方正品/现货速发；脚本 `05-fix-titles.sql`，生成器 `fix_titles.py`。
 - `sub_title` 采用淘宝风格：一句话 21~28 字，销量/加购营销数字 + 可开发票 + 品类口碑短语，三段用 ` | ` 分隔（中文逗号在列表卡片里太碎）；脚本 `07-fix-subtitles.sql`，生成器 `fix_subtitles.py`。数字按商品 id 稳定生成（演示用，非真实销量）。
+- 商品真实图转换：桌面原图 `{id}.png` → 主图 `upload/image/upload/{id}.webp`（800×800，非正方形等比+白底）与 `opt/upload/{id}.webp`（400×400）；`{id}-1/2.png` → `upload/image/body/{id}-1.webp`（最长边 1200）。脚本 `generator/convert_product_images.py`。51~105 共 165 张，522MB → 9.3MB。`WebMvcConfig` 优先返回 opt，所以接口里 `/image/upload/{id}.webp` 实际是 400px。
 - 生成器 `kind_of` 原来只认型号里带「鼠标」二字，`MX Master 3S` 被判成 generic，名称/标题/参数全落成兜底「商品」+ 手机壳模板；已补型号兜底，并用 `08-fix-seed-data.sql` 修正 id=85（名称/标题/参数）和 id=76（title 里混入的脏字符 `c`）。
 - 本地与生产均已执行数据脚本并验证：8/21/126、每叶子 6、商品名全唯一、specs 无空值、分页/筛选/排序/后台 specs 读写均通过。生产备份 `/www/backup/e_commerce_db_before_product_expand_2026-10-29_1935.sql`；生产额外有一个空的「家电 / 电冰箱」分类，用户自行删除。
 
