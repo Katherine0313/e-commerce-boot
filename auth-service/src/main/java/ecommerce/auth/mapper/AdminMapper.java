@@ -9,7 +9,4 @@ public interface AdminMapper {
 
     // 按 id 查管理员（查当前登录用户用）
     Admin findById(@Param("id") Long id);
-
-    // 按手机号查管理员（手机号验证码登录用）
-    Admin findByPhone(@Param("phone") String phone);
 }

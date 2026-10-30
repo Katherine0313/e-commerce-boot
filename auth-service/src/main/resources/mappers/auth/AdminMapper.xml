@@ -13,12 +13,4 @@
         FROM `admin`
         WHERE id = #{id}
     </select>
-    <!-- 手机号未加唯一索引，取最早创建的一条，避免脏数据导致登录异常 -->
-    <select id="findByPhone" resultType="ecommerce.auth.entity.Admin">
-        SELECT *
-        FROM `admin`
-        WHERE phone = #{phone}
-        ORDER BY id
-        LIMIT 1
-    </select>
 </mapper>

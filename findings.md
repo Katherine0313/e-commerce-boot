@@ -332,6 +332,13 @@ ecommerce
 - 注意：Cloudflare 按 URL 缓存，33~50 之前缓存的是原图、7 张大图缓存的是旧 opt，**必须 Purge 这 25 个 URL** 后才会命中新文件；之后可 prewarm 全部图片。
 - 测速结论：内网 `/api/home` 79ms、`/api/products/hot` 13ms，公网均 ~1.4s；Cloudflare HIT 的 10.9KB 图片 TTFB 仍 1.65s → 瓶颈是 Cloudflare 香港跨境链路，不是后端/Redis。图片/API 若要明显变快，需图片走国内 CDN（COS+CDN 或 CDN 回源源站，源站 IP 仍隐藏），API 可评估 EdgeOne/全站加速或 Cloudflare China；灰云会暴露源站 IP，不采用。
 
+### 后台登录改造（2026-10-30）
+- 移除后台手机号验证码登录：删除 auth-service `/api/auth/sms-code`、`/api/auth/phone-login`、`SmsCodeVO`/`PhoneLoginDTO`/`SendSmsCodeDTO`、SMS 配置以及 `AdminMapper.findByPhone`。
+- 新增图形验证码：`GET /api/auth/captcha` 返回 `captchaId` + base64 PNG；答案存 Redis `auth:captcha:{id}`，180 秒，校验后立即删除（一次性）；`POST /api/login` 必须带 `captchaId/captchaCode`。
+- 网关 auth-service 路由、`WebMvcConfig` 白名单同步改为 `/api/auth/captcha`；后台登录页移除手机号入口，改为账号密码 + 图形验证码，登录失败自动刷新验证码。
+- 仍未处理：登录页生产环境预填 `admin/admin123`、`admin.password` 明文存储/比较。
+- 注意：生产发布顺序为 **auth-service + gateway + 后台 dist**；captcha 依赖 Redis。
+
 ### 库存预警表改名（2026-10-30）
 - `stock` 表只存库存预警配置（`min_stock/max_stock/alert_enabled`），当前库存仍在 `products.stock`；原名容易被误解为库存数量表，已改名为 **`stock_alert`**，唯一索引 `uk_stock_alert_product`、外键 `fk_stock_alert_product` 同步改名。
 - 脚本 `docs/sql/stock/01-rename-stock-alert.sql`（幂等）；本地与生产均已执行，生产备份 `/www/backup/e_commerce_db_before_stock_alert_2026-10-30_1020.sql`。
@@ -352,7 +359,7 @@ ecommerce
 - 已上线：首页（分类 + 猜你喜欢）、商品列表/分类、商品详情、搜索，均接真实 C 端接口；游客可浏览。
 - 发布：`npm run build` 后，在 e-commerce-boot 里 `export WEB_DIR=.../ecommerce-mall`、`export WEB_ROOT=/www/wwwroot/xiaojiecpn.com`、`./deploy/release-web.sh --no-build`（脚本会留 `.bak.<时间戳>` 备份）。`release-web.sh` 的完成提示已改为按实际 `WEB_ROOT` 输出。
 - 约定：单店 B2C、不做商家入驻、不做 SKU；登录后置，首页/浏览不登录，加购/购买再登录。
-- **Web 登录缺口**：`/api/auth/phone-login` 是后台 admin 登录，签 admin 令牌，C 端接口会拒绝；P2 需在 user-service 加 dev 专用 demo 登录（手机号 13800138000 → user 令牌）。
+- **Web 登录缺口**：后台 admin 手机号登录已于 2026-10-30 移除，改为账号密码 + 图形验证码；PC 商城若要 demo 登录，仍需在 user-service 加 dev 专用接口（手机号 → user 令牌），不能复用后台 admin 登录。
 - 文档：`ecommerce-mall/README.md`（决策、P0-P5 checklist、发布步骤）。
 
 ### WebSocket 来单提醒

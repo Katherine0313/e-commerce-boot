@@ -29,8 +29,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
      */
     public static final List<String> EXCLUDE_AUTH_PATHS = List.of(
             "/api/wxlogin", "/api/login", "/api/logout",
-            // 手机号验证码登录：发送验证码 / 验证码换令牌，登录前必然没有 token
-            "/api/auth/sms-code", "/api/auth/phone-login",
+            // 后台登录图形验证码：登录前必然没有 token
+            "/api/auth/captcha",
             // C 端商品浏览（裸路径=列表，/**=详情等子路径），只读接口免登录
             "/api/products", "/api/products/**",
             "/api/categories", "/api/categories/**",
