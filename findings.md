@@ -346,8 +346,20 @@ ecommerce
   - 密码：新增/重置统一 BCrypt（`spring-security-crypto`）；历史明文密码登录成功后自动升级；登录兼容 BCrypt 与旧明文。
   - API：`/api/admin/system/users`、`/roles`、`/menus/tree`，分别用 `system:user:*` / `system:role:*` / `system:role:assign` 权限。
   - 实测：admin 访问 system 接口 200，operator 403；新增账号落库为 `$2a$10$...` 且可用新密码登录；角色菜单分配可保存。
-- 未做（P1 剩余）：菜单管理 CRUD 页面、菜单动态路由、操作日志/登录日志、角色变更强制下线（权限在 JWT 里，角色调整后需重新登录）、清理生产演示账号。
+- P1 剩余（2026-10-30 更新）：菜单管理 CRUD、角色/菜单变更强制下线已完成（见下节）；剩操作日志/登录日志、菜单动态路由（暂缓）、清理生产演示账号。
 - 发布顺序：**auth-service 先发**（新令牌才带 permissions），再发 product/order/aftersale/user/gateway，最后后台 dist；旧 token 需要重新登录。
+
+### 后台菜单管理 + 令牌失效（2026-10-30）
+- 菜单管理：`GET /api/admin/system/menus/manage-tree`（含停用/隐藏/按钮）+ `POST/PUT/DELETE /api/admin/system/menus`，权限 `system:menu:list/add/edit/remove`；角色分配继续用 `GET /menus/tree`（仅 status=1，权限 `system:role:assign`），两个 VO 分开，RoleList 不受影响。
+- 菜单校验：类型 M/C/F；父级必须存在且不能是 F；F 必须挂在 C 下且不能挂根；编辑时向上遍历父链检测环；C 必须有 `/` 开头的 path；perms 非空时全局唯一（应用层，无 DB 唯一索引）；有子级不能改类型；有子级或被 `admin_role_menu` 引用不能删除。
+- 令牌失效：不新增数据库列，Redis 存 `auth:admin:invalid-before:{adminId}`（epoch 秒，TTL = `jwt.expire + 60`）；common `AdminTokenRevocationStore` 负责读写，`JwtInterceptor` 对 admin token 比较 `iat < 失效时间点` 即返回 401。账号角色/状态/重置密码、角色状态/菜单分配、菜单 perms/status 变化时，在**事务提交后**写入失效标记（`TransactionSynchronization.afterCommit`）；超管（`role_key=admin`，权限固定 `*:*:*`）不参与角色/菜单的批量失效。只改姓名/手机号/菜单名称排序图标不会踢人。Redis 异常 fail-open，warn 日志每分钟最多一条。
+- 部署注意：`JwtInterceptor` 在 common，所有依赖 common 的服务都要重新发布；`user/aftersale/file` 补了 `spring.data.redis` 配置，auth/product/order 补 `timeout: 2s`。
+- 前端守卫：token 缺 `permissions`/不是 admin/解析失败 → 清 token 回登录页；缺路由权限时跳第一个有权限的静态路由，找不到再清 token，彻底避免 `/workplace` 自跳死循环。
+- 后台表格列宽：**不要给所有列都写 `width`**。Ant Design Vue 会给固定宽度列生成 colgroup，总宽小于容器时表格右侧会留白（菜单管理曾在 1920 下空出 337px，和右上角按钮对不齐）；保留少量窄列固定宽度，文字列留空自动分配。给名称列写 `width: 1px` 想按内容收缩也不行——colgroup 会按 1px 硬约束，把展开图标和名称挤成两行。
+- 菜单管理树表 UI（2026-10-30 定稿）：默认收起（保留用户手动展开的层级，新增子项后展开父级）；图标用 stepin 全局注册的 Ant 图标组件 `<component :is="record.icon">` 渲染，不单独占列，放在名称左侧；名称列 `align:left` + 固定 200px，让 `+`、图标、名称紧挨；「类型」保持独立列固定 90px；路由路径/权限标识自适应填满剩余宽度。
+- 操作列：条件按钮（删除/禁用）缺失时用固定 3 列 grid + 空占位补齐，避免每行按钮个数不同导致居中错位；按钮统一 `type="link"`，危险操作用 `danger`。
+- 管理员账号页：状态列改 `a-tag`，操作列新增「禁用/启用」+ `a-popconfirm` 二次确认（禁用会立即让对方 token 失效）；超管 id=1 和当前登录账号不显示禁用按钮。
+- 已知限制：`iat` 秒级精度，变更与签发同秒最多延迟 1 秒失效；WebSocket 握手后不因失效主动断开；父菜单停用不级联子菜单权限（旧行为）。
 
 ### 后台登录改造（2026-10-30）
 - 移除后台手机号验证码登录：删除 auth-service `/api/auth/sms-code`、`/api/auth/phone-login`、`SmsCodeVO`/`PhoneLoginDTO`/`SendSmsCodeDTO`、SMS 配置以及 `AdminMapper.findByPhone`。

@@ -1,6 +1,7 @@
 package ecommerce.interceptor;
 
 import ecommerce.exception.BusinessException;
+import ecommerce.security.AdminTokenRevocationStore;
 import ecommerce.utils.JwtUtil;
 import ecommerce.utils.UserContext;
 import io.jsonwebtoken.Claims;
@@ -35,10 +36,12 @@ public class JwtInterceptor implements HandlerInterceptor {
     private static final String ADMIN_PATH = "/api/admin";
 
     private final JwtUtil jwtUtil;
+    private final AdminTokenRevocationStore revocationStore;
 
-    public JwtInterceptor(JwtUtil jwtUtil) {
+    public JwtInterceptor(JwtUtil jwtUtil, AdminTokenRevocationStore revocationStore) {
 
         this.jwtUtil = jwtUtil;
+        this.revocationStore = revocationStore;
     }
 
     @Override
@@ -74,8 +77,17 @@ public class JwtInterceptor implements HandlerInterceptor {
         if (subject == null || subject.isBlank()) {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "登录信息不完整，请重新登录");
         }
+        Long userId = Long.valueOf(subject);
+        // 管理员令牌：角色/菜单/账号状态变更后，旧 token 立即失效（Redis 记录失效时间点）
+        if (JwtUtil.TYPE_ADMIN.equals(actualType)) {
+            java.util.Date issuedAt = claims.getIssuedAt();
+            if (issuedAt == null || revocationStore.isInvalid(userId, issuedAt.toInstant().getEpochSecond())) {
+                log.info("管理员令牌已失效: adminId={}", userId);
+                throw new BusinessException(HttpStatus.UNAUTHORIZED, "登录状态已变更，请重新登录");
+            }
+        }
         // 存入本次请求的上下文，Controller / Service 里用 UserContext 取
-        UserContext.setUserId(Long.valueOf(subject));
+        UserContext.setUserId(userId);
         // 后台令牌里带了 roles/permissions，后续 PermissionInterceptor 直接读上下文
         UserContext.setAuth(readStringList(claims.get("roles")), readStringList(claims.get("permissions")));
         return true;

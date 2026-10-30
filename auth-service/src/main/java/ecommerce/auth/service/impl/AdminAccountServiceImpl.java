@@ -7,6 +7,7 @@ import ecommerce.auth.mapper.AdminMapper;
 import ecommerce.auth.mapper.AdminRoleMapper;
 import ecommerce.auth.mapper.AdminUserRoleMapper;
 import ecommerce.auth.service.AdminAccountService;
+import ecommerce.auth.support.AdminTokenInvalidator;
 import ecommerce.auth.support.PasswordUtil;
 import ecommerce.auth.vo.AdminAccountVO;
 import ecommerce.common.PageVO;
@@ -17,9 +18,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -32,12 +35,15 @@ public class AdminAccountServiceImpl implements AdminAccountService {
     private final AdminMapper adminMapper;
     private final AdminRoleMapper adminRoleMapper;
     private final AdminUserRoleMapper adminUserRoleMapper;
+    private final AdminTokenInvalidator adminTokenInvalidator;
 
     public AdminAccountServiceImpl(AdminMapper adminMapper, AdminRoleMapper adminRoleMapper,
-                                   AdminUserRoleMapper adminUserRoleMapper) {
+                                   AdminUserRoleMapper adminUserRoleMapper,
+                                   AdminTokenInvalidator adminTokenInvalidator) {
         this.adminMapper = adminMapper;
         this.adminRoleMapper = adminRoleMapper;
         this.adminUserRoleMapper = adminUserRoleMapper;
+        this.adminTokenInvalidator = adminTokenInvalidator;
     }
 
     @Override
@@ -95,6 +101,8 @@ public class AdminAccountServiceImpl implements AdminAccountService {
     @Transactional
     public void update(Long id, AdminAccountDTO dto) {
         Admin existing = requireAdmin(id);
+        // 记录原角色，用于判断变更后是否需要让旧 token 立即失效
+        List<Long> oldRoleIds = adminUserRoleMapper.listRoleIds(id);
         if (dto == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "参数不能为空");
         }
@@ -123,6 +131,14 @@ public class AdminAccountServiceImpl implements AdminAccountService {
         adminMapper.update(update);
         adminUserRoleMapper.deleteByAdminId(id);
         saveRoles(id, roles);
+        // 只有角色或状态变化才让旧 token 失效；仅改姓名/手机号不影响登录态
+        Set<Long> newRoleIds = roles.stream().map(AdminRole::getId).collect(Collectors.toSet());
+        boolean authChanged = !Objects.equals(existing.getStatus(), status)
+                || !Objects.equals(existing.getRole(), update.getRole())
+                || !new HashSet<>(oldRoleIds).equals(newRoleIds);
+        if (authChanged) {
+            adminTokenInvalidator.invalidateAfterCommit(id);
+        }
     }
 
     @Override
@@ -132,6 +148,8 @@ public class AdminAccountServiceImpl implements AdminAccountService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "密码至少 6 位");
         }
         adminMapper.updatePassword(id, PasswordUtil.encode(password), LocalDateTime.now());
+        // 重置密码后强制该账号重新登录
+        adminTokenInvalidator.invalidateAfterCommit(id);
     }
 
     // ==================== 内部方法 ====================

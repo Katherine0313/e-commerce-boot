@@ -7,6 +7,7 @@ import ecommerce.auth.mapper.AdminMenuMapper;
 import ecommerce.auth.mapper.AdminRoleMapper;
 import ecommerce.auth.mapper.AdminUserRoleMapper;
 import ecommerce.auth.service.AdminRoleService;
+import ecommerce.auth.support.AdminTokenInvalidator;
 import ecommerce.auth.vo.AdminRoleVO;
 import ecommerce.auth.vo.MenuVO;
 import ecommerce.exception.BusinessException;
@@ -17,10 +18,13 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 后台角色管理实现。
@@ -31,12 +35,15 @@ public class AdminRoleServiceImpl implements AdminRoleService {
     private final AdminRoleMapper adminRoleMapper;
     private final AdminMenuMapper adminMenuMapper;
     private final AdminUserRoleMapper adminUserRoleMapper;
+    private final AdminTokenInvalidator adminTokenInvalidator;
 
     public AdminRoleServiceImpl(AdminRoleMapper adminRoleMapper, AdminMenuMapper adminMenuMapper,
-                                AdminUserRoleMapper adminUserRoleMapper) {
+                                AdminUserRoleMapper adminUserRoleMapper,
+                                AdminTokenInvalidator adminTokenInvalidator) {
         this.adminRoleMapper = adminRoleMapper;
         this.adminMenuMapper = adminMenuMapper;
         this.adminUserRoleMapper = adminUserRoleMapper;
+        this.adminTokenInvalidator = adminTokenInvalidator;
     }
 
     @Override
@@ -96,8 +103,18 @@ public class AdminRoleServiceImpl implements AdminRoleService {
                 .updateTime(LocalDateTime.now())
                 .build();
         adminRoleMapper.update(update);
+        boolean statusChanged = !Objects.equals(existing.getStatus(), status);
+        boolean menusChanged = false;
         if (dto.getMenuIds() != null) {
+            Set<Long> oldMenuIds = new HashSet<>(adminRoleMapper.listMenuIds(id));
+            Set<Long> newMenuIds = dto.getMenuIds().stream()
+                    .filter(Objects::nonNull).collect(Collectors.toSet());
+            menusChanged = !oldMenuIds.equals(newMenuIds);
             saveMenus(id, dto.getMenuIds());
+        }
+        // 角色停用或菜单权限变化：该角色下的管理员旧 token 立即失效
+        if (statusChanged || menusChanged) {
+            adminTokenInvalidator.invalidateAfterCommit(adminUserRoleMapper.listAdminIdsByRoleId(id));
         }
     }
 
@@ -119,7 +136,14 @@ public class AdminRoleServiceImpl implements AdminRoleService {
     @Transactional
     public void assignMenus(Long id, List<Long> menuIds) {
         requireRole(id);
-        saveMenus(id, menuIds == null ? List.of() : menuIds);
+        List<Long> target = menuIds == null ? List.of() : menuIds;
+        Set<Long> oldMenuIds = new HashSet<>(adminRoleMapper.listMenuIds(id));
+        Set<Long> newMenuIds = target.stream().filter(Objects::nonNull).collect(Collectors.toSet());
+        saveMenus(id, target);
+        // 菜单集合有变化才让该角色下的管理员重新登录
+        if (!oldMenuIds.equals(newMenuIds)) {
+            adminTokenInvalidator.invalidateAfterCommit(adminUserRoleMapper.listAdminIdsByRoleId(id));
+        }
     }
 
     @Override

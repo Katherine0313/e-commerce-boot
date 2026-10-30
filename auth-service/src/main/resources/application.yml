@@ -27,6 +27,8 @@ spring:
       # 图形验证码答案存 Redis；密码不写进 yml，生产用 SPRING_DATA_REDIS_PASSWORD 注入
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
+      # 管理员令牌失效标记读取；限制 Redis 不可达时的最坏耗时
+      timeout: 2s
 
 server:
   port: 9001

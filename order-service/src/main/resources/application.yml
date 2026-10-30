@@ -33,6 +33,8 @@ spring:
     redis:
       host: ${REDIS_HOST:127.0.0.1}
       port: ${REDIS_PORT:6379}
+      # 管理员令牌失效标记读取；限制 Redis 不可达时的最坏耗时
+      timeout: 2s
   # 定时任务线程池：超时关单 / 自动确认 / 未支付提醒互不阻塞
   #（微信接口偶发慢调用时，不能拖住超时关单）
   task:

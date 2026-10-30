@@ -20,4 +20,19 @@
         SELECT COUNT(*) FROM admin_user_role WHERE role_id = #{roleId}
     </select>
 
+    <!-- 角色变更后需要失效的管理员；超级管理员权限固定 *:*:*，不参与 -->
+    <select id="listAdminIdsByRoleId" resultType="long">
+        SELECT DISTINCT ur.admin_id
+        FROM admin_user_role ur
+        WHERE ur.role_id = #{roleId}
+          AND NOT EXISTS (
+              SELECT 1
+              FROM admin_user_role ur2
+                       JOIN admin_role r2 ON r2.id = ur2.role_id
+              WHERE ur2.admin_id = ur.admin_id
+                AND r2.role_key = 'admin'
+          )
+        ORDER BY ur.admin_id
+    </select>
+
 </mapper>

@@ -99,9 +99,9 @@
 - [✓] 订单未支付一次性订阅消息（2026-10-25）：提交订单时授权 → 下单写入 `is_subscribe_unpaid` → 第 20 分钟推送 → 点击跳 `pending-pay?orderNo`；access_token 改为 Redis 全局共享
 - [✓] 物流轨迹过滤未来时间（2026-10-26）：`buildLogistics` 只返回当前时间之前已发生的轨迹（`addTraceIfPast`）
 - [✓] 工作台累计销售额/订单量改后端聚合（`/api/admin/report/headline`），新增本月运营数据报表 Excel 导出（`/api/admin/report/export`，2026-10-26，2026-10-27 由近 30 天改为本月）
-- [ ] 运营数据导出上线：新版 order-service 已随 TCR 镜像部署；待上传新后台 `dist` + 清缓存 + 验证 xlsx 下载
+- [ ] 运营数据导出验证：order-service 与后台 `dist` 均已发布；待验证 xlsx 下载
 - [ ] 订阅消息上线：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，order/user 已随 TCR 部署；待小程序发行后验证推送
-- [ ] 后台管理端 `dist` 重新构建上传（sandboxVisitor、订单金额标签），否则沙箱复用不生效
+- [✓] ~~后台管理端 `dist` 重新构建上传（sandboxVisitor、订单金额标签）~~：沙箱已下线，后台 dist 已多次发布（2026-10-30）
 - [ ] 购物车加购校验上架状态（`ProductMapper.findById` 无 `listing_status` 过滤）
 - [ ] 购物车 5 接口端到端验证
 - [✓] 地址/购物车归属校验补齐：`AddressMapper.findById/update/deleteById`、`CartMapper.update` 全部加 `user_id` 条件（2026-10-24，用户不再走沙箱方案）
@@ -131,7 +131,7 @@
 - [✓] AI 迁移上线（2026-10-26）：网关 `/api/agent/**` → `http://ai-service:8000`；线上 `/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）
 - [✓] 发布切 TCR 镜像（2026-10-28）：初始 9 个仓库，2026-10-29 移除 shop-service 后为 8 个（7 Java + ai-service）；compose 加 `image:`；`deploy/release.sh` 支持构建/推送/回滚；服务器已切 `image:` + `--no-build`
 - [✓] 后台管理端一键发布（2026-10-28）：`deploy/release-web.sh` 构建 `../e-commerce` → rsync 到 `/www/wwwroot/jiemids.com`，保留运行时文件，支持 `--no-build` / `--dry-run` / `--rollback`
-- [ ] 分类图收尾：webp 已上传、生产库已改 `.webp`；待重建 product/user 容器 + 清 CF 缓存
+- [ ] 分类图收尾：webp 已上传、生产库已改 `.webp`；product/user 已多次发布（含 2026-10-30 全量）；待清 CF 缓存
 - [✓] 线上问题修复（2026-10-25）：小程序审核白屏（上传了 `dist/dev`，接口地址是 127.0.0.1 → 改传 `dist/build`）、分类接口 Redis 降级 + Redis 容器化、用户头像 http→https（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg（iOS 兼容）
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + 后台三个域名（request/uploadFile/downloadFile）
 - [ ] 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分/协议死链已于 2026-10-28 用功能开关隐藏）
@@ -262,8 +262,8 @@
 
 ### 阶段 18：后台 RBAC 权限与审计（2026-10-30 起）
 
-> P0 代码已完成、本地/生产库已建表，服务待发布；当前权限写在 JWT 里，角色调整后需要重新登录。
-> P1 把种子数据变成可视化维护，并补审计。
+> P0/P1 代码已完成并全量发布，本地/生产库已建表。
+> P1 把种子数据变成可视化维护，并补审计；2026-10-30 已补菜单管理与「权限变更后旧 token 立即失效」（Redis 失效时间点），不再需要等重新登录。
 
 **P0 已完成**
 - [✓] 表：`admin_role` / `admin_menu` / `admin_user_role` / `admin_role_menu`；脚本 `docs/sql/rbac/01-rbac-schema.sql`
@@ -277,18 +277,18 @@
 - [✓] 「系统管理 → 管理员账号」：列表、新增、禁用、重置密码、分配角色（2026-10-30）
 - [✓] 「系统管理 → 角色管理」：角色 CRUD + 菜单树勾选分配（2026-10-30）
 - [✓] 密码 BCrypt：新增/重置用 BCrypt，历史明文登录成功后自动升级（2026-10-30）
-- [ ] 「系统管理 → 菜单管理」：目录/菜单/按钮维护
-- [ ] 动态路由：前端根据 `admin_menu` 生成路由和侧边栏（当前为静态路由 + 权限过滤）
+- [✓] 「系统管理 → 菜单管理」：目录/菜单/按钮维护 + 树表默认收起/图标渲染/操作列对齐（2026-10-30，已发布）
+- [ ] 动态路由：前端根据 `admin_menu` 生成路由和侧边栏（**暂缓**：静态路由 + 权限过滤已够用，动态路由收益低、回归风险高）
 - [ ] 删除生产演示账号、去掉登录页演示预填
 - [ ] 操作日志 + 登录日志：表 + AOP 注解 + 异步写入 + 后台只读页面
-- [ ] 角色/菜单变更后强制下线或刷新 token，避免 JWT 里旧权限继续生效
+- [✓] 角色/菜单变更后强制下线或刷新 token：Redis `auth:admin:invalid-before:{id}` + JwtInterceptor 校验（2026-10-30，已发布）
 
 **P2：增强**
 - [ ] 数据权限（部门/门店维度，按需）
 - [ ] 改价 / 退款审核 / 导出等敏感操作二次授权
 - [ ] MFA、IP 白名单、登录设备管理
 - [ ] 审计日志归档/导出、保留策略
-- **状态：** in_progress（P0 完成，P1 待做）
+- **状态：** in_progress（P0 完成；P1 账号/角色/菜单管理、BCrypt、强制下线已完成并发布，剩日志审计与演示账号清理）
 
 ## 风险与待确认
 

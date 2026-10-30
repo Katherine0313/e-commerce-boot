@@ -21,6 +21,12 @@ spring:
       maximum-pool-size: 20
       minimum-idle: 5
       pool-name: MyHikariCP
+  data:
+    redis:
+      # JwtInterceptor 读取管理员令牌失效标记；Redis 不可达时 fail-open（只影响踢下线）
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
 
 server:
   port: 9005
