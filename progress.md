@@ -65,6 +65,7 @@
   - Spring Cloud Gateway 5.x 默认移除 `X-Forwarded-*`，绝对 URL 的协议不能依赖它；对外 https 场景在 `UrlUtil` 兜底
 
 - **我做了什么？（近期）**
+  - 2026-10-30：新增 C 端商品标签接口 `GET /api/products/{id}/tags`（product-service，免登录，商品不存在 404、无标签返回空数组）；PC 商城详情页接入标签展示（`getProductTags` + 标题下彩色标签）
   - 2026-10-30：商品真实图上线：51~105 共 165 张桌面原图转 WebP（522MB→9.3MB），主图 800/opt 400、详情图 1200；220 张已同步生产，`11-backfill-body-images.sql` 写入 55 个商品 body（本地+生产）
   - 2026-10-29：新增二级分类 503「机械普通手表」+ 10 款机械/石英表商品（id 127~136，天梭/浪琴/精工/卡西欧/美度/汉米尔顿/雪铁纳/飞亚达/西铁城/雷达），`10-mechanical-watches.sql` + `add_mechanical_watches.py` 占位图，本地已执行
   - 2026-10-29：分类合并：502「运动手表」并入 501「智能手表」（二级 21→20，手表下 12 件），`09-merge-watch-category.sql`，本地/生产均已执行并清分类缓存

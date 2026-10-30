@@ -61,6 +61,15 @@
         ORDER BY id ASC
     </select>
 
+    <!-- 根据商品查标签（products.tag_id 单值，最多返回一条） -->
+    <select id="listTagsByProductId" resultType="ecommerce.product.entity.Tag">
+        SELECT t.id, t.name, t.code, t.type, t.color, t.sort_order, t.status, t.product_count,
+               t.create_time, t.created_by, t.update_time, t.updated_by
+        FROM tags t
+        JOIN products p ON p.tag_id = t.id
+        WHERE p.id = #{productId}
+    </select>
+
     <!-- 给一批商品打上标签（一商品最多一标签，直接写 products.tag_id） -->
     <update id="bindProductsToTag">
         UPDATE products SET tag_id = #{tagId}, update_time = #{now}

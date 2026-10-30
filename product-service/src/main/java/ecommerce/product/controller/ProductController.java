@@ -93,4 +93,10 @@ public class ProductController {
         return Result.success(productService.listTags());
     }
 
+    @Operation(summary = "商品标签（单个商品关联的标签，最多一条）")
+    @GetMapping("/products/{id}/tags")
+    public Result<List<TagVO>> listProductTags(@PathVariable Long id) {
+        return Result.success(productService.listTagsByProduct(id));
+    }
+
 }

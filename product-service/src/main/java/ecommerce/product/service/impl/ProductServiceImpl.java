@@ -282,6 +282,17 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
     }
 
+    @Override
+    public List<TagVO> listTagsByProduct(Long productId) {
+        // 商品不存在按详情接口口径返回 404，避免前端拿到空数组误判为「无标签」
+        if (productMapper.findById(productId) == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
+        }
+        return tagMapper.listTagsByProductId(productId).stream()
+                .map(this::toVO)
+                .toList();
+    }
+
     /** 商品列表统一补促销价与标签（批量查活动，避免逐条查询） */
     private List<ProductVO> withPromotions(List<ProductVO> list) {
         promotionService.applyDisplay(list);

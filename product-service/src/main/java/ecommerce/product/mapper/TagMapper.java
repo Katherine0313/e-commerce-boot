@@ -29,6 +29,9 @@ public interface TagMapper {
     // 标签关联的商品列表（products.tag_id = tagId）
     List<Product> listProductsByTag(@Param("tagId") Long tagId);
 
+    // 根据商品查标签（当前一商品最多一个标签，返回列表便于后续扩展）
+    List<Tag> listTagsByProductId(@Param("productId") Long productId);
+
     // 给一批商品打上标签（更新 products.tag_id）
     int bindProductsToTag(@Param("tagId") Long tagId, @Param("productIds") List<Long> productIds,
                           @Param("now") LocalDateTime now);

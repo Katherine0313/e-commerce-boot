@@ -66,4 +66,9 @@ public interface ProductService {
      * 标签列表
      */
     List<TagVO> listTags();
+
+    /**
+     * 根据商品查标签；商品不存在时抛 404，无标签返回空列表
+     */
+    List<TagVO> listTagsByProduct(Long productId);
 }
