@@ -325,6 +325,12 @@ ecommerce
 - 接口：C 端 `/api/coupons/center`、`/{templateId}/claim`、`/mine`、`/available`；后台 `/api/admin/coupons` CRUD + `/{id}/stop`、`/{id}/grant`、`/{id}/records`；`POST /api/orders/quote` 与下单 `couponId` 已接入。
 - 前端：后台 `pages/business/coupon/index.vue`（模板 CRUD、停止、定向/全量发券、领取记录），促销页迁到 `pages/business/promotion/index.vue`，菜单为「经营工具 → 促销活动 / 优惠券」；小程序新增「我的优惠券」「领券中心」，确认页自动选最优券并可切换，订单页展示优惠合计与券优惠；`utils/features.js` 的 `coupon` 已置 true。ecommerce-mall 本期未动。
 
+### 库存预警表改名（2026-10-30）
+- `stock` 表只存库存预警配置（`min_stock/max_stock/alert_enabled`），当前库存仍在 `products.stock`；原名容易被误解为库存数量表，已改名为 **`stock_alert`**，唯一索引 `uk_stock_alert_product`、外键 `fk_stock_alert_product` 同步改名。
+- 脚本 `docs/sql/stock/01-rename-stock-alert.sql`（幂等）；本地与生产均已执行，生产备份 `/www/backup/e_commerce_db_before_stock_alert_2026-10-30_1020.sql`。
+- 代码：`Stock` → `StockAlert`、`StockMapper` → `StockAlertMapper`、XML 同步改名；后台 API `/api/admin/stock` 与前端字段不变。
+- 种子文件 `stock-data.sql` 原来 30 行全部 `product_id=1`（错误），已按实际库重新导出为 `docs/sql/stock-alert-data.sql`（30 个不同商品）；`03a-remove-old-seed.sql` 与生成器中的 `DELETE FROM stock` 同步改为 `stock_alert`。
+
 ### 会员模块（2026-10-30）
 - 简化版：**成长值等级 + 等级标识 + 会员专享券**，不做积分/付费 VIP/会员价/生日券/浏览记录，不引入 MongoDB。
 - 表：`member_level`（4 档：0/500/2000/5000，可后台改）；`user` 加 `member_level_id/growth_value/total_paid_amount/paid_order_count`；`coupon_template` 加 `min_member_level`（0=不限）。脚本 `docs/sql/member/01-member-schema.sql`，本地与生产均已执行（生产备份 `/www/backup/e_commerce_db_before_member_2026-10-30_0951.sql`）。

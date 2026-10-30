@@ -19,9 +19,15 @@ public interface MemberService {
     /** 等级列表（C 端展示） */
     List<MemberLevelVO> listLevels();
 
-    /** 后台会员列表 */
-    PageVO<AdminMemberVO> listMembers(int page, int pageSize, Long levelId, String keyword);
+    /** 后台会员列表；status：NORMAL 正常 / DELETED 已注销 / null 全部 */
+    PageVO<AdminMemberVO> listMembers(int page, int pageSize, Long levelId, String keyword, String status);
+
+    /** 后台会员详情（含已注销用户，只读） */
+    AdminMemberVO getMember(Long id);
 
     /** 后台编辑等级门槛/名称/权益 */
     void updateLevel(Long id, AdminMemberLevelDTO dto);
+
+    /** 后台手动刷新某个用户的成长值与等级 */
+    void refreshMember(Long userId);
 }

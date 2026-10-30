@@ -67,5 +67,6 @@ mysql -h127.0.0.1 -u<user> -p --default-character-set=utf8mb4 e_commerce_db \
 
 ## 其他历史脚本
 
-`admin.sql`、`product.sql`、`order.sql`、`order-data.sql`、`after-sale-data.sql`、`stock-data.sql` 已按单店口径更新（无 `shop_id`、无 `shops` 表）。
+`admin.sql`、`product.sql`、`order.sql`、`order-data.sql`、`after-sale-data.sql`、`stock-alert-data.sql` 已按单店口径更新（无 `shop_id`、无 `shops` 表）。库存预警表已从 `stock` 改名为 `stock_alert`（当前库存仍在 `products.stock`）。
 `order-index-migrate.sql`、`order-status-migrate.sql`、`product-subtitle.sql` 为历史增量脚本，保留备查。
+`stock/01-rename-stock-alert.sql`：库存预警表 `stock` → `stock_alert`（幂等，只改表名/索引名/外键名，不动数据）。

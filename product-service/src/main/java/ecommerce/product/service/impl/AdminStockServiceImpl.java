@@ -2,8 +2,8 @@ package ecommerce.product.service.impl;
 
 import ecommerce.exception.BusinessException;
 import ecommerce.product.dto.AdminStockDTO;
-import ecommerce.product.entity.Stock;
-import ecommerce.product.mapper.StockMapper;
+import ecommerce.product.entity.StockAlert;
+import ecommerce.product.mapper.StockAlertMapper;
 import ecommerce.product.service.AdminStockService;
 import ecommerce.product.vo.StockStatusVO;
 import ecommerce.product.vo.StockVO;
@@ -23,15 +23,15 @@ import java.util.Map;
 @Service
 public class AdminStockServiceImpl implements AdminStockService {
 
-    private final StockMapper stockMapper;
+    private final StockAlertMapper stockAlertMapper;
 
-    public AdminStockServiceImpl(StockMapper stockMapper) {
-        this.stockMapper = stockMapper;
+    public AdminStockServiceImpl(StockAlertMapper stockAlertMapper) {
+        this.stockAlertMapper = stockAlertMapper;
     }
 
     @Override
     public List<StockVO> list(String search) {
-        return stockMapper.listWithProducts(search);
+        return stockAlertMapper.listWithProducts(search);
     }
 
     @Override
@@ -45,26 +45,26 @@ public class AdminStockServiceImpl implements AdminStockService {
     @Override
     public void create(AdminStockDTO dto) {
         validate(dto);
-        Stock existing = stockMapper.findByProductId(dto.getProductId());
+        StockAlert existing = stockAlertMapper.findByProductId(dto.getProductId());
         LocalDateTime now = LocalDateTime.now();
         if (existing != null) {
             // product_id 重复 → 更新（动态 set，null 字段保留原值）
-            Stock update = new Stock();
+            StockAlert update = new StockAlert();
             update.setId(existing.getId());
             update.setAlertEnabled(dto.getAlertEnabled());
             update.setMinStock(dto.getMinStock());
             update.setMaxStock(dto.getMaxStock());
             update.setUpdateTime(now);
-            stockMapper.update(update);
+            stockAlertMapper.update(update);
         } else {
-            Stock s = new Stock();
+            StockAlert s = new StockAlert();
             s.setProductId(dto.getProductId());
             s.setAlertEnabled(dto.getAlertEnabled());
             s.setMinStock(dto.getMinStock());
             s.setMaxStock(dto.getMaxStock());
             s.setCreateTime(now);
             s.setUpdateTime(now);
-            stockMapper.insert(s);
+            stockAlertMapper.insert(s);
         }
     }
 

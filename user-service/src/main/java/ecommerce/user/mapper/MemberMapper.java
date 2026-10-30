@@ -43,22 +43,37 @@ public interface MemberMapper {
     // 后台会员列表
     @Select("<script>" +
             "SELECT u.id, u.name, u.phone, u.avatar, u.member_level_id, l.name AS level_name, " +
-            "u.growth_value, u.total_paid_amount, u.paid_order_count, u.create_time " +
+            "u.growth_value, u.total_paid_amount, u.paid_order_count, u.is_deleted, u.create_time " +
             "FROM `user` u LEFT JOIN member_level l ON l.id = u.member_level_id " +
-            "WHERE u.is_deleted = 0 " +
+            "<where>" +
+            "<if test='status == \"NORMAL\"'> u.is_deleted = 0</if>" +
+            "<if test='status == \"DELETED\"'> u.is_deleted = 1</if>" +
             "<if test='levelId != null'> AND u.member_level_id = #{levelId}</if>" +
             "<if test='keyword != null and keyword != \"\"'>" +
             " AND (u.name LIKE CONCAT('%', #{keyword}, '%') OR u.phone LIKE CONCAT('%', #{keyword}, '%'))</if>" +
+            "</where>" +
             " ORDER BY u.id DESC LIMIT #{offset}, #{pageSize}" +
             "</script>")
     List<AdminMemberVO> listMembers(@Param("levelId") Long levelId, @Param("keyword") String keyword,
+                                    @Param("status") String status,
                                     @Param("offset") int offset, @Param("pageSize") int pageSize);
 
     @Select("<script>" +
-            "SELECT COUNT(*) FROM `user` u WHERE u.is_deleted = 0 " +
+            "SELECT COUNT(*) FROM `user` u " +
+            "<where>" +
+            "<if test='status == \"NORMAL\"'> u.is_deleted = 0</if>" +
+            "<if test='status == \"DELETED\"'> u.is_deleted = 1</if>" +
             "<if test='levelId != null'> AND u.member_level_id = #{levelId}</if>" +
             "<if test='keyword != null and keyword != \"\"'>" +
             " AND (u.name LIKE CONCAT('%', #{keyword}, '%') OR u.phone LIKE CONCAT('%', #{keyword}, '%'))</if>" +
+            "</where>" +
             "</script>")
-    long countMembers(@Param("levelId") Long levelId, @Param("keyword") String keyword);
+    long countMembers(@Param("levelId") Long levelId, @Param("keyword") String keyword,
+                      @Param("status") String status);
+
+    // 后台会员详情（含已注销用户，只读）
+    @Select("SELECT u.id, u.name, u.phone, u.avatar, u.member_level_id, l.name AS level_name, " +
+            "u.growth_value, u.total_paid_amount, u.paid_order_count, u.is_deleted, u.create_time " +
+            "FROM `user` u LEFT JOIN member_level l ON l.id = u.member_level_id WHERE u.id = #{id}")
+    AdminMemberVO findMemberById(@Param("id") Long id);
 }

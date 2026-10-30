@@ -23,6 +23,7 @@ import java.time.LocalDateTime;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Set;
 
 /**
  * 会员实现：成长值按订单实时重算，等级只升不降。
@@ -42,10 +43,19 @@ public class MemberServiceImpl implements MemberService {
 
     @Override
     public MemberProfileVO getProfile() {
-        Long userId = UserContext.getUserId();
+        return refreshAndBuild(UserContext.getUserId());
+    }
+
+    @Override
+    public void refreshMember(Long userId) {
+        refreshAndBuild(userId);
+    }
+
+    /** 重算指定用户的成长值/等级并回写，返回最新档案 */
+    private MemberProfileVO refreshAndBuild(Long userId) {
         User user = userMapper.selectById(userId);
         if (user == null || (user.getIsDeleted() != null && user.getIsDeleted() == 1)) {
-            throw new BusinessException(HttpStatus.NOT_FOUND, "用户不存在");
+            throw new BusinessException(HttpStatus.NOT_FOUND, "用户不存在或已注销");
         }
         List<MemberLevel> levels = allLevels();
 
@@ -96,14 +106,27 @@ public class MemberServiceImpl implements MemberService {
     }
 
     @Override
-    public PageVO<AdminMemberVO> listMembers(int page, int pageSize, Long levelId, String keyword) {
+    public PageVO<AdminMemberVO> listMembers(int page, int pageSize, Long levelId, String keyword, String status) {
         int safePage = Math.max(1, page);
         int safePageSize = Math.min(100, Math.max(1, pageSize));
         String safeKeyword = keyword == null || keyword.isBlank() ? null : keyword.trim();
+        String safeStatus = status == null || status.isBlank() ? null : status.trim().toUpperCase();
+        if (safeStatus != null && !Set.of("NORMAL", "DELETED").contains(safeStatus)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "会员状态不合法");
+        }
         int offset = (safePage - 1) * safePageSize;
-        List<AdminMemberVO> list = memberMapper.listMembers(levelId, safeKeyword, offset, safePageSize);
-        long total = memberMapper.countMembers(levelId, safeKeyword);
+        List<AdminMemberVO> list = memberMapper.listMembers(levelId, safeKeyword, safeStatus, offset, safePageSize);
+        long total = memberMapper.countMembers(levelId, safeKeyword, safeStatus);
         return new PageVO<>(list, total, safePage, safePageSize);
+    }
+
+    @Override
+    public AdminMemberVO getMember(Long id) {
+        AdminMemberVO member = memberMapper.findMemberById(id);
+        if (member == null) {
+            throw new BusinessException(HttpStatus.NOT_FOUND, "会员不存在");
+        }
+        return member;
     }
 
     @Override

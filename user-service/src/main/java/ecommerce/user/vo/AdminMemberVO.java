@@ -30,6 +30,8 @@ public class AdminMemberVO {
     private BigDecimal totalPaidAmount;
     @Schema(description = "已支付订单数")
     private Integer paidOrderCount;
+    @Schema(description = "是否已注销：1 是 0 否")
+    private Integer isDeleted;
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createTime;
 }

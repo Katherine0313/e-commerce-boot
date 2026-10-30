@@ -2,7 +2,7 @@
 <!DOCTYPE mapper
         PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
-<mapper namespace="ecommerce.product.mapper.StockMapper">
+<mapper namespace="ecommerce.product.mapper.StockAlertMapper">
     <!-- 预警列表：LEFT JOIN products，所有商品都展示，没配预警的 stock 字段为 NULL -->
     <select id="listWithProducts" resultType="ecommerce.product.vo.StockVO">
         SELECT
@@ -18,7 +18,7 @@
             s.create_time AS created_at,
             s.update_time AS updated_at
         FROM products p
-        LEFT JOIN stock s ON s.product_id = p.id
+        LEFT JOIN stock_alert s ON s.product_id = p.id
         <where>
             <if test="search != null and search != ''">
                 p.name LIKE CONCAT('%', #{search}, '%')
@@ -29,17 +29,17 @@
 
     <select id="findByProductId" resultType="ecommerce.product.entity.Stock">
         SELECT id, product_id, alert_enabled, min_stock, max_stock, create_time, update_time
-        FROM stock
+        FROM stock_alert
         WHERE product_id = #{productId}
     </select>
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO stock (product_id, alert_enabled, min_stock, max_stock, create_time, update_time)
+        INSERT INTO stock_alert (product_id, alert_enabled, min_stock, max_stock, create_time, update_time)
         VALUES (#{productId}, #{alertEnabled}, #{minStock}, #{maxStock}, #{createTime}, #{updateTime})
     </insert>
 
     <update id="update">
-        UPDATE stock
+        UPDATE stock_alert
         <set>
             <if test="alertEnabled != null">alert_enabled = #{alertEnabled},</if>
             <if test="minStock != null">min_stock = #{minStock},</if>
