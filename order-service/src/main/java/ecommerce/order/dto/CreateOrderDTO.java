@@ -28,4 +28,6 @@ public class CreateOrderDTO {
     private Boolean subscribeUnpaid;
     @Schema(description = "订单明细")
     private List<OrderItemDTO> items;
+    @Schema(description = "选用的用户券 ID，不传表示不用券")
+    private Long couponId;
 }

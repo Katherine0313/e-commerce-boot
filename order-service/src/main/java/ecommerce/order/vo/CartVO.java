@@ -21,8 +21,12 @@ public class CartVO {
     private String name;
     @Schema(description = "商品图快照")
     private String image;
-    @Schema(description = "单价快照")
+    @Schema(description = "单价（有活动时为活动价）")
     private BigDecimal price;
+    @Schema(description = "活动前单价（无活动为 null）")
+    private BigDecimal originalPrice;
+    @Schema(description = "促销标签（无活动为 null）")
+    private String promotionTag;
     @Schema(description = "商品描述快照")
     private String description;
     @Schema(description = "数量")

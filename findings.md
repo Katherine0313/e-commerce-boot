@@ -271,6 +271,7 @@ ecommerce
 - 多租户沙箱已彻底下线：无 `shop-service`、JWT 不含 `shopId`、18 张业务表无 `shop_id`、`shops` 表已删。
 - 后台前端店铺名来自静态 `src/utils/shop.js`（`VITE_SHOP_NAME`，默认「杰米小店」）；小程序登录只传 `code`。
 - 迁移脚本与执行顺序见 `docs/sql/README.md`；生产 MySQL 为 **5.7.44**，DDL 兼容 5.7。
+- 本地库 2026-10-30 完成同一套迁移（预检查非主店数据全 0，未删业务数据）：18 表 `shop_id`、旧索引、`shops` 表已删，`uk_openid`/`uk_user_product`/`idx_favorites_user_time` 已重建。本地与生产逐项核对：25 张表 / 292 字段 / 89 索引完全一致。备份 `../backup_before_local_single_shop_2026-10-30.sql`。
 
 ### 首页
 - `/api/home` 一次返回分类 + 猜你喜欢；分类走 Redis 缓存（单父分类一个 key，TTL 30 分钟，故障降级查库）。
@@ -304,6 +305,33 @@ ecommerce
 - 商品真实图转换：桌面原图 `{id}.png` → 主图 `upload/image/upload/{id}.webp`（800×800，非正方形等比+白底）与 `opt/upload/{id}.webp`（400×400）；`{id}-1/2.png` → `upload/image/body/{id}-1.webp`（最长边 1200）。脚本 `generator/convert_product_images.py`。51~105 共 165 张，522MB → 9.3MB。`WebMvcConfig` 优先返回 opt，所以接口里 `/image/upload/{id}.webp` 实际是 400px。
 - 生成器 `kind_of` 原来只认型号里带「鼠标」二字，`MX Master 3S` 被判成 generic，名称/标题/参数全落成兜底「商品」+ 手机壳模板；已补型号兜底，并用 `08-fix-seed-data.sql` 修正 id=85（名称/标题/参数）和 id=76（title 里混入的脏字符 `c`）。
 - 本地与生产均已执行数据脚本并验证：8/21/126、每叶子 6、商品名全唯一、specs 无空值、分页/筛选/排序/后台 specs 读写均通过。生产备份 `/www/backup/e_commerce_db_before_product_expand_2026-10-29_1935.sql`；生产额外有一个空的「家电 / 电冰箱」分类，用户自行删除。
+
+### 促销模块（2026-10-30）
+- 设计依据：黑马《Java生鲜电商平台促销模块架构设计》的三层改价模型——**改商品价 → 改商品小计 → 改订单金额**；v1 实现直减类（限时折扣 / 新用户专享）与满减类（满额减 / 满额折），**拼团不做**，**秒杀列为后续规划**（库存扣减/并发模型不同）。
+- 表：`promotion`（活动）、`promotion_item`（商品/活动价）、`promotion_rule`（满减阶梯）、`promotion_usage`（使用记录）；`orders` 加 `original_amount/discount_amount`，`order_items` 加 `original_price/discount_amount`。脚本 `docs/sql/promotion/01-promotion-schema.sql`，**尚未执行**。
+- 活动状态不落库：未开始/进行中/已结束由 `start_time/end_time` + Java 传入的 now 推导（MySQL 是 UTC，禁止用 NOW()）；`manual_status=1` 仅表示运营提前结束。因此**不需要定时下架任务**，也不改 `products.sales_price`。
+- 算价引擎 `common/promotion/PromotionCalculator`：纯函数，两个服务共用。规则：同一商品命中多个直减活动取活动价最低（同价取 id 小）；满减全局只应用优惠最大的一个，按小计占比分摊到行（末行承接舍入残差）；同类型互斥、不同类型叠加；新用户专享按 `orders.pay_at IS NOT NULL` 判定。
+- 后台 API：`/api/admin/promotions` CRUD + `/{id}/end` + `/{id}/stats`；仅未开始可编辑/删除，进行中只能提前结束；直减类同商品时间重叠校验。
+- 订单侧：`POST /api/orders/quote` 实时报价（不落库）；购物车只展示直减价；下单在 `OrderServiceImpl.doCreateOrder` 重新算价并落快照，写 `promotion_usage`（order-service 跨域写 product 域表，已和用户确认接受）。
+- 前端口径：C 端 `ProductVO` 新增 `originalPrice/promotionTag`（`price` 为活动价）；小程序商品卡片/详情/购物车/确认页/订单页展示标签、划线价与优惠；确认页金额 = 报价应付 + 保险（保险不参与促销）；PC 商城卡片/详情同样展示；后台促销页重写 `OnSale.vue`，订单列表加「优惠金额」列。
+- 售后：`order_items.sub_total` 存的是优惠后金额（满减已分摊到行），现有按 `sub_total` 全额退款的口径可直接复用。
+
+### 优惠券模块（2026-10-30）
+- 归属：**order-service**（券模板 / 用户券 / 核销都在订单域，保证下单、支付、取消、退款同事务）；后台菜单放「经营工具」下，与「促销活动」平级。表：`coupon_template`、`coupon_scope`、`user_coupon`；`orders` 增加 `coupon_id/coupon_name/coupon_amount`。脚本 `docs/sql/coupon/01-coupon-schema.sql`，**尚未执行**。
+- 规则：满减券/折扣券（可封顶）；范围全场/分类/商品（分类含子分类）；有效期固定时段或领取后 N 天；每人限领 1 张（唯一键兜底）；一笔订单一张券；券与直减/满减**可叠加**，券门槛按促销后金额判断，保险不参与优惠。
+- 算价：`CouponPricingService` 在促销报价上叠加券，券优惠按适用商品占比分摊到行（`order_items.discount_amount` 含券分摊，`sub_total` 为券后金额，售后按行退款口径不变）。
+- 状态：模板未开始/发放中/已结束/已停止（时间 + 剩余量推导，停止用 `manual_status=1`）；用户券 UNUSED/LOCKED/USED，过期读时推导，无定时清理任务。
+- 并发：领券唯一键 + 原子扣减剩余；下单先算券再 `UPDATE ... status=UNUSED` 原子锁券（失败回滚）；支付 LOCKED→USED；取消/超时退回；整单退款（取消已支付订单）在有效期内返还已用券。**后台售后退款暂未返还券**，留 P1.5。
+- 接口：C 端 `/api/coupons/center`、`/{templateId}/claim`、`/mine`、`/available`；后台 `/api/admin/coupons` CRUD + `/{id}/stop`、`/{id}/grant`、`/{id}/records`；`POST /api/orders/quote` 与下单 `couponId` 已接入。
+- 前端：后台 `pages/business/coupon/index.vue`（模板 CRUD、停止、定向/全量发券、领取记录），促销页迁到 `pages/business/promotion/index.vue`，菜单为「经营工具 → 促销活动 / 优惠券」；小程序新增「我的优惠券」「领券中心」，确认页自动选最优券并可切换，订单页展示优惠合计与券优惠；`utils/features.js` 的 `coupon` 已置 true。ecommerce-mall 本期未动。
+
+### 会员模块（2026-10-30）
+- 简化版：**成长值等级 + 等级标识 + 会员专享券**，不做积分/付费 VIP/会员价/生日券/浏览记录，不引入 MongoDB。
+- 表：`member_level`（4 档：0/500/2000/5000，可后台改）；`user` 加 `member_level_id/growth_value/total_paid_amount/paid_order_count`；`coupon_template` 加 `min_member_level`（0=不限）。脚本 `docs/sql/member/01-member-schema.sql`，本地与生产均已执行（生产备份 `/www/backup/e_commerce_db_before_member_2026-10-30_0951.sql`）。
+- 成长值 = 已支付订单 `pay_amount` − 已退款 `after_sale_items.refund_amount`（仅 `status=refunded`），1 元 = 1 成长值；`MemberServiceImpl.getProfile` 在用户打开会员中心/我的页时重算并回写，等级只升不降，无定时任务、无流水表。
+- 接口：C 端 `GET /api/member/profile`、`/api/member/levels`；后台 `GET /api/admin/members`、`GET/PUT /api/admin/member-levels`（user-service，网关 `/api/**` 已覆盖）。
+- 券：领券中心、领取、确认页可用券、下单核销都校验 `min_member_level`，等级不足不展示/不可领；后台优惠券页增加「会员门槛」。
+- 前端：后台「经营工具 → 会员」含会员列表 + 等级配置；小程序「我的」会员卡显示等级/成长值，新增 `pages/my/member` 会员中心，领券中心展示「会员专享」标签；`features.vip` 已置 true。
 
 ### PC 商城 Web 端（ecommerce-mall，2026-10-29）
 - 独立前端 `D:\study\my-workspace\wechat-workspace\ecommerce-mall`：Vue 3 + Vite + Pinia + Router + Axios + Element Plus，SPA；替换原静态企业站。

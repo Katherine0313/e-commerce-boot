@@ -1,5 +1,8 @@
 package ecommerce.order.service.impl;
 
+import ecommerce.common.promotion.QuoteItemInput;
+import ecommerce.common.promotion.QuoteItemResult;
+import ecommerce.common.promotion.QuoteResult;
 import ecommerce.exception.BusinessException;
 import ecommerce.order.dto.AddCartDTO;
 import ecommerce.order.entity.Cart;
@@ -7,13 +10,16 @@ import ecommerce.order.entity.Product;
 import ecommerce.order.mapper.CartMapper;
 import ecommerce.order.mapper.ProductMapper;
 import ecommerce.order.service.CartService;
+import ecommerce.order.service.PromotionPricingService;
 import ecommerce.order.vo.CartVO;
 import ecommerce.utils.UserContext;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import tools.jackson.databind.ObjectMapper;
 
 import java.math.BigDecimal;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -23,22 +29,30 @@ import java.util.Map;
  * 快照字段（name/image/price/description）加购时从 products 表查出，不信任前端传入的价格；
  * 增值保障（insuranceDetail/insuranceFee）由加购弹窗随请求传入，快照到购物车（不选则空数组 / 0）。
  */
+@Slf4j
 @Service
 public class CartServiceImpl implements CartService {
 
     private final CartMapper cartMapper;
     private final ProductMapper productMapper;
     private final ObjectMapper objectMapper;
+    private final PromotionPricingService promotionPricingService;
 
-    public CartServiceImpl(CartMapper cartMapper, ProductMapper productMapper, ObjectMapper objectMapper) {
+    public CartServiceImpl(CartMapper cartMapper, ProductMapper productMapper, ObjectMapper objectMapper,
+                           PromotionPricingService promotionPricingService) {
         this.cartMapper = cartMapper;
         this.productMapper = productMapper;
         this.objectMapper = objectMapper;
+        this.promotionPricingService = promotionPricingService;
     }
 
     @Override
     public List<CartVO> getCart() {
-        return toVOList(cartMapper.listByUser(currentUserId()));
+        Long userId = currentUserId();
+        List<Cart> carts = cartMapper.listByUser(userId);
+        // 购物车只展示直减价；满减要按整单金额算，放到确认页/下单时计算
+        Map<Long, QuoteItemResult> priceMap = directPrices(carts, userId);
+        return carts.stream().map(c -> toVO(c, priceMap.get(c.getProductId()))).toList();
     }
 
     @Override
@@ -140,30 +154,58 @@ public class CartServiceImpl implements CartService {
         return UserContext.getUserId();
     }
 
-    private List<CartVO> toVOList(List<Cart> carts) {
-        return carts.stream().map(this::toVO).toList();
+    /** 批量算购物车商品的直减价（一次查询活动配置，避免逐条） */
+    private Map<Long, QuoteItemResult> directPrices(List<Cart> carts, Long userId) {
+        if (carts == null || carts.isEmpty()) {
+            return Map.of();
+        }
+        List<QuoteItemInput> inputs = carts.stream()
+                .filter(c -> c.getProductId() != null && c.getPrice() != null)
+                .map(c -> QuoteItemInput.builder()
+                        .productId(c.getProductId())
+                        .quantity(c.getQuantity())
+                        .originalPrice(c.getPrice())
+                        .build())
+                .toList();
+        try {
+            QuoteResult quote = promotionPricingService.quoteDirect(inputs, userId);
+            Map<Long, QuoteItemResult> map = new HashMap<>();
+            for (QuoteItemResult item : quote.getItems()) {
+                map.put(item.getProductId(), item);
+            }
+            return map;
+        } catch (RuntimeException e) {
+            // 促销表未迁移或临时故障时购物车照常展示快照价，不影响加购/结算入口
+            log.warn("购物车促销算价失败，退回快照价: {}", e.getMessage());
+            return Map.of();
+        }
     }
 
-    private CartVO toVO(Cart cart) {
+    private CartVO toVO(Cart cart, QuoteItemResult quoted) {
+        BigDecimal price = quoted == null ? cart.getPrice() : quoted.getFinalPrice();
+        boolean hasPromotion = quoted != null && quoted.getDiscountAmount() != null
+                && quoted.getDiscountAmount().signum() > 0;
         return CartVO.builder()
                 .productId(cart.getProductId())
                 .name(cart.getName())
                 .image(cart.getImage())
-                .price(cart.getPrice())
+                .price(price)
+                .originalPrice(hasPromotion ? quoted.getOriginalPrice() : null)
+                .promotionTag(hasPromotion ? quoted.getPromotionTag() : null)
                 .description(cart.getDescription())
                 .quantity(cart.getQuantity())
                 .insuranceDetail(parseInsurance(cart.getInsuranceDetail()))
                 .insuranceFee(cart.getInsuranceFee())
                 .stock(cart.getStock())
-                .subTotal(calcSubTotal(cart))
+                .subTotal(calcSubTotal(price, cart.getInsuranceFee(), cart.getQuantity()))
                 .build();
     }
 
     /** 单品小计 = (单价 + 增值保障费) × 数量，由快照字段实时计算，不落库 */
-    private BigDecimal calcSubTotal(Cart cart) {
-        BigDecimal price = cart.getPrice() == null ? BigDecimal.ZERO : cart.getPrice();
-        BigDecimal fee = cart.getInsuranceFee() == null ? BigDecimal.ZERO : cart.getInsuranceFee();
-        return price.add(fee).multiply(BigDecimal.valueOf(cart.getQuantity()));
+    private BigDecimal calcSubTotal(BigDecimal price, BigDecimal fee, Integer quantity) {
+        BigDecimal safePrice = price == null ? BigDecimal.ZERO : price;
+        BigDecimal safeFee = fee == null ? BigDecimal.ZERO : fee;
+        return safePrice.add(safeFee).multiply(BigDecimal.valueOf(quantity == null ? 0 : quantity));
     }
 
     /** 增值保障明细 → JSON 字符串，空或序列化失败返回 "[]" */

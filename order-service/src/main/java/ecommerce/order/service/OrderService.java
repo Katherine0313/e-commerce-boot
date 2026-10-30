@@ -1,6 +1,8 @@
 package ecommerce.order.service;
 
+import ecommerce.common.promotion.QuoteResult;
 import ecommerce.order.dto.CreateOrderDTO;
+import ecommerce.order.dto.OrderItemDTO;
 import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderVO;
 
@@ -16,6 +18,9 @@ public interface OrderService {
 
     /** 下单：查商品 → 校验库存 → 扣库存 → 写订单+明细（初始状态待付款） */
     OrderVO createOrder(CreateOrderDTO dto);
+
+    /** 确认页报价：按商品明细实时计算直减/满减/优惠券（不落库，下单时会重新计算） */
+    QuoteResult quote(List<OrderItemDTO> items, Long couponId);
 
     /** 订单详情 */
     OrderVO getOrder(Long id);

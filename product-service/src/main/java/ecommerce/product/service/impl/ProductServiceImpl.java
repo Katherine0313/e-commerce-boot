@@ -9,6 +9,7 @@ import ecommerce.product.mapper.CategoryMapper;
 import ecommerce.product.mapper.ProductMapper;
 import ecommerce.product.mapper.TagMapper;
 import ecommerce.product.service.ProductService;
+import ecommerce.product.service.PromotionService;
 import ecommerce.product.support.ProductSpecsCodec;
 import ecommerce.product.vo.CategoryTreeVO;
 import ecommerce.product.vo.ProductVO;
@@ -48,40 +49,42 @@ public class ProductServiceImpl implements ProductService {
     private final StringRedisTemplate stringRedisTemplate;
     private final ObjectMapper objectMapper;
     private final ProductSpecsCodec specsCodec;
+    private final PromotionService promotionService;
 
     public ProductServiceImpl(ProductMapper productMapper, CategoryMapper categoryMapper, TagMapper tagMapper,
                               StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper,
-                              ProductSpecsCodec specsCodec) {
+                              ProductSpecsCodec specsCodec, PromotionService promotionService) {
         this.productMapper = productMapper;
         this.categoryMapper = categoryMapper;
         this.tagMapper = tagMapper;
         this.stringRedisTemplate = stringRedisTemplate;
         this.objectMapper = objectMapper;
         this.specsCodec = specsCodec;
+        this.promotionService = promotionService;
     }
 
     // 获取上架的全量商品：仅供推荐兜底用，不缓存（前端分类页已改懒加载，不再拉全量）
     @Override
     public List<ProductVO> listProducts() {
-        return productMapper.listOnSale().stream()
+        return withPromotions(productMapper.listOnSale().stream()
                 .map(this::toVO)
-                .toList();
+                .toList());
     }
 
     // 按一级分类（父类）查上架商品（不缓存）
     @Override
     public List<ProductVO> listProductsByCategory(Long categoryId) {
-        return productMapper.listOnSaleByCategory(categoryId).stream()
+        return withPromotions(productMapper.listOnSaleByCategory(categoryId).stream()
                 .map(this::toVO)
-                .toList();
+                .toList());
     }
 
     // 按关键词搜索上架商品（商品名/副标题/品牌模糊匹配）
     @Override
     public List<ProductVO> searchProducts(String keyword) {
-        return productMapper.searchOnSale(keyword).stream()
+        return withPromotions(productMapper.searchOnSale(keyword).stream()
                 .map(this::toVO)
-                .toList();
+                .toList());
     }
 
     // C 端分页列表：参数归一化后交给 Mapper；旧 list/search 接口保持数组结构不变
@@ -106,9 +109,9 @@ public class ProductServiceImpl implements ProductService {
         long offsetLong = (long) (safePage - 1) * safePageSize;
         int offset = offsetLong > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) offsetLong;
 
-        List<ProductVO> list = productMapper
+        List<ProductVO> list = withPromotions(productMapper
                 .pageOnSale(categoryId, safeKeyword, safeBrand, minPrice, maxPrice, safeSort, offset, safePageSize)
-                .stream().map(this::toVO).toList();
+                .stream().map(this::toVO).toList());
         long total = productMapper.countOnSale(categoryId, safeKeyword, safeBrand, minPrice, maxPrice);
         return new PageVO<>(list, total, safePage, safePageSize);
     }
@@ -122,9 +125,9 @@ public class ProductServiceImpl implements ProductService {
     public List<ProductVO> listRandomProducts(int limit, List<Long> excludeIds) {
         // 兜住异常入参，避免 LIMIT 负数/过大
         int size = Math.max(1, Math.min(limit, 50));
-        return productMapper.listRandomOnSale(size, excludeIds).stream()
+        return withPromotions(productMapper.listRandomOnSale(size, excludeIds).stream()
                 .map(this::toVO)
-                .toList();
+                .toList());
     }
 
     // 首页热门推荐：推荐分类优先，不够再随机补足
@@ -138,7 +141,7 @@ public class ProductServiceImpl implements ProductService {
                 .map(this::toVO)
                 .toList();
         if (hot.size() >= size) {
-            return hot;
+            return withPromotions(hot);
         }
 
         // 推荐分类商品不够：排除已选中的 id 后再随机补足
@@ -149,7 +152,7 @@ public class ProductServiceImpl implements ProductService {
                 .toList();
         List<ProductVO> result = new ArrayList<>(hot);
         result.addAll(fill);
-        return result;
+        return withPromotions(result);
     }
 
     @Override
@@ -158,7 +161,9 @@ public class ProductServiceImpl implements ProductService {
         if (product == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
-        return toVO(product);
+        ProductVO vo = toVO(product);
+        promotionService.applyDisplay(List.of(vo));
+        return vo;
     }
 
     @Override
@@ -166,9 +171,9 @@ public class ProductServiceImpl implements ProductService {
         if (ids == null || ids.isEmpty()) {
             return List.of();
         }
-        return productMapper.listOnSaleByIds(ids).stream()
+        return withPromotions(productMapper.listOnSaleByIds(ids).stream()
                 .map(this::toVO)
-                .toList();
+                .toList());
     }
 
     // 分类树：读 ids 索引 → MGET 各父分类树 → 合并返回；缺失则整体重建
@@ -275,6 +280,12 @@ public class ProductServiceImpl implements ProductService {
         return tagMapper.listTags().stream()
                 .map(this::toVO)
                 .toList();
+    }
+
+    /** 商品列表统一补促销价与标签（批量查活动，避免逐条查询） */
+    private List<ProductVO> withPromotions(List<ProductVO> list) {
+        promotionService.applyDisplay(list);
+        return list;
     }
 
     private ProductVO toVO(Product p) {

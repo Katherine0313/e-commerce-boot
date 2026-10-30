@@ -1,7 +1,9 @@
 package ecommerce.order.controller;
 
 import ecommerce.common.Result;
+import ecommerce.common.promotion.QuoteResult;
 import ecommerce.order.dto.CreateOrderDTO;
+import ecommerce.order.dto.QuoteOrderDTO;
 import ecommerce.order.service.OrderService;
 import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderVO;
@@ -35,6 +37,12 @@ public class OrderController {
 
     public OrderController(OrderService orderService) {
         this.orderService = orderService;
+    }
+
+    @Operation(summary = "确认页报价（实时计算直减/满减，不落库）")
+    @PostMapping("/quote")
+    public Result<QuoteResult> quote(@RequestBody QuoteOrderDTO dto) {
+        return Result.success(orderService.quote(dto.getItems(), dto.getCouponId()));
     }
 
     @Operation(summary = "下单")

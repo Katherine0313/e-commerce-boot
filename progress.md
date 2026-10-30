@@ -5,6 +5,10 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
+  2026-10-30 会员 v1 完成（本地+生产已建表）：成长值等级制（0/500/2000/5000，后台可改），成长值=已支付实付−已退款、1 元=1 点、打开会员中心/我的页时重算回写，只升不降；后台「经营工具 → 会员」会员列表 + 等级配置；小程序会员卡 + 会员中心；优惠券支持「最低会员等级」门槛（领券/可用/核销校验）。不做积分/付费 VIP/会员价。生产备份 `/www/backup/e_commerce_db_before_member_2026-10-30_0951.sql`。
+  2026-10-30 本地库单店化收尾：预检查无沙箱数据（18 表非主店计数全 0、跨店外键异常 0），执行 `single-shop-01-cleanup.sql` 与 `02-drop-shop-id.sql`，删除 18 表 `shop_id`、旧索引与 `shops` 表并重建单店唯一键；备份 `../backup_before_local_single_shop_2026-10-30.sql`。已与生产逐项核对：25 张表 / 292 个字段（名称/类型/可空）/ 89 条索引完全一致。同日促销与优惠券建表脚本在本地、生产均执行，生产备份 `/www/backup/e_commerce_db_before_promotion_coupon_2026-10-30_0939.sql`。
+  2026-10-30 优惠券模块完成（未执行 DB）：order-service 新增 `coupon_template/coupon_scope/user_coupon` 与订单券快照；支持满减/折扣、全场/分类/商品、固定/领取后 N 天、后台定向/全量发券、领券中心、下单选券/锁券/核销/取消退回；券与促销叠加、门槛按促销后金额、按行分摊保证退款口径。后台菜单拆为「经营工具 → 促销活动 / 优惠券」，小程序新增我的优惠券/领券中心并接入确认页。**上线前先执行 `docs/sql/coupon/01-coupon-schema.sql`**；后台售后退款返券留 P1.5。
+  2026-10-30 促销模块后端+前端完成（未执行 DB）：按黑马文档三层改价模型新增 `promotion/promotion_item/promotion_rule/promotion_usage` 与订单优惠快照字段；`common` 新增纯函数算价引擎（直减/满减叠加、同商品同类型互斥、新用户按已支付订单判定）；product-service 提供后台活动 CRUD/提前结束/效果统计，order-service 提供确认页报价、购物车直减价、下单重算并写使用记录；后台 `OnSale.vue` 重写，小程序/PC 商城展示促销标签、划线价与优惠金额。拼团不做，秒杀列入后续规划。**上线前必须先执行 `docs/sql/promotion/01-promotion-schema.sql`**。
   2026-10-30 C 端商品列表分页全接入：小程序分类页（scroll-view `@scrolltolower`，每页 12，首屏缓存 60s）/ 搜索页（`onReachBottom`，每页 12）、PC 商城列表/搜索（`加载更多`，每页 40）全部改用 `GET /api/products/page`；老 `/api/products` 保留兼容但三条 SQL 加 `LIMIT 200` 兜底。待发布：product-service（XML 上限）+ 小程序 `dist/build` + PC 商城 `dist`。
   2026-10-29 多租户彻底下线、退化为单店并**已完成生产迁移**：删除 shop-service 模块及网关路由/compose/release 项；JWT 不再签 shopId，`UserContext`/各服务 Mapper/XML/Service 全部去掉 `shop_id`；WebSocket 来单提醒改单集合广播；后台前端店铺名改静态配置 `src/utils/shop.js`；小程序登录不再传 SHOP_ID；AI 推荐服务同步去掉 `products.shop_id`，并补上生产 `.env` 的 `MYSQL_HOST=host.docker.internal`（此前 AI 商品查询一直连不上）。生产执行 01 清掉 2 家沙箱店（55/56）数据、按序发布 7 服务（auth 最后）、02 删除 18 表 `shop_id` 与 `shops` 表并重建唯一键；接口与 AI 商品读取验证通过，备份在服务器 `/www/backup/`。同日新增首页热门推荐接口（推荐分类优先、不足随机补）、修复后台新增商品 `sales_mode` 为空 500。另新建 PC 商城 `ecommerce-mall`（Vue3+Vite SPA），已替换原静态企业站上线 https://www.xiaojiecpn.com，Nginx 同源代理 `/api`、`/image`、`/upload` 到网关，首页/列表/详情/搜索接真实数据。后端商品扩容：`products.specs`（有序 JSON 数组）、分类重构为 8 个一级/21 个二级（原 502 运动手表并入 501，新增 503 机械普通手表）、商品整理为 126 件（保留 50 个现有 + 76 个按型号去重的种子 id 51~126，每叶子 6 件；后续新增 10 款机械/石英表 id 127~136，总数 136）、新增 `GET /api/products/page` 分页筛选接口；旧 `/api/products` 保持数组兼容。生产已执行 SQL、同步 51~126 唯一占位图并发布 product-service，线上验证 126 商品/分页/分类/specs 正常（生产额外有一个空的「家电」分类，用户自行删除）。同日 `products.description` 重命名为 `title`（主标题），`sub_title` 保留；主标题统一改为 SEO 长标题（名称+品牌型号+卖点+参数+官方正品），本地/生产数据与生成器已同步。
   2026-10-28 沙箱按浏览器复用（`shops.visitor_key` + 前端 UUID + 唯一索引，退出登录/401 不清 key，24h 内复用原店）；admin 用户名改 `admin_{shopId}`、`create_time` 改开店时间；订单金额注释/标签统一；软著三件套（TEST、源程序文档、用户手册）完成；发布切腾讯云 TCR 镜像（`ccr.ccs.tencentyun.com/jiemi-ecommerce`，9 个仓库，`deploy/release.sh` 一键发布/回滚），服务器 compose 已切 `image:` + `--no-build`，线上 9 容器 Up，网关直连与公网接口均 200。同日小程序提审被拒（VIP 入口点击无响应），新增 `utils/features.js` 功能开关，隐藏 VIP/优惠券/积分与用户协议/隐私政策死链，「联系我们」改跳已有客服页；新增 `deploy/release-web.sh`，后台管理端前端一条命令发布（npm build + rsync + 备份/回滚）；一键体验改为手机号验证码鉴权（`/api/admin/shops/sandbox`）；发布脚本修复多服务 tag 牵连（`docker-compose.override.yml` 固定各服务镜像 + `--no-deps` 部署）；面试演示确定走单店模式，登录页移除「一键体验」，恢复账号密码 / 手机号直接登录模板店，沙箱后端保留未使用。
@@ -80,7 +84,7 @@
 - [ ] 生产安全：安全组关闭 8848/9848/9849/18080/9001~9008；停旧 Node 3000；删网站根 `.env`；Nacos 控制台保持 127.0.0.1
 - [ ] 公网延迟：本机接口 10～46ms，公网 0.8～2s；Redis 命中率 85%、事件循环 <1ms，瓶颈在 Cloudflare 跨境。待定是否改 DNS-only 直连源站（国内预计 100～300ms）
 - [ ] 购物车：加购校验上架状态；5 接口端到端验证
-- [ ] 商品：`parameters` 参数表、`business_onsale` 促销
+- [ ] 商品：`parameters` 参数表（**促销已完成 2026-10-30**，表名改为 `promotion_*`；待执行 `docs/sql/promotion/01-promotion-schema.sql` 后联调）
 - [ ] 售后：退货入库单（仓库核验）
 - [ ] file-service：CDN/通用文件 + `uploads` 表
 - [x] 沙箱过期回收 + user 克隆脱敏（2026-10-27，shop-service 每小时清到期店）

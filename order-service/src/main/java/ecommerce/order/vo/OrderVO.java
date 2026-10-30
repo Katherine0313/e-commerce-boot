@@ -29,6 +29,16 @@ public class OrderVO {
     private String orderNo;
     @Schema(description = "订单金额（下单时 = 商品小计 + 保险；支付后即实付金额）")
     private BigDecimal payAmount;
+    @Schema(description = "活动前金额（无活动时等于 payAmount）")
+    private BigDecimal originalAmount;
+    @Schema(description = "优惠金额（直减 + 满减 + 券）")
+    private BigDecimal discountAmount;
+    @Schema(description = "使用的优惠券 ID")
+    private Long couponId;
+    @Schema(description = "优惠券名称快照")
+    private String couponName;
+    @Schema(description = "优惠券优惠金额")
+    private BigDecimal couponAmount;
     @Schema(description = "支付方式")
     private String payType;
     @Schema(description = "支付方式中文描述")

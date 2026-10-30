@@ -6,16 +6,21 @@
 
     <!-- 创建订单：初始状态待付款，is_deleted 默认 0，sign_status 默认 unsigned -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO orders (user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
+        INSERT INTO orders (user_id, order_no, is_deleted, pay_amount, original_amount, discount_amount,
+                            coupon_id, coupon_name, coupon_amount,
+                            pay_type, order_status,
                             remark, consignee, phone, region, detail_address, shipping_type, courier,
                             is_subscribe_unpaid, unpaid_notify_sent, created_at)
-        VALUES (#{userId}, #{orderNo}, 0, #{payAmount}, #{payType}, #{orderStatus},
+        VALUES (#{userId}, #{orderNo}, 0, #{payAmount}, #{originalAmount}, #{discountAmount},
+                #{couponId}, #{couponName}, #{couponAmount},
+                #{payType}, #{orderStatus},
                 #{remark}, #{consignee}, #{phone}, #{region}, #{detailAddress}, #{shippingType}, #{courier},
                 #{isSubscribeUnpaid}, #{unpaidNotifySent}, #{createdAt})
     </insert>
 
     <select id="findById" resultType="ecommerce.order.entity.Order">
-        SELECT id, user_id, order_no, is_deleted, pay_amount, pay_type, order_status,
+        SELECT id, user_id, order_no, is_deleted, pay_amount, original_amount, discount_amount,
+               coupon_id, coupon_name, coupon_amount, pay_type, order_status,
                remark, consignee, phone, region, detail_address, shipping_type, courier, tracking_number,
                sign_status, is_subscribe_unpaid, unpaid_notify_sent, created_at, pay_at, ship_at, confirm_at, finish_at, updated_at,
                EXISTS (SELECT 1 FROM after_sales a WHERE a.order_id = orders.id AND a.is_deleted = 0) AS after_sale
@@ -45,7 +50,8 @@
     </update>
 
     <select id="listByUser" resultType="ecommerce.order.entity.Order">
-        SELECT o.id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.pay_type, o.order_status,
+        SELECT o.id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.original_amount, o.discount_amount,
+        o.coupon_id, o.coupon_name, o.coupon_amount, o.pay_type, o.order_status,
         o.remark, o.consignee, o.phone, o.region, o.detail_address, o.shipping_type, o.courier, o.tracking_number,
         o.sign_status, o.created_at, o.pay_at, o.ship_at, o.confirm_at, o.finish_at, o.updated_at,
         EXISTS (SELECT 1 FROM after_sales a WHERE a.order_id = o.id AND a.is_deleted = 0) AS after_sale
@@ -115,7 +121,8 @@
 
     <!-- 后台订单列表：所有订单（不限用户），分页 + 可选状态/关键词筛选 -->
     <select id="listAdmin" resultType="ecommerce.order.entity.Order">
-        SELECT o.id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.pay_type, o.order_status,
+        SELECT o.id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.original_amount, o.discount_amount,
+               o.coupon_id, o.coupon_name, o.coupon_amount, o.pay_type, o.order_status,
                o.remark, o.consignee, o.phone, o.region, o.detail_address, o.shipping_type, o.courier, o.tracking_number,
                o.sign_status, o.created_at, o.pay_at, o.ship_at, o.confirm_at, o.finish_at, o.updated_at
         FROM orders o

@@ -6,20 +6,20 @@
 
     <!-- 批量插入订单明细 -->
     <insert id="insertBatch">
-        INSERT INTO order_items (order_id, product_id, product_name, image, sales_price,
-                                 quantity, sub_total, insurance_detail, insurance_fee, is_deleted, created_at)
+        INSERT INTO order_items (order_id, product_id, product_name, image, sales_price, original_price,
+                                 quantity, sub_total, discount_amount, insurance_detail, insurance_fee, is_deleted, created_at)
         VALUES
         <foreach collection="items" item="item" separator=",">
             (#{item.orderId}, #{item.productId}, #{item.productName}, #{item.image},
-             #{item.salesPrice}, #{item.quantity}, #{item.subTotal}, #{item.insuranceDetail},
-             #{item.insuranceFee}, 0, NOW())
+             #{item.salesPrice}, #{item.originalPrice}, #{item.quantity}, #{item.subTotal},
+             #{item.discountAmount}, #{item.insuranceDetail}, #{item.insuranceFee}, 0, NOW())
         </foreach>
     </insert>
 
     <!-- 查某订单明细 -->
     <select id="listByOrderId" resultType="ecommerce.order.entity.OrderItem">
-        SELECT id, order_id, product_id, product_name, image, sales_price,
-               quantity, sub_total, insurance_detail, insurance_fee, is_deleted, created_at
+        SELECT id, order_id, product_id, product_name, image, sales_price, original_price,
+               quantity, sub_total, discount_amount, insurance_detail, insurance_fee, is_deleted, created_at
         FROM order_items
         WHERE order_id = #{orderId} AND is_deleted = 0
     </select>

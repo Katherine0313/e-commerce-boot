@@ -31,6 +31,10 @@ public interface OrderMapper {
     // 查某用户订单列表（按创建时间倒序；keyword 非空时按订单号/收货人/商品名模糊搜索）
     List<Order> listByUser(@Param("userId") Long userId, @Param("keyword") String keyword);
 
+    // 用户已支付订单数：为 0 视为「未下单过的新用户」，供新用户专享活动判定
+    @Select("SELECT COUNT(*) FROM orders WHERE user_id = #{userId} AND pay_at IS NOT NULL AND is_deleted = 0")
+    long countPaidByUser(@Param("userId") Long userId);
+
     /**
      * 状态流转：更新状态 + 自动记录对应时间戳。
      * status 用 OrderStatusEnum 的数字 code，按目标状态更新对应时间字段（见 XML 动态 SQL）。

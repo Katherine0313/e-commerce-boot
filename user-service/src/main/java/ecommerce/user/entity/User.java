@@ -26,6 +26,14 @@ public class User {
     private String phone;
     private String sex;
     private String avatar;
+    /** 会员等级 ID（member_level.id），默认 1 普通会员 */
+    private Long memberLevelId;
+    /** 成长值：已支付实付 - 退款，1 元 = 1 成长值 */
+    private Integer growthValue;
+    /** 累计实付（已扣退款） */
+    private java.math.BigDecimal totalPaidAmount;
+    /** 已支付订单数 */
+    private Integer paidOrderCount;
     /**
      * 软删除：1 已注销 0 正常（注销走置 1，不物理删；orders.user_id 是 RESTRICT 删不掉）。
      * 故意不接 @TableLogic：登录查 openid 要查全部用户（含已注销），逻辑删除会自动拼 is_deleted=0，

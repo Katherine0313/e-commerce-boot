@@ -26,6 +26,10 @@ public class OrderItemVO {
     private String image;
     @Schema(description = "成交单价")
     private BigDecimal salesPrice;
+    @Schema(description = "原单价（有活动时用于划线展示）")
+    private BigDecimal originalPrice;
+    @Schema(description = "该行优惠金额")
+    private BigDecimal discountAmount;
     @Schema(description = "数量")
     private Integer quantity;
     @Schema(description = "当前库存（后台详情展示，发货弹窗判断发货状态用）")

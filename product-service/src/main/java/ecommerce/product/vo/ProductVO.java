@@ -33,8 +33,12 @@ public class ProductVO {
     private String title;
     @Schema(description = "图文详情（富文本，列表不返回）")
     private String body;
-    @Schema(description = "售价")
+    @Schema(description = "售价（有活动时为活动价）")
     private BigDecimal price;
+    @Schema(description = "活动前价格（有活动时用于划线展示，无活动为 null）")
+    private BigDecimal originalPrice;
+    @Schema(description = "促销标签（如「限时立减」，无活动为 null）")
+    private String promotionTag;
     @Schema(description = "市场价/划线价")
     private BigDecimal marketPrice;
     @Schema(description = "库存数量")

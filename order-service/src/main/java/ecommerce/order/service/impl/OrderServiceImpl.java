@@ -1,5 +1,8 @@
 package ecommerce.order.service.impl;
 
+import ecommerce.common.promotion.QuoteItemInput;
+import ecommerce.common.promotion.QuoteItemResult;
+import ecommerce.common.promotion.QuoteResult;
 import ecommerce.exception.BusinessException;
 import ecommerce.order.config.WeChatSubscribeProperties;
 import ecommerce.order.dto.CreateOrderDTO;
@@ -12,12 +15,15 @@ import ecommerce.order.enums.OrderStatusEnum;
 import ecommerce.order.enums.PayTypeEnum;
 import ecommerce.order.mapper.AfterSaleRefundMapper;
 import ecommerce.order.mapper.CartMapper;
+import ecommerce.order.mapper.CouponMapper;
 import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductMapper;
 import ecommerce.order.mapper.ProductReviewMapper;
 import ecommerce.order.mapper.UserMapper;
+import ecommerce.order.service.CouponPricingService;
 import ecommerce.order.service.OrderService;
+import ecommerce.order.service.PromotionPricingService;
 import ecommerce.order.vo.LogisticsTraceVO;
 import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderItemVO;
@@ -82,6 +88,9 @@ public class OrderServiceImpl implements OrderService {
     private final UserMapper userMapper;
     private final WeChatSubscribeMessageClient weChatSubscribeMessageClient;
     private final WeChatSubscribeProperties subscribeProperties;
+    private final PromotionPricingService promotionPricingService;
+    private final CouponPricingService couponPricingService;
+    private final CouponMapper couponMapper;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper, ProductMapper productMapper,
                             CartMapper cartMapper, ProductReviewMapper productReviewMapper,
@@ -89,7 +98,10 @@ public class OrderServiceImpl implements OrderService {
                             ObjectMapper objectMapper, WebSocketSessionRegistry webSocketSessionRegistry,
                             AfterSaleRefundMapper afterSaleRefundMapper, UserMapper userMapper,
                             WeChatSubscribeMessageClient weChatSubscribeMessageClient,
-                            WeChatSubscribeProperties subscribeProperties) {
+                            WeChatSubscribeProperties subscribeProperties,
+                            PromotionPricingService promotionPricingService,
+                            CouponPricingService couponPricingService,
+                            CouponMapper couponMapper) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
@@ -102,6 +114,9 @@ public class OrderServiceImpl implements OrderService {
         this.userMapper = userMapper;
         this.weChatSubscribeMessageClient = weChatSubscribeMessageClient;
         this.subscribeProperties = subscribeProperties;
+        this.promotionPricingService = promotionPricingService;
+        this.couponPricingService = couponPricingService;
+        this.couponMapper = couponMapper;
     }
 
     @Override
@@ -149,11 +164,13 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
-    /** 原有下单逻辑：查商品 → 校验库存 → 扣库存 → 写订单。幂等占位/结果写回由外层 createOrder 负责。 */
+    /** 原有下单逻辑：查商品 → 校验库存 → 促销算价 → 扣库存 → 写订单。幂等占位/结果写回由外层 createOrder 负责。 */
     private OrderVO doCreateOrder(CreateOrderDTO dto, Long userId) {
-        // 逐个查商品，校验库存，组装明细，算总额
-        List<OrderItem> orderItems = new ArrayList<>();
-        BigDecimal totalAmount = BigDecimal.ZERO;
+        // 逐个查商品，校验库存，组装算价入参（价格只用后端查询结果，不信任前端）
+        List<Product> products = new ArrayList<>();
+        List<QuoteItemInput> quoteInputs = new ArrayList<>();
+        List<BigDecimal> insuranceFees = new ArrayList<>();
+        List<String> insuranceDetails = new ArrayList<>();
         for (OrderItemDTO itemDTO : dto.getItems()) {
             if (itemDTO.getProductId() == null) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID 不能为空");
@@ -168,19 +185,52 @@ public class OrderServiceImpl implements OrderService {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "商品「" + product.getName() + "」库存不足（剩余 " + stock + " 件）");
             }
             BigDecimal price = product.getSalesPrice() == null ? BigDecimal.ZERO : product.getSalesPrice();
-            BigDecimal insuranceFee = itemDTO.getInsuranceFee() == null ? BigDecimal.ZERO : itemDTO.getInsuranceFee();
-            BigDecimal subTotal = price.add(insuranceFee).multiply(BigDecimal.valueOf(quantity));
+            products.add(product);
+            quoteInputs.add(QuoteItemInput.builder()
+                    .productId(product.getId())
+                    .quantity(quantity)
+                    .originalPrice(price)
+                    .build());
+            insuranceFees.add(itemDTO.getInsuranceFee() == null ? BigDecimal.ZERO : itemDTO.getInsuranceFee());
+            insuranceDetails.add(itemDTO.getInsuranceDetail() == null ? "[]" : itemDTO.getInsuranceDetail());
+        }
+
+        // 促销算价：直减改商品价、满减改商品小计，均由服务端计算
+        QuoteResult quote = promotionPricingService.quote(quoteInputs, userId);
+        // 优惠券：先按当前状态校验并算优惠，再原子锁定（并发下只有一笔订单能锁定成功）
+        if (dto.getCouponId() != null) {
+            quote = couponPricingService.applyCoupon(quote, quoteInputs, dto.getCouponId(), userId);
+            if (couponMapper.lockCoupon(dto.getCouponId(), userId, LocalDateTime.now()) == 0) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "优惠券已被使用或不可用");
+            }
+        }
+        List<QuoteItemResult> quotedItems = quote.getItems();
+
+        // 组装订单明细：活动价 + 原价 + 优惠快照；保险不参与促销
+        List<OrderItem> orderItems = new ArrayList<>();
+        BigDecimal totalAmount = BigDecimal.ZERO;
+        BigDecimal originalTotal = BigDecimal.ZERO;
+        for (int i = 0; i < products.size(); i++) {
+            Product product = products.get(i);
+            QuoteItemResult quoted = quotedItems.get(i);
+            int quantity = quoted.getQuantity();
+            BigDecimal insuranceFee = insuranceFees.get(i);
+            BigDecimal insuranceTotal = insuranceFee.multiply(BigDecimal.valueOf(quantity));
+            BigDecimal subTotal = quoted.getSubTotal().add(insuranceTotal);
             orderItems.add(OrderItem.builder()
                     .productId(product.getId())
                     .productName(product.getName())
                     .image(product.getImage())
-                    .salesPrice(price)
+                    .salesPrice(quoted.getFinalPrice())
+                    .originalPrice(quoted.getOriginalPrice())
                     .quantity(quantity)
                     .subTotal(subTotal)
-                    .insuranceDetail(itemDTO.getInsuranceDetail() == null ? "[]" : itemDTO.getInsuranceDetail())
+                    .discountAmount(quoted.getDiscountAmount())
+                    .insuranceDetail(insuranceDetails.get(i))
                     .insuranceFee(insuranceFee)
                     .build());
             totalAmount = totalAmount.add(subTotal);
+            originalTotal = originalTotal.add(quoted.getOriginalSubTotal().add(insuranceTotal));
         }
 
         // 扣库存（乐观锁兜底防超卖）
@@ -190,11 +240,16 @@ public class OrderServiceImpl implements OrderService {
             }
         }
 
-        // 写订单主表（初始状态：待付款）
+        // 写订单主表（初始状态：待付款）；同时记录活动前金额与总优惠，供展示/退款口径使用
         Order order = Order.builder()
                 .userId(userId)
                 .orderNo(generateOrderNo())
                 .payAmount(totalAmount)
+                .originalAmount(originalTotal)
+                .discountAmount(quote.getDiscountAmount())
+                .couponId(quote.getCouponId())
+                .couponName(quote.getCouponName())
+                .couponAmount(quote.getCouponDiscount() == null ? BigDecimal.ZERO : quote.getCouponDiscount())
                 .orderStatus(OrderStatusEnum.PENDING_PAY.getCode())
                 // 用户点「提交订单」时同意订阅，才允许后续推送未支付提醒
                 .isSubscribeUnpaid(Boolean.TRUE.equals(dto.getSubscribeUnpaid()) ? 1 : 0)
@@ -217,6 +272,14 @@ public class OrderServiceImpl implements OrderService {
         }
         orderItemMapper.insertBatch(orderItems);
 
+        // 券锁定回填订单 id（取消/超时/退款时按 order_id 找回释放）
+        if (dto.getCouponId() != null) {
+            couponMapper.bindOrder(dto.getCouponId(), order.getId());
+        }
+
+        // 写促销使用记录：后台按活动统计应收/支付单数/优惠金额
+        promotionPricingService.recordUsage(quote, order.getId(), order.getOrderNo(), userId);
+
         // 下单成功：从购物车移除本次已下单的商品（与写订单同一事务，保证一致；立即购买场景购物车无该商品则删不到，无害）
         List<Long> orderedProductIds = orderItems.stream()
                 .map(OrderItem::getProductId).distinct().toList();
@@ -224,6 +287,32 @@ public class OrderServiceImpl implements OrderService {
             cartMapper.deleteByProducts(userId, orderedProductIds);
         }
         return getOrder(order.getId());
+    }
+
+    @Override
+    public QuoteResult quote(List<OrderItemDTO> items, Long couponId) {
+        if (items == null || items.isEmpty()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "商品明细不能为空");
+        }
+        List<QuoteItemInput> inputs = new ArrayList<>();
+        for (OrderItemDTO item : items) {
+            if (item == null || item.getProductId() == null) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID 不能为空");
+            }
+            Product product = productMapper.findById(item.getProductId());
+            if (product == null) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID " + item.getProductId() + " 不存在");
+            }
+            inputs.add(QuoteItemInput.builder()
+                    .productId(product.getId())
+                    .quantity(item.getQuantity() == null ? 1 : Math.max(1, item.getQuantity()))
+                    .originalPrice(product.getSalesPrice() == null ? BigDecimal.ZERO : product.getSalesPrice())
+                    .build());
+        }
+        // 确认页只展示，下单时会按最新活动重新计算，前端价格不作为成交依据
+        Long userId = currentUserId();
+        QuoteResult quote = promotionPricingService.quote(inputs, userId);
+        return couponPricingService.applyCoupon(quote, inputs, couponId, userId);
     }
 
     @Override
@@ -244,6 +333,8 @@ public class OrderServiceImpl implements OrderService {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.PENDING_CONFIRM);
         orderMapper.updateStatus(id, OrderStatusEnum.PENDING_CONFIRM.getCode(), payType, null, null, LocalDateTime.now());
+        // 券核销：LOCKED -> USED
+        couponMapper.markUsedByOrder(id, LocalDateTime.now());
         // 支付成功后推「新订单提醒」给后台管理端（推送失败不影响主流程）
         pushNewOrderNotice(order);
         return getOrder(id);
@@ -303,6 +394,9 @@ public class OrderServiceImpl implements OrderService {
             autoRefundOnCancel(order);
         }
         orderMapper.updateStatus(id, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
+        // 取消订单退回券：未支付解锁；已支付取消伴随整单退款，已用券在有效期内返还
+        couponMapper.releaseLockedByOrder(id);
+        couponMapper.releaseUsedByOrder(id, LocalDateTime.now());
         return getOrder(id);
     }
 
@@ -335,6 +429,8 @@ public class OrderServiceImpl implements OrderService {
             // 只改状态为取消，不软删除：待付款订单是有效订单记录，超时关闭只是状态流转（pending_pay → cancel），
             // 保留下来用户才能在订单列表看到「这笔订单超时取消了」
             orderMapper.updateStatus(order.getId(), OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
+            // 超时关闭：退回锁定中的券
+            couponMapper.releaseLockedByOrder(order.getId());
         }
         if (!expired.isEmpty()) {
             log.info("超时关闭待付款订单 {} 条", expired.size());
@@ -619,6 +715,11 @@ public class OrderServiceImpl implements OrderService {
                 .id(order.getId())
                 .orderNo(order.getOrderNo())
                 .payAmount(order.getPayAmount())
+                .originalAmount(order.getOriginalAmount())
+                .discountAmount(order.getDiscountAmount())
+                .couponId(order.getCouponId())
+                .couponName(order.getCouponName())
+                .couponAmount(order.getCouponAmount())
                 .payType(order.getPayType())
                 .payTypeDesc(payType == null ? null : payType.getDesc())
                 .orderStatus(order.getOrderStatus())
@@ -652,6 +753,8 @@ public class OrderServiceImpl implements OrderService {
                 .productName(item.getProductName())
                 .image(item.getImage())
                 .salesPrice(item.getSalesPrice())
+                .originalPrice(item.getOriginalPrice())
+                .discountAmount(item.getDiscountAmount())
                 .quantity(item.getQuantity())
                 .subTotal(item.getSubTotal())
                 .build();

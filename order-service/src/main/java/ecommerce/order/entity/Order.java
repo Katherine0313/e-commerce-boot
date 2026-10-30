@@ -23,6 +23,15 @@ public class Order {
     private String orderNo;
     private Integer isDeleted;
     private BigDecimal payAmount;
+    /** 活动前金额（商品原价小计 + 保险），无活动时等于 payAmount */
+    private BigDecimal originalAmount;
+    /** 优惠金额（直减 + 满减 + 券） */
+    private BigDecimal discountAmount;
+    /** 使用的优惠券 */
+    private Long couponId;
+    private String couponName;
+    /** 优惠券优惠金额 */
+    private BigDecimal couponAmount;
     private String payType;
     private Integer orderStatus;
     private String remark;
