@@ -27,7 +27,7 @@ public class AdminSystemMenuController {
     }
 
     @Operation(summary = "全部菜单树（含按钮）")
-    @RequirePerm("system:menu:list")
+    @RequirePerm("system:role:assign")
     @GetMapping("/tree")
     public Result<List<MenuVO>> tree() {
         return Result.success(adminRoleService.menuTree());

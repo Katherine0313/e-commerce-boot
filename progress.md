@@ -5,6 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
+  2026-10-30 后台 RBAC P1（账号/角色）：新增「系统管理 → 管理员账号 / 角色管理」页面与 `/api/admin/system/users|roles|menus/tree` 接口；账号支持新增/编辑/禁用/重置密码/分配角色，角色支持 CRUD + 菜单树勾选（自动补父菜单）；密码改用 BCrypt（历史明文登录后自动升级）。本地实测 admin 200、operator 403、新建账号 BCrypt 登录成功。待发布 auth-service + 后台 dist。
   2026-10-30 后台 RBAC P0：新增 `admin_role/admin_menu/admin_user_role/admin_role_menu` 四表与 4 个角色（店铺管理员/运营/客服/仓储），权限码 `模块:实体:动作`；登录返回角色/权限/菜单并写入 JWT；common 新增 `@RequirePerm` + 权限拦截器，各服务后台接口按读写权限注解；前端按权限过滤菜单、路由守卫、`v-permission` 按钮控制。本地/生产库已执行，已验证 operator 200、warehouse/service 403、C 端免登录 200。待发：auth-service 先发，再发其它服务 + gateway + 后台 dist。
   2026-10-30 后台登录失败锁定：同一「用户名 + IP」连续 5 次密码错误锁定 10 分钟（yml 配置，可改环境变量），验证码错误不计数、成功登录清零；达到上限返回 429。待与 auth-service 一起发布。
   2026-10-30 后台登录改造：移除手机号验证码登录，改为账号密码 + 图形验证码（Redis 存答案 180s、一次性校验）；删除 auth-service 短信登录接口/DTO/SMS 配置，网关与白名单改为 `/api/auth/captcha`；后台登录页同步去掉手机号入口。待发布 auth-service + gateway + 后台 dist。

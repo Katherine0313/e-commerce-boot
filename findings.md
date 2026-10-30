@@ -340,7 +340,13 @@ ecommerce
 - 校验：`common` 新增 `@RequirePerm` + `PermissionInterceptor`（排在 JwtInterceptor 后），从 `UserContext` 读 JWT 里的权限，无权限返回 403；各服务的 `/api/admin/**` 已按类/方法加注解读取/写权限。
 - 前端：`utils/auth.js` 增加 `hasPermi/isAdminToken`；`v-permission` 按钮指令；`App.vue` 按 `meta.permission` 生成过滤后的 stepin 菜单；路由守卫拦截无权限直链；订单发货/取消/删除、售后审核、商品/分类/标签/库存、促销/优惠券/会员等按钮已接入。
 - 验证：operator 访问 `/api/admin/products` 200，warehouse/service 403；C 端 `/api/products/page` 无 token 200；operator 登录拿到 32 个权限。
-- 未做（P1）：角色/菜单/账号管理后台页面、菜单动态路由、密码 BCrypt、操作日志、权限变更后强制重新登录（当前权限在 JWT 里，角色调整后需重新登录才生效）。
+- P1 已完成（2026-10-30）：后台「系统管理」下新增「管理员账号」「角色管理」两个页面；
+  - 账号：分页/关键词/状态筛选、新增、编辑（显示名/手机号/状态/角色）、重置密码；超级管理员账号不能禁用、不能移除 admin 角色、不能禁用自己。
+  - 角色：角色 CRUD（`admin` 角色不可删/不可停用、有账号使用中不可删）、菜单树勾选分配（保存时自动补父菜单）。
+  - 密码：新增/重置统一 BCrypt（`spring-security-crypto`）；历史明文密码登录成功后自动升级；登录兼容 BCrypt 与旧明文。
+  - API：`/api/admin/system/users`、`/roles`、`/menus/tree`，分别用 `system:user:*` / `system:role:*` / `system:role:assign` 权限。
+  - 实测：admin 访问 system 接口 200，operator 403；新增账号落库为 `$2a$10$...` 且可用新密码登录；角色菜单分配可保存。
+- 未做（P1 剩余）：菜单管理 CRUD 页面、菜单动态路由、操作日志/登录日志、角色变更强制下线（权限在 JWT 里，角色调整后需重新登录）、清理生产演示账号。
 - 发布顺序：**auth-service 先发**（新令牌才带 permissions），再发 product/order/aftersale/user/gateway，最后后台 dist；旧 token 需要重新登录。
 
 ### 后台登录改造（2026-10-30）
