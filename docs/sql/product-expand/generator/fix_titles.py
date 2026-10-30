@@ -21,6 +21,8 @@ DB = dict(
     cursorclass=pymysql.cursors.DictCursor,
 )
 OUT = Path(__file__).resolve().parents[1] / "05-fix-titles.sql"
+CURATION_FILE = Path(__file__).resolve().parents[1] / "product_curation.json"
+CURATION = json.loads(CURATION_FILE.read_text(encoding="utf-8")) if CURATION_FILE.exists() else {}
 
 
 def sql_str(value):
@@ -31,17 +33,9 @@ def clean(text):
     return (text or "").replace("，", " ").replace(",", " ").replace("。", " ").strip()
 
 
-def make_title(name, subtitle, specs_json):
-    values = []
-    try:
-        specs = json.loads(specs_json or "[]")
-        values = [str(s.get("value", "")).strip() for s in specs if s.get("value")]
-    except Exception:
-        pass
-    # 名称已包含品牌+型号+品类；再拼卖点、3 个关键参数和官方词
-    parts = [name, clean(subtitle)]
-    parts.extend(values[:3])
-    parts.extend(["官方正品", "现货速发"])
+def make_title(name, subtitle):
+    # 只拼名称 + 卖点，不再追加 specs 数值（随机参数会导致标题自相矛盾）
+    parts = [name, clean(subtitle), "官方正品", "现货速发"]
     # 去空 + 去重（保持顺序）
     result, seen = [], set()
     for p in parts:
@@ -64,7 +58,8 @@ def main():
 
     lines = ["-- 重写商品 title：名称 + 卖点 + 参数 + 官方正品", "SET NAMES utf8mb4;", ""]
     for r in rows:
-        title = make_title(r["name"], r["sub_title"], r["specs"])
+        selling = CURATION.get(str(r["id"]), {}).get("selling") or r["sub_title"]
+        title = make_title(r["name"], selling)
         lines.append(f"UPDATE products SET title = {sql_str(title)} WHERE id = {r['id']};")
     OUT.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(f"生成 {len(rows)} 条 title 更新：{OUT}")

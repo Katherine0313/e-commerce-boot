@@ -33,6 +33,10 @@ OUT_DIR = Path(__file__).resolve().parents[1]
 IMG_DIR = ROOT / "upload" / "image" / "upload"
 OPT_DIR = ROOT / "upload" / "image" / "opt" / "upload"
 
+# 人工核对过的 title/specs（id -> selling + specs）；存在时优先覆盖随机生成的参数
+CURATION_FILE = OUT_DIR / "product_curation.json"
+CURATION = json.loads(CURATION_FILE.read_text(encoding="utf-8")) if CURATION_FILE.exists() else {}
+
 DB = dict(
     host=os.getenv("DB_HOST", "127.0.0.1"),
     port=int(os.getenv("DB_PORT", "3306")),
@@ -497,11 +501,10 @@ def specs_json(specs):
 
 
 
-def make_title(name, subtitle, specs):
-    values = [s["value"] for s in specs if s.get("value")]
-    parts = [name, (subtitle or "").replace("，", " ").strip()]
-    parts.extend(values[:3])
-    parts.extend(["官方正品", "现货速发"])
+def make_title(name, subtitle):
+    # 只拼名称 + 卖点，不再把 specs 数值塞进标题：specs 是按品类随机生成的，
+    # 直接拼接会产出自相矛盾的标题（如 MacBook 出现 Ryzen、iPhone 出现骁龙）。
+    parts = [name, (subtitle or "").replace("，", " ").strip(), "官方正品", "现货速发"]
     result, seen = [], set()
     for item in parts:
         if item and item not in seen:
@@ -521,13 +524,14 @@ def make_product(pid, category_id, brand, model, existing_names):
     market = round(price * rng.uniform(1.02, 1.15), 2)
     cost = round(price * rng.uniform(0.85, 0.92), 2)
     specs = build_specs(category_id, brand, model, price, rng)
-    highlight = " / ".join(s["value"] for s in specs[:2])
+    curated = CURATION.get(str(pid))
     return dict(
         id=pid, category_id=category_id, brand=brand, name=name,
         sub_title=subtitle_for(type_name),
-        title=make_title(name, subtitle_for(type_name), specs),
+        title=make_title(name, curated["selling"] if curated else subtitle_for(type_name)),
         image=f"/image/upload/{pid}.webp", price=price, market=market, cost=cost,
-        stock=rng.randint(50, 500), specs=specs_json(specs), code=f"SEED-{pid}",
+        stock=rng.randint(50, 500),
+        specs=specs_json(curated["specs"] if curated else specs), code=f"SEED-{pid}",
     )
 
 
@@ -565,7 +569,10 @@ def generate(conn):
     for r in existing:
         category_id = r["category_id"] or 101
         rng = random.Random(r["id"])
-        specs = build_specs(category_id, r["brand"] or "", r["name"] or "", float(r["sales_price"] or 0), rng)
+        curated = CURATION.get(str(r["id"]))
+        specs = curated["specs"] if curated else build_specs(
+            category_id, r["brand"] or "", r["name"] or "", float(r["sales_price"] or 0), rng
+        )
         backfill.append(
             "UPDATE products SET specs = {} WHERE id = {} AND specs IS NULL;".format(
                 sql_str(specs_json(specs)), r["id"]
