@@ -1,6 +1,7 @@
 package ecommerce.product.controller;
 
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.product.service.UploadService;
 import ecommerce.product.vo.UploadVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -20,6 +21,7 @@ import org.springframework.web.multipart.MultipartFile;
  */
 @Tag(name = "后台图片上传", description = "商品主图/正文图/分类图上传（管理员）")
 @RestController
+@RequirePerm("product:product:add")
 @RequestMapping("/api/admin/upload")
 public class AdminUploadController {
     private final UploadService uploadService;

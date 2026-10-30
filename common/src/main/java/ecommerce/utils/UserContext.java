@@ -1,5 +1,7 @@
 package ecommerce.utils;
 
+import java.util.List;
+
 /**
  * 当前登录用户上下文
  * <p>
@@ -11,6 +13,10 @@ public class UserContext {
 
     /** 当前登录用户 ID，未登录时为 null */
     private static final ThreadLocal<Long> CURRENT_ID = new ThreadLocal<>();
+    /** 后台角色标识（如 admin/operator/service/warehouse） */
+    private static final ThreadLocal<List<String>> CURRENT_ROLES = new ThreadLocal<>();
+    /** 后台权限标识（如 product:product:list） */
+    private static final ThreadLocal<List<String>> CURRENT_PERMISSIONS = new ThreadLocal<>();
 
     /** 工具类，禁止实例化 */
     private UserContext() {
@@ -27,8 +33,26 @@ public class UserContext {
         return CURRENT_ID.get();
     }
 
+    /** 保存后台角色与权限，由 JwtInterceptor 从令牌 claims 写入 */
+    public static void setAuth(List<String> roles, List<String> permissions) {
+        CURRENT_ROLES.set(roles == null ? List.of() : roles);
+        CURRENT_PERMISSIONS.set(permissions == null ? List.of() : permissions);
+    }
+
+    public static List<String> getRoles() {
+        List<String> roles = CURRENT_ROLES.get();
+        return roles == null ? List.of() : roles;
+    }
+
+    public static List<String> getPermissions() {
+        List<String> permissions = CURRENT_PERMISSIONS.get();
+        return permissions == null ? List.of() : permissions;
+    }
+
     /** 清除本次请求的登录信息，必须由 JwtInterceptor 在请求结束时调用 */
     public static void remove() {
         CURRENT_ID.remove();
+        CURRENT_ROLES.remove();
+        CURRENT_PERMISSIONS.remove();
     }
 }

@@ -13,4 +13,50 @@
         FROM `admin`
         WHERE id = #{id}
     </select>
+
+    <sql id="adminWhere">
+        1 = 1
+        <if test="keyword != null and keyword != ''">
+            AND (username LIKE CONCAT('%', #{keyword}, '%')
+                 OR name LIKE CONCAT('%', #{keyword}, '%')
+                 OR phone LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+    </sql>
+
+    <select id="listAdmins" resultType="ecommerce.auth.entity.Admin">
+        SELECT id, username, name, phone, role, status, create_time, update_time
+        FROM `admin`
+        WHERE <include refid="adminWhere"/>
+        ORDER BY id ASC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countAdmins" resultType="long">
+        SELECT COUNT(*) FROM `admin` WHERE <include refid="adminWhere"/>
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO `admin` (username, password, name, phone, role, status, create_time, update_time)
+        VALUES (#{username}, #{password}, #{name}, #{phone}, #{role}, #{status},
+                #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update">
+        UPDATE `admin`
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="role != null">role = #{role},</if>
+            <if test="status != null">status = #{status},</if>
+            update_time = #{updateTime},
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <update id="updatePassword">
+        UPDATE `admin` SET password = #{password}, update_time = #{now} WHERE id = #{id}
+    </update>
 </mapper>

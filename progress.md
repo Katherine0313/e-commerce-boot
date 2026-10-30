@@ -5,13 +5,15 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
+  2026-10-30 后台 RBAC P0：新增 `admin_role/admin_menu/admin_user_role/admin_role_menu` 四表与 4 个角色（店铺管理员/运营/客服/仓储），权限码 `模块:实体:动作`；登录返回角色/权限/菜单并写入 JWT；common 新增 `@RequirePerm` + 权限拦截器，各服务后台接口按读写权限注解；前端按权限过滤菜单、路由守卫、`v-permission` 按钮控制。本地/生产库已执行，已验证 operator 200、warehouse/service 403、C 端免登录 200。待发：auth-service 先发，再发其它服务 + gateway + 后台 dist。
+  2026-10-30 后台登录失败锁定：同一「用户名 + IP」连续 5 次密码错误锁定 10 分钟（yml 配置，可改环境变量），验证码错误不计数、成功登录清零；达到上限返回 429。待与 auth-service 一起发布。
   2026-10-30 后台登录改造：移除手机号验证码登录，改为账号密码 + 图形验证码（Redis 存答案 180s、一次性校验）；删除 auth-service 短信登录接口/DTO/SMS 配置，网关与白名单改为 `/api/auth/captcha`；后台登录页同步去掉手机号入口。待发布 auth-service + gateway + 后台 dist。
   2026-10-30 商品图体积优化：补齐 33~50 缺失的 400px opt 缩略图、重压 7 张 >30KB 的图，136 张 opt 全部 ≤30KB（50.webp 186KB→8.6KB），已同步生产；图片缓存头改 365d immutable（待发布 product-service）。Cloudflare 仍缓存旧图，需 Purge 25 个 URL 后生效。测速确认公网 ~1.4s 是 Cloudflare 香港跨境，Redis 不解决；后续图片走国内 CDN，API 再评估 EdgeOne/全站加速。
   2026-10-30 库存预警表改名 `stock` → `stock_alert`（它只存预警上下限/开关，当前库存在 `products.stock`）：本地+生产已迁移，索引/外键同步改名，代码实体/Mapper/XML 同步；种子文件原来 30 行全指向商品 1 的错误数据已按实际库重新导出为 `stock-alert-data.sql`。
   2026-10-30 会员 v1 完成（本地+生产已建表）：成长值等级制（0/500/2000/5000，后台可改），成长值=已支付实付−已退款、1 元=1 点、打开会员中心/我的页时重算回写，只升不降；后台「经营工具 → 会员」会员列表 + 等级配置；小程序会员卡 + 会员中心；优惠券支持「最低会员等级」门槛（领券/可用/核销校验）。不做积分/付费 VIP/会员价。生产备份 `/www/backup/e_commerce_db_before_member_2026-10-30_0951.sql`。
   2026-10-30 本地库单店化收尾：预检查无沙箱数据（18 表非主店计数全 0、跨店外键异常 0），执行 `single-shop-01-cleanup.sql` 与 `02-drop-shop-id.sql`，删除 18 表 `shop_id`、旧索引与 `shops` 表并重建单店唯一键；备份 `../backup_before_local_single_shop_2026-10-30.sql`。已与生产逐项核对：25 张表 / 292 个字段（名称/类型/可空）/ 89 条索引完全一致。同日促销与优惠券建表脚本在本地、生产均执行，生产备份 `/www/backup/e_commerce_db_before_promotion_coupon_2026-10-30_0939.sql`。
-  2026-10-30 优惠券模块完成（未执行 DB）：order-service 新增 `coupon_template/coupon_scope/user_coupon` 与订单券快照；支持满减/折扣、全场/分类/商品、固定/领取后 N 天、后台定向/全量发券、领券中心、下单选券/锁券/核销/取消退回；券与促销叠加、门槛按促销后金额、按行分摊保证退款口径。后台菜单拆为「经营工具 → 促销活动 / 优惠券」，小程序新增我的优惠券/领券中心并接入确认页。**上线前先执行 `docs/sql/coupon/01-coupon-schema.sql`**；后台售后退款返券留 P1.5。
-  2026-10-30 促销模块后端+前端完成（未执行 DB）：按黑马文档三层改价模型新增 `promotion/promotion_item/promotion_rule/promotion_usage` 与订单优惠快照字段；`common` 新增纯函数算价引擎（直减/满减叠加、同商品同类型互斥、新用户按已支付订单判定）；product-service 提供后台活动 CRUD/提前结束/效果统计，order-service 提供确认页报价、购物车直减价、下单重算并写使用记录；后台 `OnSale.vue` 重写，小程序/PC 商城展示促销标签、划线价与优惠金额。拼团不做，秒杀列入后续规划。**上线前必须先执行 `docs/sql/promotion/01-promotion-schema.sql`**。
+  2026-10-30 优惠券模块完成（本地/生产已建表）：order-service 新增 `coupon_template/coupon_scope/user_coupon` 与订单券快照；支持满减/折扣、全场/分类/商品、固定/领取后 N 天、后台定向/全量发券、领券中心、下单选券/锁券/核销/取消退回；券与促销叠加、门槛按促销后金额、按行分摊保证退款口径。后台菜单拆为「经营工具 → 促销活动 / 优惠券」，小程序新增我的优惠券/领券中心并接入确认页。`docs/sql/coupon/01-coupon-schema.sql` 已执行；后台售后退款返券留 P1.5。
+  2026-10-30 促销模块后端+前端完成（本地/生产已建表）：按黑马文档三层改价模型新增 `promotion/promotion_item/promotion_rule/promotion_usage` 与订单优惠快照字段；`common` 新增纯函数算价引擎（直减/满减叠加、同商品同类型互斥、新用户按已支付订单判定）；product-service 提供后台活动 CRUD/提前结束/效果统计，order-service 提供确认页报价、购物车直减价、下单重算并写使用记录；后台促销页 `PromotionList.vue`，小程序/PC 商城展示促销标签、划线价与优惠金额。拼团不做，秒杀列入后续规划。建表脚本 `docs/sql/promotion/01-promotion-schema.sql` 已在本地/生产执行。
   2026-10-30 C 端商品列表分页全接入：小程序分类页（scroll-view `@scrolltolower`，每页 12，首屏缓存 60s）/ 搜索页（`onReachBottom`，每页 12）、PC 商城列表/搜索（`加载更多`，每页 40）全部改用 `GET /api/products/page`；老 `/api/products` 保留兼容但三条 SQL 加 `LIMIT 200` 兜底。待发布：product-service（XML 上限）+ 小程序 `dist/build` + PC 商城 `dist`。
   2026-10-29 多租户彻底下线、退化为单店并**已完成生产迁移**：删除 shop-service 模块及网关路由/compose/release 项；JWT 不再签 shopId，`UserContext`/各服务 Mapper/XML/Service 全部去掉 `shop_id`；WebSocket 来单提醒改单集合广播；后台前端店铺名改静态配置 `src/utils/shop.js`；小程序登录不再传 SHOP_ID；AI 推荐服务同步去掉 `products.shop_id`，并补上生产 `.env` 的 `MYSQL_HOST=host.docker.internal`（此前 AI 商品查询一直连不上）。生产执行 01 清掉 2 家沙箱店（55/56）数据、按序发布 7 服务（auth 最后）、02 删除 18 表 `shop_id` 与 `shops` 表并重建唯一键；接口与 AI 商品读取验证通过，备份在服务器 `/www/backup/`。同日新增首页热门推荐接口（推荐分类优先、不足随机补）、修复后台新增商品 `sales_mode` 为空 500。另新建 PC 商城 `ecommerce-mall`（Vue3+Vite SPA），已替换原静态企业站上线 https://www.xiaojiecpn.com，Nginx 同源代理 `/api`、`/image`、`/upload` 到网关，首页/列表/详情/搜索接真实数据。后端商品扩容：`products.specs`（有序 JSON 数组）、分类重构为 8 个一级/21 个二级（原 502 运动手表并入 501，新增 503 机械普通手表）、商品整理为 126 件（保留 50 个现有 + 76 个按型号去重的种子 id 51~126，每叶子 6 件；后续新增 10 款机械/石英表 id 127~136，总数 136）、新增 `GET /api/products/page` 分页筛选接口；旧 `/api/products` 保持数组兼容。生产已执行 SQL、同步 51~126 唯一占位图并发布 product-service，线上验证 126 商品/分页/分类/specs 正常（生产额外有一个空的「家电」分类，用户自行删除）。同日 `products.description` 重命名为 `title`（主标题），`sub_title` 保留；主标题统一改为 SEO 长标题（名称+品牌型号+卖点+参数+官方正品），本地/生产数据与生成器已同步。
   2026-10-28 沙箱按浏览器复用（`shops.visitor_key` + 前端 UUID + 唯一索引，退出登录/401 不清 key，24h 内复用原店）；admin 用户名改 `admin_{shopId}`、`create_time` 改开店时间；订单金额注释/标签统一；软著三件套（TEST、源程序文档、用户手册）完成；发布切腾讯云 TCR 镜像（`ccr.ccs.tencentyun.com/jiemi-ecommerce`，9 个仓库，`deploy/release.sh` 一键发布/回滚），服务器 compose 已切 `image:` + `--no-build`，线上 9 容器 Up，网关直连与公网接口均 200。同日小程序提审被拒（VIP 入口点击无响应），新增 `utils/features.js` 功能开关，隐藏 VIP/优惠券/积分与用户协议/隐私政策死链，「联系我们」改跳已有客服页；新增 `deploy/release-web.sh`，后台管理端前端一条命令发布（npm build + rsync + 备份/回滚）；一键体验改为手机号验证码鉴权（`/api/admin/shops/sandbox`）；发布脚本修复多服务 tag 牵连（`docker-compose.override.yml` 固定各服务镜像 + `--no-deps` 部署）；面试演示确定走单店模式，登录页移除「一键体验」，恢复账号密码 / 手机号直接登录模板店，沙箱后端保留未使用。
@@ -23,17 +25,19 @@
   2026-10-22：营业额统计接口 + 取消订单自动退款 + 工作台统计卡/营业额面板 + WebSocket 心跳重连加固。
 
 - **我要去哪里？**
-  1. 后台管理端 `dist` 重新构建上传（sandboxVisitor、订单金额标签）；否则沙箱复用不生效
-  2. 订阅消息：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，服务已部署；小程序发行后验证推送
-  3. 微信二次提审：`dist/build` 包 + 完整录屏 + request/uploadFile/downloadFile 三个域名
-  4. 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券占位已用功能开关隐藏，2026-10-28）
-  5. 生产安全收尾：安全组关闭 8848/9848/9849/18080/9001~9007，停旧 Node 3000，删网站根 `.env`
-  6. 参数/促销表（`parameters` + `business_onsale`，含活动定时下架）
-  7. 购物车 2 个缺口 + 商品/订单/售后端到端验证
-  8. file-service（CDN/通用文件）
-  9. 沙箱 `templateGuard` + 扫码进店（过期回收已完成 2026-10-27）
-  10. 阶段 11 WebSocket：RabbitMQ fanout 跨实例广播 + 发货/新售后事件
-  11. 阶段 12 微信支付接入（回调 + 查单 + 对账）
+  1. 发布 RBAC P0：**auth-service 先发**（新令牌才带 permissions），再发 product/order/aftersale/user/gateway，最后后台 `dist`；发布后所有人重新登录
+  2. RBAC P1：管理员账号/角色/菜单管理页面、菜单动态路由、密码 BCrypt、操作日志/登录日志、角色变更强制下线
+  3. 订阅消息：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，服务已部署；小程序发行后验证推送
+  4. 微信二次提审：`dist/build` 包 + 完整录屏 + request/uploadFile/downloadFile 三个域名
+  5. 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分占位已用功能开关隐藏）
+  6. 生产安全收尾：安全组关闭 8848/9848/9849/18080/9001~9007，停旧 Node 3000，删网站根 `.env`
+  7. 参数表 `parameters`（促销/优惠券/会员已完成，表名 `promotion_*` / `coupon_*` / `member_*`）
+  8. 图片/API 国内加速：Cloudflare 不能灰云（会暴露源站 IP），图片计划 COS+CDN（`img.jiemids.com`），API 评估腾讯云 EdgeOne/全站加速；同时清 CF 旧图缓存并预热
+  9. 购物车 2 个缺口 + 商品/订单/售后端到端验证
+  10. file-service（CDN/通用文件）
+  11. PC 商城 P2：user-service 的 C 端 demo 登录（user 令牌）+ 购物车/下单
+  12. 阶段 11 WebSocket：RabbitMQ fanout 跨实例广播 + 发货/新售后事件
+  13. 阶段 12 微信支付接入（回调 + 查单 + 对账）
 
 - **目标是什么？**
   拆成真·微服务部署，跑通 Nacos 注册 + Gateway 路由，再逐个补业务服务。
@@ -85,9 +89,10 @@
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + request/uploadFile/downloadFile 域名
 - [ ] 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分/协议死链已于 2026-10-28 隐藏）
 - [ ] 生产安全：安全组关闭 8848/9848/9849/18080/9001~9008；停旧 Node 3000；删网站根 `.env`；Nacos 控制台保持 127.0.0.1
-- [ ] 公网延迟：本机接口 10～46ms，公网 0.8～2s；Redis 命中率 85%、事件循环 <1ms，瓶颈在 Cloudflare 跨境。待定是否改 DNS-only 直连源站（国内预计 100～300ms）
+- [ ] 公网延迟：本机接口 10～46ms、公网 ~1.4s；瓶颈在 Cloudflare 香港跨境。**不能改灰云**（源站 IP 暴露）；图片计划走国内 CDN（COS+CDN，源站 IP 隐藏），API 评估 EdgeOne/全站加速
+- [ ] 图片加速落地：补 opt 已完成并上传生产；待清 Cloudflare 旧图缓存、预热 136 张图，再评估 COS+CDN/`img.jiemids.com`
 - [ ] 购物车：加购校验上架状态；5 接口端到端验证
-- [ ] 商品：`parameters` 参数表（**促销已完成 2026-10-30**，表名改为 `promotion_*`；待执行 `docs/sql/promotion/01-promotion-schema.sql` 后联调）
+- [ ] 商品：`parameters` 参数表（促销/优惠券/会员已完成 2026-10-30，建表脚本已在本地/生产执行）
 - [ ] 售后：退货入库单（仓库核验）
 - [ ] file-service：CDN/通用文件 + `uploads` 表
 - [x] 沙箱过期回收 + user 克隆脱敏（2026-10-27，shop-service 每小时清到期店）
@@ -104,7 +109,9 @@
 - [ ] 后台新增商品 500 修复后的 product-service 需确认已发布到生产（代码已修，`sales_mode` 默认 spot）
 - [x] ~~个性化推荐/`/recommend`~~：用户决定近期不实现 Python recommend，继续销量兜底（2026-10-29）
 - [ ] 导购机器人（阶段 8）：Function Calling 查库（search_products / check_stock / compare_price）+ 商品卡片渲染 + RAG（可选）；AI 下单闭环暂不做
-- [ ] RBAC 权限（role/permission/admin_role）+ 操作日志审计（AOP 切面，阶段 1）
+- [x] RBAC P0（2026-10-30，阶段 18）：4 表 + 4 角色 + JWT 权限 + `@RequirePerm` 拦截 + 前端菜单/按钮过滤；本地/生产库已建，待发布
+- [ ] RBAC P1：管理员账号/角色/菜单管理页面 + 动态路由 + BCrypt + 操作日志/登录日志 + 权限变更强制下线
+- [ ] 生产演示账号清理：operator/service/warehouse 为种子账号，正式使用前改密码或删除
 - [ ] 网关限流 + 接口防刷（IP/用户维度、下单频率、临时黑名单，阶段 10）
 - [ ] 消息通知中心（阶段 15）：模板/发送记录表、发货/退款/售后状态通知、站内信、短信
 - [ ] 短信服务商：后台手机号登录已移除（2026-10-30 改为账号密码 + 图形验证码），短信仅保留给后续通知类场景（并入阶段 15）

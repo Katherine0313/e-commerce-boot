@@ -63,8 +63,8 @@
 - [✓] admin 登录/登出/info 接口 + admin 表种子（admin/admin123）
 - [✓] gateway CORS（WebFlux `CorsWebFilter` + 去重 `GlobalFilter`）
 - [✓] 后台管理端登录端到端跑通
-- [ ] RBAC 权限：`role` / `permission` / `admin_role` 表 + 注解鉴权（当前 admin 单账号，先补表和后端校验，再轮到前端菜单/按钮）
-- [ ] 操作日志审计（AOP）：切面统一记录「谁 / 时间 / IP / 接口 / 修改前后数据」写入 `operation_log`，后台可检索；优先覆盖改价、库存调整、售后审核、删除等敏感操作
+- [✓] RBAC P0（2026-10-30）：`admin_role/admin_menu/admin_user_role/admin_role_menu` + 4 角色 + JWT 权限 + `@RequirePerm` 拦截 + 前端菜单/按钮过滤；详见阶段 18
+- [ ] 操作日志审计（AOP）：切面统一记录「谁 / 时间 / IP / 接口 / 修改前后数据」写入 `operation_log`，后台可检索；优先覆盖改价、库存调整、售后审核、删除等敏感操作（阶段 18 P1）
 - [✓] JWT 鉴权由下游各服务 `JwtInterceptor` 从 token 解析（网关不做过滤器、不传 `X-Shop-Id`）
 - [ ] 网关限流（并入阶段 10）
 - **状态：** in_progress
@@ -85,9 +85,9 @@
 - [✓] C 端分页 `GET /api/products/page`（分类/关键词/品牌/价格/排序），旧接口保持数组兼容
 - [✓] `products.description` 重命名为 `title`（主标题），商品 title 改为 SEO 长标题；`sub_title` 保留
 - [✓] 商品 `sub_title` 淘宝风格化：营销销量/加购 + 可开发票 + 品类口碑，一句话 17~24 字（2026-10-29）
-- [ ] 前端接 specs / 分页 / 分类侧边栏（小程序 → 后台 → PC）
+- [ ] 前端接 specs / 分类侧边栏（**分页已完成 2026-10-30**：小程序分类/搜索、PC 列表/搜索均走 `/api/products/page`）
 - [ ] parameters 表 + 参数组/参数项
-- [✓] 促销模块（2026-10-30）：`promotion/promotion_item/promotion_rule/promotion_usage` + 后台 CRUD/提前结束/效果统计 + `common` 算价引擎（直减/满减叠加、互斥）+ 订单优惠快照与确认页报价；定时下架不需要（按时间窗实时判定）；**DB 脚本 `docs/sql/promotion/01-promotion-schema.sql` 待执行**
+- [✓] 促销模块（2026-10-30）：`promotion/promotion_item/promotion_rule/promotion_usage` + 后台 CRUD/提前结束/效果统计 + `common` 算价引擎（直减/满减叠加、互斥）+ 订单优惠快照与确认页报价；定时下架不需要（按时间窗实时判定）；DB 脚本已在本地/生产执行
 - **状态：** in_progress
 
 ### 阶段 4：order-service
@@ -259,6 +259,34 @@
 - [ ] 下单限流/防刷（用户/IP 维度）+ 排队失败兜底
 - [ ] 后台场次管理 + C 端秒杀专区与倒计时
 - **状态：** pending
+
+### 阶段 18：后台 RBAC 权限与审计（2026-10-30 起）
+
+> P0 代码已完成、本地/生产库已建表，服务待发布；当前权限写在 JWT 里，角色调整后需要重新登录。P1 把种子数据变成可视化维护，并补审计。
+
+**P0 已完成**
+- [✓] 表：`admin_role` / `admin_menu` / `admin_user_role` / `admin_role_menu`；脚本 `docs/sql/rbac/01-rbac-schema.sql`
+- [✓] 4 角色：店铺管理员（admin 超管）/ 运营 / 客服 / 仓储发货
+- [✓] 权限码 `模块:实体:动作`，菜单 M/C/F 三类；登录返回角色/权限/菜单，并写入 JWT
+- [✓] `common @RequirePerm` + `PermissionInterceptor`，各服务 `/api/admin/**` 读写权限注解
+- [✓] 前端菜单按权限过滤、路由守卫、`v-permission` 按钮指令；订单发货/售后审核等敏感按钮已接入
+- [✓] 本地实测 operator 200、warehouse/service 403、C 端免登录 200
+
+**P1：权限管理闭环**
+- [ ] 「系统管理 → 管理员账号」：列表、新增、禁用、重置密码、分配角色
+- [ ] 「系统管理 → 角色管理」：角色 CRUD + 菜单树勾选分配
+- [ ] 「系统管理 → 菜单管理」：目录/菜单/按钮维护
+- [ ] 动态路由：前端根据 `admin_menu` 生成路由和侧边栏（当前为静态路由 + 权限过滤）
+- [ ] 密码 BCrypt（替换明文）、删除生产演示账号、去掉登录页演示预填
+- [ ] 操作日志 + 登录日志：表 + AOP 注解 + 异步写入 + 后台只读页面
+- [ ] 角色/菜单变更后强制下线或刷新 token，避免 JWT 里旧权限继续生效
+
+**P2：增强**
+- [ ] 数据权限（部门/门店维度，按需）
+- [ ] 改价 / 退款审核 / 导出等敏感操作二次授权
+- [ ] MFA、IP 白名单、登录设备管理
+- [ ] 审计日志归档/导出、保留策略
+- **状态：** in_progress（P0 完成，P1 待做）
 
 ## 风险与待确认
 

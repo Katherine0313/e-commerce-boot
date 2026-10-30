@@ -20,6 +20,7 @@ public class Admin {
     /** 密码（开发期明文存储，生产换 BCrypt 后此处存密文） */
     private String password;
     private String name;
+    private String phone;
     private String role;
     private Integer status;
     private LocalDateTime createTime;

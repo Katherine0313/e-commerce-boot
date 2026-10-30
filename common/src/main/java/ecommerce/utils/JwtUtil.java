@@ -10,6 +10,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -50,10 +51,23 @@ public class JwtUtil {
      * 所以这几个字段必须写进 payload，不能只塞 subject。
      */
     public String generateAdminToken(Long adminId, String username, String role) {
+        return generateAdminToken(adminId, username, role, List.of(), List.of());
+    }
+
+    /**
+     * 签发带 RBAC 权限的后台令牌。
+     * <p>
+     * roles/permissions 放进 payload，各微服务共用 common 的拦截器即可校验，不需要再查库；
+     * 角色调整后需要用户重新登录，令牌里的权限才会更新。
+     */
+    public String generateAdminToken(Long adminId, String username, String role,
+                                     List<String> roles, List<String> permissions) {
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("id", adminId);
         extraClaims.put("username", username);
         extraClaims.put("role", role);
+        extraClaims.put("roles", roles == null ? List.of() : roles);
+        extraClaims.put("permissions", permissions == null ? List.of() : permissions);
         return buildToken(adminId, TYPE_ADMIN, extraClaims);
     }
 

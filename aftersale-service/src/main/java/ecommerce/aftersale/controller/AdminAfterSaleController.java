@@ -4,6 +4,7 @@ import ecommerce.aftersale.dto.AdminAfterSaleDTO;
 import ecommerce.aftersale.service.AdminAfterSaleService;
 import ecommerce.aftersale.vo.AfterSaleVO;
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,6 +25,7 @@ import java.util.List;
  */
 @Tag(name = "后台售后管理", description = "售后列表/审核/删除（管理员）")
 @RestController
+@RequirePerm("aftersale:aftersale:list")
 @RequestMapping("/api/admin/after-sales")
 public class AdminAfterSaleController {
     private final AdminAfterSaleService adminAfterSaleService;
@@ -49,6 +51,7 @@ public class AdminAfterSaleController {
     }
 
     @Operation(summary = "审核售后（更新状态 + 子表时间戳 + 商家备注）")
+    @RequirePerm("aftersale:aftersale:audit")
     @PutMapping("/{id}")
     public Result<Void> review(@PathVariable Long id, @RequestBody AdminAfterSaleDTO dto) {
         adminAfterSaleService.review(id, dto);
@@ -56,6 +59,7 @@ public class AdminAfterSaleController {
     }
 
     @Operation(summary = "删除售后（软删主表/明细/子表）")
+    @RequirePerm("aftersale:aftersale:audit")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         adminAfterSaleService.delete(id);

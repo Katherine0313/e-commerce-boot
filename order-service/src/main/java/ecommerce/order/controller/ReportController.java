@@ -1,6 +1,7 @@
 package ecommerce.order.controller;
 
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.order.service.ReportService;
 import ecommerce.order.vo.*;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,6 +23,7 @@ import java.util.List;
  */
 @Tag(name = "后台报表统计", description = "营业额卡片/折线等统计（管理员）")
 @RestController
+@RequirePerm("workplace:view")
 @RequestMapping("/api/admin/report")
 @Slf4j
 public class ReportController {

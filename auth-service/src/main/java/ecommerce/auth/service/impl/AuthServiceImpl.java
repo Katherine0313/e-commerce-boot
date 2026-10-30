@@ -2,14 +2,20 @@ package ecommerce.auth.service.impl;
 
 import ecommerce.auth.dto.AdminLoginDTO;
 import ecommerce.auth.entity.Admin;
+import ecommerce.auth.entity.AdminMenu;
+import ecommerce.auth.entity.AdminRole;
 import ecommerce.auth.mapper.AdminMapper;
+import ecommerce.auth.mapper.RbacMapper;
 import ecommerce.auth.service.AuthService;
+import ecommerce.auth.support.PasswordUtil;
 import ecommerce.auth.vo.AdminLoginVO;
 import ecommerce.auth.vo.AdminUserVO;
 import ecommerce.auth.vo.CaptchaVO;
+import ecommerce.auth.vo.MenuVO;
 import ecommerce.exception.BusinessException;
 import ecommerce.utils.JwtUtil;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -24,8 +30,17 @@ import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -33,6 +48,8 @@ public class AuthServiceImpl implements AuthService {
 
     /** 图形验证码答案缓存 key：auth:captcha:{captchaId} */
     private static final String CAPTCHA_KEY_PREFIX = "auth:captcha:";
+    /** 登录失败次数 key：auth:login:fail:{username}:{ip} */
+    private static final String LOGIN_FAIL_KEY_PREFIX = "auth:login:fail:";
     /** 验证码有效期（秒） */
     private static final long CAPTCHA_EXPIRE_SECONDS = 180;
     private static final int CAPTCHA_WIDTH = 120;
@@ -43,37 +60,59 @@ public class AuthServiceImpl implements AuthService {
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final AdminMapper adminMapper;
+    private final RbacMapper rbacMapper;
     private final JwtUtil jwtUtil;
     private final StringRedisTemplate stringRedisTemplate;
 
-    public AuthServiceImpl(AdminMapper adminMapper, JwtUtil jwtUtil,
+    /** 连续密码错误多少次后锁定 */
+    @Value("${auth.login.max-fail-count:5}")
+    private int maxFailCount;
+    /** 锁定分钟数 */
+    @Value("${auth.login.lock-minutes:10}")
+    private long lockMinutes;
+
+    public AuthServiceImpl(AdminMapper adminMapper, RbacMapper rbacMapper, JwtUtil jwtUtil,
                            StringRedisTemplate stringRedisTemplate) {
         this.adminMapper = adminMapper;
+        this.rbacMapper = rbacMapper;
         this.jwtUtil = jwtUtil;
         this.stringRedisTemplate = stringRedisTemplate;
     }
 
     @Override
-    public AdminLoginVO login(AdminLoginDTO dto) {
+    public AdminLoginVO login(AdminLoginDTO dto, String clientIp) {
         // 1. 参数校验：用户名/密码都不能为空
         if (dto == null || dto.getUsername() == null || dto.getUsername().isBlank()
                 || dto.getPassword() == null || dto.getPassword().isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "用户名和密码不能为空");
         }
-        // 2. 图形验证码：一次性使用，校验后立即删除
+        String username = dto.getUsername().trim();
+        // 2. 失败次数锁定：按「用户名 + IP」，避免被别人恶意锁死账号
+        assertNotLocked(username, clientIp);
+        // 3. 图形验证码：一次性使用，校验后立即删除
         validateCaptcha(dto.getCaptchaId(), dto.getCaptchaCode());
-        // 3. 按用户名查管理员；查不到或密码不符统一回「用户名或密码错误」，不暴露账号是否存在
-        Admin admin = adminMapper.findByUsername(dto.getUsername().trim());
-        // ⚠️ 密码目前明文存储、明文比较（admin 表 password 存明文），仅开发期可用。
-        //    上线前必须改成 BCrypt：入库时加密、这里改用 matches 校验，否则等于明文裸奔。
-        if (admin == null || !dto.getPassword().equals(admin.getPassword())) {
+        // 4. 按用户名查管理员；查不到或密码不符统一回「用户名或密码错误」，不暴露账号是否存在
+        Admin admin = adminMapper.findByUsername(username);
+        // BCrypt 密文走 matches，历史明文账号首次登录成功后自动升级为 BCrypt
+        if (admin == null || !PasswordUtil.matches(dto.getPassword(), admin.getPassword())) {
+            long failures = recordLoginFailure(username, clientIp);
+            if (failures >= maxFailCount) {
+                throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, lockedMessage(null));
+            }
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "用户名或密码错误");
         }
-        // 4. 账号禁用拦截（status=0）
+        // 5. 登录成功清零失败计数
+        clearLoginFailures(username, clientIp);
+        // 6. 账号禁用拦截（status=0）
         if (admin.getStatus() != null && admin.getStatus() == 0) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "账号已被禁用");
         }
-        // 5. 签发管理员令牌：claims 带上 username/role/id，前端解 payload 做权限判断
+        // 历史明文密码升级为 BCrypt（失败不影响本次登录）
+        if (!PasswordUtil.isEncoded(admin.getPassword())) {
+            adminMapper.updatePassword(admin.getId(), PasswordUtil.encode(dto.getPassword()),
+                    LocalDateTime.now());
+        }
+        // 7. 签发管理员令牌：claims 带上 username/role/id，前端解 payload 做权限判断
         return buildLoginResult(admin);
     }
 
@@ -104,12 +143,73 @@ public class AuthServiceImpl implements AuthService {
         if (admin == null) {
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "账号不存在");
         }
-        return AdminUserVO.builder()
-                .id(admin.getId())
-                .username(admin.getUsername())
-                .name(admin.getName())
-                .role(admin.getRole())
-                .build();
+        return buildUserVO(admin, loadAuthInfo(admin));
+    }
+
+    /** 已锁定则直接拒绝，提示剩余分钟数 */
+    private void assertNotLocked(String username, String clientIp) {
+        String key = loginFailKey(username, clientIp);
+        try {
+            String value = stringRedisTemplate.opsForValue().get(key);
+            if (value == null) {
+                return;
+            }
+            long failures = Long.parseLong(value);
+            if (failures < maxFailCount) {
+                return;
+            }
+            Long ttl = stringRedisTemplate.getExpire(key, TimeUnit.SECONDS);
+            throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS,
+                    lockedMessage(ttl == null || ttl <= 0 ? null : ttl));
+        } catch (BusinessException e) {
+            throw e;
+        } catch (RuntimeException e) {
+            // Redis 异常时不做锁定拦截，避免因为缓存故障导致管理员完全无法登录
+            log.warn("读取登录失败次数失败，跳过锁定检查: {}", e.getMessage());
+        }
+    }
+
+    /** 记录一次密码错误，返回累计失败次数；Redis 异常时返回 0 */
+    private long recordLoginFailure(String username, String clientIp) {
+        String key = loginFailKey(username, clientIp);
+        try {
+            Long count = stringRedisTemplate.opsForValue().increment(key);
+            if (count == null) {
+                return 0;
+            }
+            // 第一次计数时设置窗口；达到上限时重置为完整锁定时长
+            if (count == 1 || count >= maxFailCount) {
+                stringRedisTemplate.expire(key, Duration.ofMinutes(lockMinutes));
+            }
+            return count;
+        } catch (RuntimeException e) {
+            log.warn("记录登录失败次数失败，跳过锁定: {}", e.getMessage());
+            return 0;
+        }
+    }
+
+    /** 登录成功清零失败计数 */
+    private void clearLoginFailures(String username, String clientIp) {
+        try {
+            stringRedisTemplate.delete(loginFailKey(username, clientIp));
+        } catch (RuntimeException e) {
+            log.warn("清除登录失败次数失败，忽略: {}", e.getMessage());
+        }
+    }
+
+    /** 失败计数 key：用户名小写 + IP，避免攻击者用错误密码把账号全局锁死 */
+    private String loginFailKey(String username, String clientIp) {
+        String name = username == null ? "" : username.trim().toLowerCase(Locale.ROOT);
+        String ip = clientIp == null || clientIp.isBlank() ? "unknown" : clientIp;
+        return LOGIN_FAIL_KEY_PREFIX + name + ":" + ip;
+    }
+
+    private String lockedMessage(Long ttlSeconds) {
+        long minutes = lockMinutes;
+        if (ttlSeconds != null && ttlSeconds > 0) {
+            minutes = Math.max(1, (ttlSeconds + 59) / 60);
+        }
+        return "尝试次数过多，请 " + minutes + " 分钟后再试";
     }
 
     /** 校验图形验证码：无论对错都删除，防止一张验证码被重复使用 */
@@ -176,16 +276,80 @@ public class AuthServiceImpl implements AuthService {
 
     /** 签发令牌并组装登录响应 */
     private AdminLoginVO buildLoginResult(Admin admin) {
+        AuthInfo auth = loadAuthInfo(admin);
         String token = jwtUtil.generateAdminToken(admin.getId(), admin.getUsername(),
-                admin.getRole());
+                admin.getRole(), auth.roles(), auth.permissions());
         return AdminLoginVO.builder()
                 .token(token)
-                .user(AdminUserVO.builder()
-                        .id(admin.getId())
-                        .username(admin.getUsername())
-                        .name(admin.getName())
-                        .role(admin.getRole())
-                        .build())
+                .user(buildUserVO(admin, auth))
                 .build();
+    }
+
+    /** 读取管理员的角色、权限、菜单；超级管理员直接放行并返回全部菜单 */
+    private AuthInfo loadAuthInfo(Admin admin) {
+        List<AdminRole> roleRows = rbacMapper.listRolesByAdminId(admin.getId());
+        List<String> roleKeys = roleRows.stream()
+                .map(AdminRole::getRoleKey)
+                .filter(Objects::nonNull)
+                .toList();
+        // 兼容：还没绑定角色表的旧 admin 账号，role=admin 仍视为超级管理员
+        boolean superAdmin = roleKeys.contains("admin")
+                || (roleKeys.isEmpty() && "admin".equalsIgnoreCase(admin.getRole()));
+        if (superAdmin) {
+            List<String> roles = roleKeys.isEmpty() ? List.of("admin") : roleKeys;
+            return new AuthInfo(roles, List.of("*:*:*"),
+                    buildMenuTree(rbacMapper.listAllMenus()));
+        }
+        return new AuthInfo(roleKeys,
+                rbacMapper.listPermsByAdminId(admin.getId()),
+                buildMenuTree(rbacMapper.listMenusByAdminId(admin.getId())));
+    }
+
+    /** 扁平菜单组装成树；按钮（F）已在 SQL 中排除 */
+    private List<MenuVO> buildMenuTree(List<AdminMenu> menus) {
+        Map<Long, MenuVO> nodes = new LinkedHashMap<>();
+        for (AdminMenu menu : menus) {
+            nodes.put(menu.getId(), MenuVO.builder()
+                    .id(menu.getId())
+                    .parentId(menu.getParentId())
+                    .name(menu.getMenuName())
+                    .type(menu.getMenuType())
+                    .path(menu.getPath())
+                    .perms(menu.getPerms())
+                    .icon(menu.getIcon())
+                    .sortOrder(menu.getSortOrder())
+                    .children(new ArrayList<>())
+                    .build());
+        }
+        List<MenuVO> roots = new ArrayList<>();
+        for (MenuVO node : nodes.values()) {
+            MenuVO parent = node.getParentId() == null ? null : nodes.get(node.getParentId());
+            if (parent == null) {
+                roots.add(node);
+            } else {
+                parent.getChildren().add(node);
+            }
+        }
+        Comparator<MenuVO> bySort = Comparator.comparing(MenuVO::getSortOrder,
+                Comparator.nullsLast(Integer::compareTo));
+        roots.sort(bySort);
+        roots.forEach(root -> root.getChildren().sort(bySort));
+        return roots;
+    }
+
+    private AdminUserVO buildUserVO(Admin admin, AuthInfo auth) {
+        return AdminUserVO.builder()
+                .id(admin.getId())
+                .username(admin.getUsername())
+                .name(admin.getName())
+                .role(admin.getRole())
+                .roles(auth.roles())
+                .permissions(auth.permissions())
+                .menus(auth.menus())
+                .build();
+    }
+
+    /** 一次登录需要的 RBAC 快照 */
+    private record AuthInfo(List<String> roles, List<String> permissions, List<MenuVO> menus) {
     }
 }

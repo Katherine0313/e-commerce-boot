@@ -9,6 +9,7 @@ import ecommerce.common.Result;
 import ecommerce.utils.UserContext;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -28,8 +29,25 @@ public class AuthController {
 
     @Operation(summary = "管理员登录")
     @PostMapping("/login")
-    public Result<AdminLoginVO> login(@RequestBody AdminLoginDTO dto) {
-        return Result.success(authService.login(dto));
+    public Result<AdminLoginVO> login(@RequestBody AdminLoginDTO dto, HttpServletRequest request) {
+        return Result.success(authService.login(dto, resolveClientIp(request)));
+    }
+
+    /** 取客户端 IP：Cloudflare 的 CF-Connecting-IP 最可信，其次 X-Forwarded-For / X-Real-IP */
+    private String resolveClientIp(HttpServletRequest request) {
+        String cfIp = request.getHeader("CF-Connecting-IP");
+        if (cfIp != null && !cfIp.isBlank()) {
+            return cfIp.trim();
+        }
+        String forwarded = request.getHeader("X-Forwarded-For");
+        if (forwarded != null && !forwarded.isBlank()) {
+            return forwarded.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        return request.getRemoteAddr();
     }
 
     @Operation(summary = "获取图形验证码")

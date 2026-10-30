@@ -1,6 +1,7 @@
 package ecommerce.product.controller;
 
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.product.dto.AdminCategoryDTO;
 import ecommerce.product.service.AdminCategoryService;
 import ecommerce.product.vo.CategoryTreeVO;
@@ -24,6 +25,7 @@ import java.util.Map;
  */
 @Tag(name = "后台分类管理", description = "分类增删改查 + 同级排序（管理员）")
 @RestController
+@RequirePerm("product:category:list")
 @RequestMapping("/api/admin/categories")
 public class AdminCategoryController {
     private final AdminCategoryService adminCategoryService;
@@ -45,18 +47,21 @@ public class AdminCategoryController {
     }
 
     @Operation(summary = "新增分类")
+    @RequirePerm("product:category:add")
     @PostMapping
     public Result<CategoryVO> create(@RequestBody AdminCategoryDTO dto) {
         return Result.success(adminCategoryService.create(dto));
     }
 
     @Operation(summary = "更新分类（局部更新）")
+    @RequirePerm("product:category:edit")
     @PutMapping("/{id}")
     public Result<CategoryVO> update(@PathVariable Long id, @RequestBody AdminCategoryDTO dto) {
         return Result.success(adminCategoryService.update(id, dto));
     }
 
     @Operation(summary = "删除分类")
+    @RequirePerm("product:category:remove")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         adminCategoryService.delete(id);
@@ -64,6 +69,7 @@ public class AdminCategoryController {
     }
 
     @Operation(summary = "同级上移/下移")
+    @RequirePerm("product:category:edit")
     @PostMapping("/{id}/move")
     public Result<Void> move(@PathVariable Long id, @RequestBody Map<String, String> body) {
         adminCategoryService.move(id, body.get("direction"));

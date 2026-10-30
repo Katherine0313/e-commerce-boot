@@ -1,6 +1,7 @@
 package ecommerce.user.controller;
 
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.user.service.UserService;
 import ecommerce.user.vo.UserStatisticsVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,6 +18,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @Tag(name = "后台用户", description = "用户增长统计（管理员）")
 @RestController
+@RequirePerm("workplace:view")
 @RequestMapping("/api/admin/users")
 public class AdminUserController {
     private final UserService userService;

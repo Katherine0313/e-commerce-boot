@@ -2,6 +2,7 @@ package ecommerce.product.controller;
 
 import ecommerce.common.PageVO;
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.product.dto.AdminPromotionDTO;
 import ecommerce.product.service.AdminPromotionService;
 import ecommerce.product.vo.AdminPromotionVO;
@@ -23,6 +24,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @Tag(name = "后台促销管理", description = "促销活动的创建、编辑、提前结束与效果统计")
 @RestController
+@RequirePerm("business:promotion:list")
 @RequestMapping("/api/admin/promotions")
 public class AdminPromotionController {
 
@@ -48,12 +50,14 @@ public class AdminPromotionController {
     }
 
     @Operation(summary = "新建活动")
+    @RequirePerm("business:promotion:add")
     @PostMapping
     public Result<Long> create(@RequestBody AdminPromotionDTO dto) {
         return Result.success(adminPromotionService.create(dto));
     }
 
     @Operation(summary = "编辑活动（仅未开始）")
+    @RequirePerm("business:promotion:edit")
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id, @RequestBody AdminPromotionDTO dto) {
         adminPromotionService.update(id, dto);
@@ -61,6 +65,7 @@ public class AdminPromotionController {
     }
 
     @Operation(summary = "提前结束活动（仅进行中）")
+    @RequirePerm("business:promotion:end")
     @PostMapping("/{id}/end")
     public Result<Void> end(@PathVariable Long id) {
         adminPromotionService.end(id);
@@ -68,6 +73,7 @@ public class AdminPromotionController {
     }
 
     @Operation(summary = "删除活动（仅未开始，逻辑删除）")
+    @RequirePerm("business:promotion:remove")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         adminPromotionService.delete(id);

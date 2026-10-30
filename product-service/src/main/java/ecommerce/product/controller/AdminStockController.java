@@ -1,6 +1,7 @@
 package ecommerce.product.controller;
 
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.product.dto.AdminStockDTO;
 import ecommerce.product.service.AdminStockService;
 import ecommerce.product.vo.StockStatusVO;
@@ -23,6 +24,7 @@ import java.util.List;
  */
 @Tag(name = "后台库存预警", description = "库存预警配置（管理员）")
 @RestController
+@RequirePerm("product:stock:list")
 @RequestMapping("/api/admin/stock")
 public class AdminStockController {
     private final AdminStockService adminStockService;
@@ -44,6 +46,7 @@ public class AdminStockController {
     }
 
     @Operation(summary = "创建/更新库存预警（product_id 重复自动更新）")
+    @RequirePerm("product:stock:edit")
     @PostMapping
     public Result<Void> create(@RequestBody AdminStockDTO dto) {
         adminStockService.create(dto);

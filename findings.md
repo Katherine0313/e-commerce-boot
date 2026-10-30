@@ -332,12 +332,24 @@ ecommerce
 - 注意：Cloudflare 按 URL 缓存，33~50 之前缓存的是原图、7 张大图缓存的是旧 opt，**必须 Purge 这 25 个 URL** 后才会命中新文件；之后可 prewarm 全部图片。
 - 测速结论：内网 `/api/home` 79ms、`/api/products/hot` 13ms，公网均 ~1.4s；Cloudflare HIT 的 10.9KB 图片 TTFB 仍 1.65s → 瓶颈是 Cloudflare 香港跨境链路，不是后端/Redis。图片/API 若要明显变快，需图片走国内 CDN（COS+CDN 或 CDN 回源源站，源站 IP 仍隐藏），API 可评估 EdgeOne/全站加速或 Cloudflare China；灰云会暴露源站 IP，不采用。
 
+### 后台 RBAC P0（2026-10-30）
+- 表：`admin_role` / `admin_menu` / `admin_user_role` / `admin_role_menu`；`admin` 仍是账号表（没有 `admin_user`）。脚本 `docs/sql/rbac/01-rbac-schema.sql`，本地与生产均已执行（生产备份 `/www/backup/e_commerce_db_before_rbac_2026-10-30_1452.sql`）。
+- 初始 4 角色：`admin` 店铺管理员（超级权限）、`operator` 运营、`service` 客服、`warehouse` 仓储发货；演示账号 operator/operator123、service/service123、warehouse/warehouse123。
+- 权限码 `模块:实体:动作`（如 `product:product:list`、`order:order:ship`）；菜单类型 M 目录 / C 菜单 / F 按钮；超级管理员在 `AuthServiceImpl` 里直接返回 `*:*:*` 和全部菜单。
+- 登录：`AuthServiceImpl` 读角色/权限/菜单树，放进 `AdminUserVO`，并把 `roles/permissions` 写入 JWT claims；旧 `admin` 账号 `role=admin` 仍按超管兜底。
+- 校验：`common` 新增 `@RequirePerm` + `PermissionInterceptor`（排在 JwtInterceptor 后），从 `UserContext` 读 JWT 里的权限，无权限返回 403；各服务的 `/api/admin/**` 已按类/方法加注解读取/写权限。
+- 前端：`utils/auth.js` 增加 `hasPermi/isAdminToken`；`v-permission` 按钮指令；`App.vue` 按 `meta.permission` 生成过滤后的 stepin 菜单；路由守卫拦截无权限直链；订单发货/取消/删除、售后审核、商品/分类/标签/库存、促销/优惠券/会员等按钮已接入。
+- 验证：operator 访问 `/api/admin/products` 200，warehouse/service 403；C 端 `/api/products/page` 无 token 200；operator 登录拿到 32 个权限。
+- 未做（P1）：角色/菜单/账号管理后台页面、菜单动态路由、密码 BCrypt、操作日志、权限变更后强制重新登录（当前权限在 JWT 里，角色调整后需重新登录才生效）。
+- 发布顺序：**auth-service 先发**（新令牌才带 permissions），再发 product/order/aftersale/user/gateway，最后后台 dist；旧 token 需要重新登录。
+
 ### 后台登录改造（2026-10-30）
 - 移除后台手机号验证码登录：删除 auth-service `/api/auth/sms-code`、`/api/auth/phone-login`、`SmsCodeVO`/`PhoneLoginDTO`/`SendSmsCodeDTO`、SMS 配置以及 `AdminMapper.findByPhone`。
 - 新增图形验证码：`GET /api/auth/captcha` 返回 `captchaId` + base64 PNG；答案存 Redis `auth:captcha:{id}`，180 秒，校验后立即删除（一次性）；`POST /api/login` 必须带 `captchaId/captchaCode`。
 - 网关 auth-service 路由、`WebMvcConfig` 白名单同步改为 `/api/auth/captcha`；后台登录页移除手机号入口，改为账号密码 + 图形验证码，登录失败自动刷新验证码。
+- 登录失败锁定（2026-10-30）：`auth.login.max-fail-count=5`、`auth.login.lock-minutes=10`（yml / 环境变量，不建参数表）；Redis key `auth:login:fail:{username小写}:{ip}`，密码错误计数，达到 5 次返回 429「尝试次数过多，请 X 分钟后再试」，成功登录清零；**验证码错误不计数**，按「用户名 + IP」避免恶意锁死账号；IP 优先取 `CF-Connecting-IP`，其次 `X-Forwarded-For`/`X-Real-IP`。
 - 仍未处理：登录页生产环境预填 `admin/admin123`、`admin.password` 明文存储/比较。
-- 注意：生产发布顺序为 **auth-service + gateway + 后台 dist**；captcha 依赖 Redis。
+- 注意：生产发布顺序为 **auth-service + gateway + 后台 dist**；captcha 和失败锁定都依赖 Redis。
 
 ### 库存预警表改名（2026-10-30）
 - `stock` 表只存库存预警配置（`min_stock/max_stock/alert_enabled`），当前库存仍在 `products.stock`；原名容易被误解为库存数量表，已改名为 **`stock_alert`**，唯一索引 `uk_stock_alert_product`、外键 `fk_stock_alert_product` 同步改名。

@@ -43,6 +43,12 @@ jwt:
   #token有效期，单位：秒（7天）
   expire: 604800
 
+# 后台登录失败锁定：同一「用户名 + IP」连续输错密码达到次数后锁定
+auth:
+  login:
+    max-fail-count: ${LOGIN_MAX_FAIL_COUNT:5}
+    lock-minutes: ${LOGIN_LOCK_MINUTES:10}
+
 # 接口文档：安全兜底默认关闭，避免生产环境暴露
 springdoc:
   api-docs:

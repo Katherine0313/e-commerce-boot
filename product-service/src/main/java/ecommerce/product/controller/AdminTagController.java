@@ -1,6 +1,7 @@
 package ecommerce.product.controller;
 
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.product.dto.AdminTagDTO;
 import ecommerce.product.dto.TagProductsDTO;
 import ecommerce.product.entity.Product;
@@ -24,6 +25,7 @@ import java.util.List;
  */
 @Tag(name = "后台标签管理", description = "标签增删改查 + 商品绑定（管理员）")
 @RestController
+@RequirePerm("product:tag:list")
 @RequestMapping("/api/admin/tags")
 public class AdminTagController {
     private final AdminTagService adminTagService;
@@ -39,18 +41,21 @@ public class AdminTagController {
     }
 
     @Operation(summary = "新增标签")
+    @RequirePerm("product:tag:add")
     @PostMapping
     public Result<TagVO> create(@RequestBody AdminTagDTO dto) {
         return Result.success(adminTagService.create(dto));
     }
 
     @Operation(summary = "更新标签（局部更新）")
+    @RequirePerm("product:tag:edit")
     @PutMapping("/{id}")
     public Result<TagVO> update(@PathVariable Long id, @RequestBody AdminTagDTO dto) {
         return Result.success(adminTagService.update(id, dto));
     }
 
     @Operation(summary = "删除标签")
+    @RequirePerm("product:tag:remove")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         adminTagService.delete(id);
@@ -64,6 +69,7 @@ public class AdminTagController {
     }
 
     @Operation(summary = "给一批商品打上标签")
+    @RequirePerm("product:tag:edit")
     @PostMapping("/{tagId}/products")
     public Result<Void> bindProductsToTag(@PathVariable Long tagId, @RequestBody TagProductsDTO dto) {
         adminTagService.bindProductsToTag(tagId, dto.getProductIds());
@@ -71,6 +77,7 @@ public class AdminTagController {
     }
 
     @Operation(summary = "批量解绑标签下的商品")
+    @RequirePerm("product:tag:edit")
     @DeleteMapping("/{tagId}/products")
     public Result<Void> unbindTagProducts(@PathVariable Long tagId, @RequestBody TagProductsDTO dto) {
         adminTagService.unbindTagProducts(tagId, dto.getProductIds());
@@ -78,6 +85,7 @@ public class AdminTagController {
     }
 
     @Operation(summary = "解绑单个商品的标签")
+    @RequirePerm("product:tag:remove")
     @DeleteMapping("/products/{productId}/tags/{tagId}")
     public Result<Void> unbindProductTag(@PathVariable Long productId, @PathVariable Long tagId) {
         adminTagService.unbindProductTag(productId, tagId);

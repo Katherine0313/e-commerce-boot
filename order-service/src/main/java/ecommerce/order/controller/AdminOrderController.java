@@ -2,6 +2,7 @@ package ecommerce.order.controller;
 
 import ecommerce.common.PageVO;
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.order.dto.AdminOrderDTO;
 import ecommerce.order.service.AdminOrderService;
 import ecommerce.order.vo.LogisticsVO;
@@ -27,6 +28,7 @@ import java.util.Map;
  */
 @Tag(name = "后台订单管理", description = "订单列表 + 商家履约操作（管理员）")
 @RestController
+@RequirePerm("order:order:list")
 @RequestMapping("/api/admin/orders")
 public class AdminOrderController {
     private final AdminOrderService adminOrderService;
@@ -66,18 +68,21 @@ public class AdminOrderController {
     }
 
     @Operation(summary = "更新订单信息（收货人/电话/地址/备注）")
+    @RequirePerm("order:order:update")
     @PutMapping("/{id}")
     public Result<OrderVO> update(@PathVariable Long id, @RequestBody AdminOrderDTO dto) {
         return Result.success(adminOrderService.updateOrder(id, dto));
     }
 
     @Operation(summary = "确认收款（待确认 → 待发货）")
+    @RequirePerm("order:order:update")
     @PutMapping("/{id}/confirm")
     public Result<OrderVO> confirm(@PathVariable Long id) {
         return Result.success(adminOrderService.confirmOrder(id));
     }
 
     @Operation(summary = "发货（待发货 → 已发货）")
+    @RequirePerm("order:order:ship")
     @PutMapping("/{id}/ship")
     public Result<OrderVO> ship(@PathVariable Long id, @RequestBody(required = false) Map<String, Object> body) {
         String courier = body == null ? null : (String) body.get("courier");
@@ -86,18 +91,21 @@ public class AdminOrderController {
     }
 
     @Operation(summary = "完成（已发货 → 已完成）")
+    @RequirePerm("order:order:update")
     @PutMapping("/{id}/finish")
     public Result<OrderVO> finish(@PathVariable Long id) {
         return Result.success(adminOrderService.finishOrder(id));
     }
 
     @Operation(summary = "取消（恢复库存 + 改取消）")
+    @RequirePerm("order:order:update")
     @PutMapping("/{id}/cancel")
     public Result<OrderVO> cancel(@PathVariable Long id) {
         return Result.success(adminOrderService.cancelOrder(id));
     }
 
     @Operation(summary = "删除订单（软删）")
+    @RequirePerm("order:order:remove")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         adminOrderService.deleteOrder(id);
@@ -105,6 +113,7 @@ public class AdminOrderController {
     }
 
     @Operation(summary = "批量删除订单")
+    @RequirePerm("order:order:remove")
     @DeleteMapping("/batch-delete")
     public Result<Void> batchDelete(@RequestBody Map<String, List<Long>> body) {
         adminOrderService.batchDelete(body.get("ids"));

@@ -1,6 +1,7 @@
 package ecommerce.configuration;
 
 import ecommerce.interceptor.JwtInterceptor;
+import ecommerce.interceptor.PermissionInterceptor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.CacheControl;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
@@ -42,10 +43,12 @@ public class WebMvcConfig implements WebMvcConfigurer {
     );
 
     private final JwtInterceptor jwtInterceptor;
+    private final PermissionInterceptor permissionInterceptor;
 
-    public WebMvcConfig(JwtInterceptor jwtInterceptor) {
+    public WebMvcConfig(JwtInterceptor jwtInterceptor, PermissionInterceptor permissionInterceptor) {
 
         this.jwtInterceptor = jwtInterceptor;
+        this.permissionInterceptor = permissionInterceptor;
     }
 
     @Override
@@ -54,6 +57,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
         registry.addInterceptor(jwtInterceptor)
                 .addPathPatterns("/api/**")
                 // 免登录接口见 EXCLUDE_AUTH_PATHS
+                .excludePathPatterns(EXCLUDE_AUTH_PATHS.toArray(new String[0]));
+        // 权限校验必须排在登录鉴权之后：依赖 JwtInterceptor 写入 UserContext 的 permissions
+        registry.addInterceptor(permissionInterceptor)
+                .addPathPatterns("/api/**")
                 .excludePathPatterns(EXCLUDE_AUTH_PATHS.toArray(new String[0]));
     }
     @Override

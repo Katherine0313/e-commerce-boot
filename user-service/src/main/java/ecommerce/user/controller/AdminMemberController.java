@@ -2,6 +2,7 @@ package ecommerce.user.controller;
 
 import ecommerce.common.PageVO;
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.user.service.MemberService;
 import ecommerce.user.vo.AdminMemberVO;
 import io.swagger.v3.oas.annotations.Operation;
@@ -18,6 +19,7 @@ import org.springframework.web.bind.annotation.RestController;
  */
 @Tag(name = "后台会员", description = "会员列表（等级 / 成长值 / 累计消费）")
 @RestController
+@RequirePerm("business:member:list")
 @RequestMapping("/api/admin/members")
 public class AdminMemberController {
 
@@ -44,6 +46,7 @@ public class AdminMemberController {
     }
 
     @Operation(summary = "刷新会员成长值/等级（按订单重新计算）")
+    @RequirePerm("business:member:refresh")
     @PostMapping("/{id}/refresh")
     public Result<Void> refresh(@PathVariable Long id) {
         memberService.refreshMember(id);

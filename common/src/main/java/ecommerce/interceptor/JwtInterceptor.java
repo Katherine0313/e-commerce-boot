@@ -13,6 +13,9 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.method.HandlerMethod;
 import org.springframework.web.servlet.HandlerInterceptor;
 
+import java.util.List;
+import java.util.Objects;
+
 /**
  * 登录鉴权拦截器
  * <p>
@@ -73,7 +76,17 @@ public class JwtInterceptor implements HandlerInterceptor {
         }
         // 存入本次请求的上下文，Controller / Service 里用 UserContext 取
         UserContext.setUserId(Long.valueOf(subject));
+        // 后台令牌里带了 roles/permissions，后续 PermissionInterceptor 直接读上下文
+        UserContext.setAuth(readStringList(claims.get("roles")), readStringList(claims.get("permissions")));
         return true;
+    }
+
+    /** JWT 里的数组 claim 统一转成字符串列表 */
+    private List<String> readStringList(Object value) {
+        if (value instanceof List<?> list) {
+            return list.stream().map(Objects::toString).toList();
+        }
+        return List.of();
     }
 
     @Override

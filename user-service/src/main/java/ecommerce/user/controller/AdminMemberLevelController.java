@@ -1,6 +1,7 @@
 package ecommerce.user.controller;
 
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.user.dto.AdminMemberLevelDTO;
 import ecommerce.user.service.MemberService;
 import ecommerce.user.vo.MemberLevelVO;
@@ -20,6 +21,7 @@ import java.util.List;
  */
 @Tag(name = "后台会员等级", description = "会员等级名称 / 成长值门槛 / 权益文案")
 @RestController
+@RequirePerm("business:member:list")
 @RequestMapping("/api/admin/member-levels")
 public class AdminMemberLevelController {
 
@@ -36,6 +38,7 @@ public class AdminMemberLevelController {
     }
 
     @Operation(summary = "编辑等级")
+    @RequirePerm("business:member:edit")
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id, @RequestBody AdminMemberLevelDTO dto) {
         memberService.updateLevel(id, dto);

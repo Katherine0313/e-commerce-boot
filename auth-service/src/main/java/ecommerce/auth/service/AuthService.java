@@ -7,8 +7,8 @@ import ecommerce.auth.vo.CaptchaVO;
 
 public interface AuthService {
 
-    // 管理员登录：校验图形验证码 + 账号密码，签发 JWT
-    AdminLoginVO login(AdminLoginDTO dto);
+    // 管理员登录：校验图形验证码 + 账号密码，签发 JWT；clientIp 用于失败次数锁定
+    AdminLoginVO login(AdminLoginDTO dto, String clientIp);
 
     // 生成图形验证码（答案存 Redis，一次性使用）
     CaptchaVO createCaptcha();

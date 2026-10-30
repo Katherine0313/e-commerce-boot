@@ -2,6 +2,7 @@ package ecommerce.product.controller;
 
 import ecommerce.common.PageVO;
 import ecommerce.common.Result;
+import ecommerce.common.annotation.RequirePerm;
 import ecommerce.product.dto.AdminProductDTO;
 import ecommerce.product.service.AdminProductService;
 import ecommerce.product.vo.AdminProductVO;
@@ -27,6 +28,7 @@ import java.util.List;
  */
 @Tag(name = "后台商品管理", description = "商品增删改查（管理员）")
 @RestController
+@RequirePerm("product:product:list")
 @RequestMapping("/api/admin/products")
 public class AdminProductController {
     private final AdminProductService adminProductService;
@@ -51,18 +53,21 @@ public class AdminProductController {
     }
 
     @Operation(summary = "新增商品")
+    @RequirePerm("product:product:add")
     @PostMapping
     public Result<AdminProductVO> create(@RequestBody AdminProductDTO dto) {
         return Result.success(adminProductService.create(dto));
     }
 
     @Operation(summary = "更新商品（局部更新）")
+    @RequirePerm("product:product:edit")
     @PutMapping("/{id}")
     public Result<AdminProductVO> update(@PathVariable Long id, @RequestBody AdminProductDTO dto) {
         return Result.success(adminProductService.update(id, dto));
     }
 
     @Operation(summary = "删除商品")
+    @RequirePerm("product:product:remove")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         adminProductService.delete(id);
@@ -76,6 +81,7 @@ public class AdminProductController {
     }
 
     @Operation(summary = "工作台统计（商品总数/总库存/库存总价值）")
+    @RequirePerm("workplace:view")
     @GetMapping("/dashboard")
     public Result<DashboardVO> dashboard() {
         return Result.success(adminProductService.dashboard());
