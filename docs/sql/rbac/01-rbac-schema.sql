@@ -133,10 +133,11 @@ CREATE TABLE IF NOT EXISTS `admin_role_menu` (
 ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_general_ci COMMENT = '角色菜单关联';
 
 -- ==================== 演示账号（后续可在账号管理里修改/删除） ====================
-INSERT IGNORE INTO `admin` (`username`, `password`, `name`, `role`, `status`) VALUES
-    ('operator',  'operator123',  '运营',      'operator',  1),
-    ('service',   'service123',   '客服',      'service',   1),
-    ('warehouse', 'warehouse123', '仓储发货',  'warehouse', 1);
+-- 注意：角色不存进 admin 表，一律通过 admin_user_role 关联表绑定
+INSERT IGNORE INTO `admin` (`username`, `password`, `name`, `status`) VALUES
+    ('operator',  'operator123',  '运营',      1),
+    ('service',   'service123',   '客服',      1),
+    ('warehouse', 'warehouse123', '仓储发货',  1);
 
 -- 绑定角色：admin 为店铺管理员，其余按 username 绑定
 INSERT IGNORE INTO `admin_user_role` (`admin_id`, `role_id`)

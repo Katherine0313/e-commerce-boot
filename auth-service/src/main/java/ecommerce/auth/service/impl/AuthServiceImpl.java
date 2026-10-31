@@ -278,7 +278,7 @@ public class AuthServiceImpl implements AuthService {
     private AdminLoginVO buildLoginResult(Admin admin) {
         AuthInfo auth = loadAuthInfo(admin);
         String token = jwtUtil.generateAdminToken(admin.getId(), admin.getUsername(),
-                admin.getRole(), auth.roles(), auth.permissions());
+                auth.roles(), auth.permissions());
         return AdminLoginVO.builder()
                 .token(token)
                 .user(buildUserVO(admin, auth))
@@ -292,11 +292,11 @@ public class AuthServiceImpl implements AuthService {
                 .map(AdminRole::getRoleKey)
                 .filter(Objects::nonNull)
                 .toList();
-        // 兼容：还没绑定角色表的旧 admin 账号，role=admin 仍视为超级管理员
-        boolean superAdmin = roleKeys.contains("admin")
-                || (roleKeys.isEmpty() && "admin".equalsIgnoreCase(admin.getRole()));
+        // 超级管理员：绑定了 admin 角色，或 id=1 的根账号（兜底，防止绑定丢失导致无人能管理系统）
+        boolean superAdmin = roleKeys.contains("admin") || Objects.equals(admin.getId(), 1L);
         if (superAdmin) {
-            List<String> roles = roleKeys.isEmpty() ? List.of("admin") : roleKeys;
+            // 超管的 roles 必定带 admin 标识
+            List<String> roles = roleKeys.contains("admin") ? roleKeys : List.of("admin");
             return new AuthInfo(roles, List.of("*:*:*"),
                     buildMenuTree(rbacMapper.listAllMenus()));
         }
@@ -342,7 +342,6 @@ public class AuthServiceImpl implements AuthService {
                 .id(admin.getId())
                 .username(admin.getUsername())
                 .name(admin.getName())
-                .role(admin.getRole())
                 .roles(auth.roles())
                 .permissions(auth.permissions())
                 .menus(auth.menus())

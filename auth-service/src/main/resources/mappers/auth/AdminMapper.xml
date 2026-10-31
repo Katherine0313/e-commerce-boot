@@ -27,7 +27,7 @@
     </sql>
 
     <select id="listAdmins" resultType="ecommerce.auth.entity.Admin">
-        SELECT id, username, name, phone, role, status, create_time, update_time
+        SELECT id, username, name, phone, status, create_time, update_time
         FROM `admin`
         WHERE <include refid="adminWhere"/>
         ORDER BY id ASC
@@ -39,8 +39,8 @@
     </select>
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO `admin` (username, password, name, phone, role, status, create_time, update_time)
-        VALUES (#{username}, #{password}, #{name}, #{phone}, #{role}, #{status},
+        INSERT INTO `admin` (username, password, name, phone, status, create_time, update_time)
+        VALUES (#{username}, #{password}, #{name}, #{phone}, #{status},
                 #{createTime}, #{updateTime})
     </insert>
 
@@ -49,7 +49,6 @@
         <set>
             <if test="name != null">name = #{name},</if>
             <if test="phone != null">phone = #{phone},</if>
-            <if test="role != null">role = #{role},</if>
             <if test="status != null">status = #{status},</if>
             update_time = #{updateTime},
         </set>

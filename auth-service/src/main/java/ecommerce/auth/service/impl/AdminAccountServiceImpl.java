@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
@@ -87,7 +88,6 @@ public class AdminAccountServiceImpl implements AdminAccountService {
                 .password(PasswordUtil.encode(dto.getPassword()))
                 .name(validateName(dto.getName()))
                 .phone(validatePhone(dto.getPhone()))
-                .role(roles.get(0).getRoleKey())
                 .status(validateStatus(dto.getStatus()))
                 .createTime(now)
                 .updateTime(now)
@@ -124,7 +124,6 @@ public class AdminAccountServiceImpl implements AdminAccountService {
                 .id(existing.getId())
                 .name(validateName(dto.getName()))
                 .phone(validatePhone(dto.getPhone()))
-                .role(roles.get(0).getRoleKey())
                 .status(status)
                 .updateTime(LocalDateTime.now())
                 .build();
@@ -132,9 +131,10 @@ public class AdminAccountServiceImpl implements AdminAccountService {
         adminUserRoleMapper.deleteByAdminId(id);
         saveRoles(id, roles);
         // 只有角色或状态变化才让旧 token 失效；仅改姓名/手机号不影响登录态
+        // 角色变化用 Set 比较即可：不能比较 admin.role，它取的是「第一个角色」，
+        // 前端传 roleIds 数组顺序不同就会翻转，导致角色没变也把账号踢下线
         Set<Long> newRoleIds = roles.stream().map(AdminRole::getId).collect(Collectors.toSet());
         boolean authChanged = !Objects.equals(existing.getStatus(), status)
-                || !Objects.equals(existing.getRole(), update.getRole())
                 || !new HashSet<>(oldRoleIds).equals(newRoleIds);
         if (authChanged) {
             adminTokenInvalidator.invalidateAfterCommit(id);
@@ -189,7 +189,9 @@ public class AdminAccountServiceImpl implements AdminAccountService {
         if (roles.stream().anyMatch(Objects::isNull)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "角色不存在");
         }
-        return roles;
+        // 按角色 ID 升序：roles.get(0) 即「主角色」，必须和读取侧（listRoleIds / listRolesByAdminId
+        // 都是 ORDER BY role_id）保持一致，否则 admin.role 会随前端传参顺序漂移
+        return roles.stream().sorted(Comparator.comparing(AdminRole::getId)).toList();
     }
 
     private void saveRoles(Long adminId, List<AdminRole> roles) {

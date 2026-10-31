@@ -45,27 +45,19 @@ public class JwtUtil {
     }
 
     /**
-     * 签发后台管理员令牌。
-     * <p>
-     * 前端 getCurrentUser() 直接解 token 的 payload 读 username、role 做权限判断（isAdmin 查 role==='admin'），
-     * 所以这几个字段必须写进 payload，不能只塞 subject。
-     */
-    public String generateAdminToken(Long adminId, String username, String role) {
-        return generateAdminToken(adminId, username, role, List.of(), List.of());
-    }
-
-    /**
      * 签发带 RBAC 权限的后台令牌。
      * <p>
      * roles/permissions 放进 payload，各微服务共用 common 的拦截器即可校验，不需要再查库；
      * 角色调整后需要用户重新登录，令牌里的权限才会更新。
+     * <p>
+     * 注意：不再签发单角色字段 role —— 角色来自 admin_user_role 关联表，
+     * 单角色字段是它的冗余副本，会与 roles 产生「谁是主角色」的不一致。
      */
-    public String generateAdminToken(Long adminId, String username, String role,
+    public String generateAdminToken(Long adminId, String username,
                                      List<String> roles, List<String> permissions) {
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("id", adminId);
         extraClaims.put("username", username);
-        extraClaims.put("role", role);
         extraClaims.put("roles", roles == null ? List.of() : roles);
         extraClaims.put("permissions", permissions == null ? List.of() : permissions);
         return buildToken(adminId, TYPE_ADMIN, extraClaims);

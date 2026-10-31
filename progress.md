@@ -5,6 +5,8 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
+  2026-10-31 线上站点 404 事故与巡检上线：① 商城首页 `https://www.xiaojiecpn.com/` 404 —— EdgeOne 回源走 HTTPS(443)，源站当时没有 xiaojiecpn.com 的 443 站点块，请求落到 default 站点返回 nginx 自带的 404 页（**状态码却是 200**，所以 DevTools 显示 200 OK）；诱因是宝塔 10:14 保存站点配置重写了 `html_xiaojiecpn.com.conf`，把 443 SSL 块冲掉（证书文件一直还在）。修复：主配置末尾追加 443 server 块（复用现成证书 + `include extension/xiaojiecpn.com/*.conf`）+ `nginx -t` + reload，备份 `.bak-20261031-114239`。② 后台 `www.jiemids.com/goods/list`、`/login` 等子路由 404 —— Vue3 history 路由但缺 `location /` 回落，新增 `extension/jiemids.com/spa.conf` 的 `try_files $uri $uri/ /index.html`。同日新增 `deploy/healthcheck.sh`（**商城首页故意不加 cache-buster**，按用户视角检查才能发现"源站好、线上坏"；连续失败 2 次才告警），已上传生产 `/www/java/healthcheck/healthcheck.sh` 并装 cron 每 5 分钟，检查商城首页/商城接口/静态资源/后台/小程序两个接口，日志 `/www/logs/healthcheck.log`、状态 `/www/logs/healthcheck.status`。待办：宝塔打开 xiaojiecpn.com 的 SSL 开关、证书 2026-11-29 到期续签、告警 webhook。
+  2026-10-31 增值保障规则收口（代码完成，**未发布生产**）：规则下沉到 `common/insurance/InsurancePolicy`（配件类不出 + 售价<300 不出 + 无电池类目不出「电池无忧」）；`GET /api/products/{id}` 返回 `insuranceOptions`，按活动价计价；小程序/PC 商城详情页改为按接口渲染；order-service 加购/下单不采信前端明细与费用，按同一规则复核重算；本地 136 商品 + 伪造加购/下单实测全过。**未做**：后台预览 `Mall.vue` 仍是旧硬编码（用户决定先只管 C 端）；三端均未发布；购物车旧快照不回溯重算。
   2026-10-30 PC 商城登录/注册（代码完成，待联调）：user-service 新增 `POST /api/user/login|register|send-code|login-code`（手机号+密码 BCrypt、手机号+6 位验证码；验证码存 Redis 5 分钟、60 秒限频，不接短信，接口直接返回模拟码；验证码登录未注册时自动建号）；`user` 表需新增 `password` 列与 `idx_user_phone`，迁移脚本 `docs/sql/user-pc-auth.sql` **待执行**；PC 端新增全局登录弹窗（默认登录 tab、可切注册；登录 tab 内密码/验证码切换），已接入详情页加购/立即购买、购物车入口，401 改为弹登录框而非跳转不存在的 `/login`。user-service 编译与前端 build 通过，待执行迁移并重启后联调登录→加购→下单。
   2026-10-30 商品实拍图替换（106~136，128 缺图）：桌面 `new` 的 90 张 2048² PNG（约 300MB）转 webp，主图 800²、缩略图 400²、详情图 1200²，合计 6.1MB；已放入 `upload/image/upload`、`opt/upload`、`body`，本地/生产均替换并写入 30 个商品的 `body`。主图 URL 加 `?v=20261030` 绕过 Cloudflare 一年缓存；生产备份 `/www/backup/product-images-replaced-20261030.tar.gz`。注意 `/image/**` 优先命中 `opt/`，所以主图 URL 实际返回 400² 缩略图。
   2026-10-30 商品标题/参数真实化：136 个商品的 title/specs 全部重新核对（126 个非机械表去掉「名称+卖点+随机参数」拼接，specs 按型号重写；机械表修正 127 天梭 80h、128 浪琴 64h、131 美度 80h、134 飞亚达 41mm；136 雷达 R30939102 查无型号，改为可核实的 R30939103）。本地与生产库均已执行 `12-fix-product-titles-specs.sql` / `13-fix-mechanical-watches.sql` 并验证：136 商品、0 空 specs、0 标题矛盾；生产备份 `/www/backup/products_before_title_fix_2026-10-30_175543.sql`。生成器改为优先读取 `product_curation.json`，不再把 specs 拼进标题。
@@ -66,6 +68,8 @@
   - Spring Cloud Gateway 5.x 默认移除 `X-Forwarded-*`，绝对 URL 的协议不能依赖它；对外 https 场景在 `UrlUtil` 兜底
 
 - **我做了什么？（近期）**
+  - 2026-10-31：线上站点 404 事故修复（商城首页补 443 SSL 站点块、后台补 SPA 回落）+ `deploy/healthcheck.sh` 巡检上线（生产 cron 每 5 分钟）
+  - 2026-10-31：增值保障规则下沉到 `common/insurance/InsurancePolicy`，C 端两处详情页改为按接口渲染，order-service 加购/下单按规则复核重算（**本地完成，未发布生产**）
   - 2026-10-30：新增 C 端商品标签接口 `GET /api/products/{id}/tags`（product-service，免登录，商品不存在 404、无标签返回空数组）；PC 商城详情页接入标签展示（`getProductTags` + 标题下彩色标签）
   - 2026-10-30：商品真实图上线：51~105 共 165 张桌面原图转 WebP（522MB→9.3MB），主图 800/opt 400、详情图 1200；220 张已同步生产，`11-backfill-body-images.sql` 写入 55 个商品 body（本地+生产）
   - 2026-10-29：新增二级分类 503「机械普通手表」+ 10 款机械/石英表商品（id 127~136，天梭/浪琴/精工/卡西欧/美度/汉米尔顿/雪铁纳/飞亚达/西铁城/雷达），`10-mechanical-watches.sql` + `add_mechanical_watches.py` 占位图，本地已执行
@@ -93,6 +97,8 @@
 - [ ] 订阅消息：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，服务已部署；小程序发行后验证推送
 - [ ] 运营数据导出上线：新版 `order-service` 已随 TCR 部署；待上传新 `e-commerce/dist` + 清缓存 + 验证 xlsx
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + request/uploadFile/downloadFile 域名
+- [x] 线上事故修复（2026-10-31）：① 商城首页 404 —— 源站补 443 SSL 站点块（证书现成，`html_xiaojiecpn.com.conf` 末尾追加，`nginx -t` 通过后 reload）；② 后台子路由 404 —— 新增 `extension/jiemids.com/spa.conf` 的 `try_files` 回落。已验证：商城首页/三个 EdgeOne IP/Clash 代理路径全部 200，后台 `/goods/list`、`/login` 200。EdgeOne 上的旧 404 缓存已自行过期刷新（无需手工刷新）。**待办**：宝塔打开 xiaojiecpn.com 的 SSL 开关（否则保存配置会再冲掉 443 块）；证书 2026-11-29 到期需续签
+- [x] 线上巡检（2026-10-31）：`deploy/healthcheck.sh` 已上传到生产 `/www/java/healthcheck/`，cron 每 5 分钟一次；检查商城首页/商城接口/静态资源/后台/小程序两个接口，日志 `/www/logs/healthcheck.log`，状态 `/www/logs/healthcheck.status`；告警 webhook 待配（`healthcheck.env` 写 `HEALTHCHECK_WEBHOOK`）
 - [ ] 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分/协议死链已于 2026-10-28 隐藏）
 - [ ] 生产安全：安全组关闭 8848/9848/9849/18080/9001~9008；停旧 Node 3000；删网站根 `.env`；Nacos 控制台保持 127.0.0.1
 - [ ] 公网延迟：本机接口 10～46ms、公网 ~1.4s；瓶颈在 Cloudflare 香港跨境。**不能改灰云**（源站 IP 暴露）；图片计划走国内 CDN（COS+CDN，源站 IP 隐藏），API 评估 EdgeOne/全站加速
@@ -131,6 +137,9 @@
 
 | 时间 | 错误 | 解决 |
 |------|------|------|
+| 2026-10-31 | 商城首页 `https://www.xiaojiecpn.com/` 显示 nginx 404 页面，状态码却是 200 | EdgeOne 回源走 HTTPS(443)，源站缺 xiaojiecpn.com 的 443 站点块（宝塔保存站点配置时重写主 conf，冲掉了 SSL 段）→ 主配置末尾追加 443 server 块（复用现成证书），`nginx -t` + reload |
+| 2026-10-31 | 后台 `www.jiemids.com/goods/list`、`/login` 等子路由 404（首页正常） | Vue3 history 路由但 nginx 缺 `location /` 回落 → 新增 `extension/jiemids.com/spa.conf` 的 `try_files $uri $uri/ /index.html` |
+| 2026-10-31 | 误判本地 `/image/upload/e8dc2234-….jpg` 不存在 | `ls | grep | head -20` 输出被截断（文件名按字母序排在数字之后）→ 该文件其实存在；误改的 `products.id=128` 已回滚，findings.md 相应描述已订正 |
 | 2026-10-30 | 发布后 `product-service` 反复重启，`found duplicate key timeout` | product-service 的 redis 块原本已有 `timeout: 2s`，补配置时又加了一行；删掉重复行后单独重发 |
 | 2026-10-28 | 单服务发布后全量 `docker compose up -d` 报 `No such image ...:<新tag>` | compose 9 个服务共用全局 `TAG`；改为 `docker-compose.override.yml` 固定每服务镜像，部署用 `docker pull` + `up --no-deps` |
 | 2026-10-28 | 小程序提审被拒：`VIP` 功能点击无响应 | VIP/优惠券/积分/协议都是占位入口，点击只弹「功能开发中」；新增 `utils/features.js` 开关，未开通入口直接隐藏（上线改 `true`） |

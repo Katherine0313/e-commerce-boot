@@ -289,6 +289,35 @@
 - [ ] 审计日志归档/导出、保留策略
 - **状态：** in_progress（P0 完成；P1 账号/角色/菜单管理、BCrypt、强制下线已完成并发布，剩日志审计与演示账号清理）
 
+### 阶段 19：增值保障规则收口（2026-10-31）
+
+> 起因：C 端三处前端各自硬编码「增值保障」卡片，鼠标、手机壳这类配件也弹保障。
+> 口径：**配件类不出 + 售价 < 300 不出**（无电池类目额外不出「电池无忧」），规则由后端统一出、前端只渲染。
+
+- [✓] 规则下沉到 `common/insurance/InsurancePolicy`（单一口径，product-service 与 order-service 共用）
+- [✓] `GET /api/products/{id}` 返回 `insuranceOptions: [{code,name,fee,desc}]`，按**最终展示价（含活动价）**计价；后台 `AdminProductVO` 同字段
+- [✓] 小程序 `pages/goods/detail.vue`、PC 商城 `src/views/products/ProductDetail.vue` 改为按接口渲染，接口返空则整块隐藏
+- [✓] 保障明细统一为 `{code,name,fee}`（PC 商城原为 `{name,price}`）
+- [✓] order-service 一并收紧：加购/下单**不采信前端**传来的 `insuranceDetail`/`insuranceFee`，由 `support/InsuranceReviewer` 按同一规则复核重算
+- [✓] order-service `entity/Product` 补 `categoryId`（`ProductMapper.xml` 补 `category_id`），加购用 `promotionPricingService.quoteDirect` 取活动价计价
+- [✓] 本地验证：136 个上架商品逐个核对（81 个 3 项 / 29 个 2 项 / 24 个配件排除 / 2 个低价排除）；伪造加购与伪造下单（传 fee=999 + 假 code）均被剔除重算
+- [ ] **发布生产**：后端 `release.sh product-service order-service` → PC 商城 `release-web.sh` → 小程序 `dist/build/mp-weixin`（后端必须先发）
+- [ ] 后台商品预览 `e-commerce/src/pages/goods/list/Mall.vue` 仍是旧硬编码保障卡（用户 2026-10-31 决定先只管 C 端）
+- [ ] 购物车里**加购时**用旧规则写入的历史快照不回溯重算
+
+### 阶段 20：线上可用性巡检与站点配置治理（2026-10-31）
+
+> 起因：`www.xiaojiecpn.com/` 首页 404、后台 `www.jiemids.com/goods/list` 404，均为 nginx 站点配置问题，与业务代码无关。
+
+- [✓] 商城首页 404：EdgeOne 回源走 HTTPS(443)，但源站没有 xiaojiecpn.com 的 443 站点块 → 落到 default 站点返回 nginx 404 页（状态码却是 200）。已在 `html_xiaojiecpn.com.conf` 末尾追加 443 server 块（复用现成证书 + `extension/xiaojiecpn.com/*.conf`），`nginx -t` 通过后 reload
+- [✓] 后台子路由 404：Vue3 history 路由但缺 `location /` 回落 → 新增 `extension/jiemids.com/spa.conf` 的 `try_files $uri $uri/ /index.html`
+- [✓] `deploy/healthcheck.sh`：商城首页/商城接口/静态资源/后台/小程序两个接口；**商城首页故意不做 cache-buster**（按用户视角检查，才能发现"源站好、线上坏"）；连续失败 2 次才告警
+- [✓] 巡检已上线：生产 `/www/java/healthcheck/healthcheck.sh` + cron 每 5 分钟，日志 `/www/logs/healthcheck.log`
+- [ ] 宝塔打开 `xiaojiecpn.com` 的 **SSL 开关**（否则宝塔保存站点配置会重写主 conf、再冲掉 443 块 → 首页再次 404）
+- [ ] 证书续签：`xiaojiecpn.com` 证书 2026-11-29 到期，设自动续签或换证
+- [ ] 配告警 webhook（企业微信/钉钉机器人），写进 `/www/java/healthcheck/healthcheck.env` 的 `HEALTHCHECK_WEBHOOK`
+- [ ] 检查 `api.jiemids.com` / `www.jiemids.com` 是否有同类缺 443 块 / 缺 SPA 回落的隐患（当前两个站点的 443 块都在）
+
 ## 风险与待确认
 
 | # | 风险/待确认 | 影响 | 处置 |
@@ -298,6 +327,10 @@
 | 3 | 现有 `user`（小程序）与 `admin`（后台）账号体系并存 | 两套登录入口 | admin 走 auth-service，user 走 user-service，JWT type 区分 |
 | 4 | Spring Cloud 组件在 Boot 4 下的调试成本 | 单人项目进度 | 先最小骨架再铺开 |
 | 5 | 后台断线重连 / 跨实例推送 | 多实例下 WS 钉死单机 | 阶段 11 用 RabbitMQ fanout 广播 |
+| 6 | 宝塔托管的站点 conf 会被重写 | 商城 443 SSL 块被冲掉 → 首页 404（2026-10-31 已发生） | 已补 443 块；需在宝塔打开该站点 SSL 开关，并把关键配置放 `extension/` 目录 |
+| 7 | 边缘缓存会缓存错误响应 | 源站已修但用户仍看到旧内容（商城首页曾缓存 nginx 404 页） | 巡检按用户视角检查；发现后 EdgeOne 刷新缓存（TTL 到期也会自愈） |
+| 8 | `xiaojiecpn.com` 证书 2026-11-29 到期 | 到期后 EdgeOne 回源 HTTPS 失败 → 首页 404 | 宝塔设自动续签或提前换证 |
+
 
 ## 历史错误
 

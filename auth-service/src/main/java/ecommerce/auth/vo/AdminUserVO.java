@@ -14,8 +14,6 @@ public class AdminUserVO {
     private Long id;
     private String username;
     private String name;
-    /** 兼容旧前端的单角色字段 */
-    private String role;
     /** RBAC 角色标识 */
     private List<String> roles;
     /** 权限标识 */

@@ -387,7 +387,7 @@ ecommerce
 
 ### PC 商城 Web 端（ecommerce-mall，2026-10-29）
 - 独立前端 `D:\study\my-workspace\wechat-workspace\ecommerce-mall`：Vue 3 + Vite + Pinia + Router + Axios + Element Plus，SPA；替换原静态企业站。
-- 线上 https://www.xiaojiecpn.com ，站点根 `/www/wwwroot/xiaojiecpn.com`；Nginx 配置 `extension/xiaojiecpn.com/mall.conf`（源文件 `ecommerce-mall/deploy/xiaojiecpn-mall.conf`）：`/api`、`/image`、`/upload` 同源代理到 `127.0.0.1:8080` + `try_files $uri $uri/ /index.html`。
+- 线上 https://www.xiaojiecpn.com ，站点根 `/www/wwwroot/xiaojiecpn.com`；Nginx 配置 `extension/xiaojiecpn.com/mall.conf`（源文件 `ecommerce-mall/deploy/xiaojiecpn-mall.conf`）：`/api`、`/image`、`/upload` 同源代理到 `127.0.0.1:8080` + `try_files $uri $uri/ /index.html`。**443 站点块在主配置 `html_xiaojiecpn.com.conf` 末尾**（2026-10-31 补，EdgeOne 回源走 HTTPS，详见「线上事故：PC 商城首页 404」）。
 - 已上线：首页（分类 + 猜你喜欢）、商品列表/分类、商品详情、搜索，均接真实 C 端接口；游客可浏览。
 - 发布：`npm run build` 后，在 e-commerce-boot 里 `export WEB_DIR=.../ecommerce-mall`、`export WEB_ROOT=/www/wwwroot/xiaojiecpn.com`、`./deploy/release-web.sh --no-build`（脚本会留 `.bak.<时间戳>` 备份）。`release-web.sh` 的完成提示已改为按实际 `WEB_ROOT` 输出。
 - 约定：单店 B2C、不做商家入驻、不做 SKU；登录后置，首页/浏览不登录，加购/购买再登录。
@@ -441,6 +441,35 @@ ecommerce
 - `upload` 是宿主机目录 `/www/java/upload`，bind mount 到 product/user，需单独备份。
 - 单店化备份：`/www/backup/e_commerce_db_before_single_shop_*.sql`（含 `Dump completed` 校验）。
 
+### 线上事故：PC 商城首页 404（2026-10-31）
+
+- **现象**：浏览器访问 `https://www.xiaojiecpn.com/` 显示 nginx 的 404 页面，但 DevTools 状态码是 **200 OK**（该 404 页面是静态文件，状态码 200）。
+- **链路**：`浏览器 → 腾讯云 EdgeOne（DNS 113.108.215.156 / 119.147.114.212 / 14.29.51.193）→ 源站 nginx`。EdgeOne **回源走 HTTPS(443)**，而源站当时**没有 www.xiaojiecpn.com 的 443 站点块**（`html_xiaojiecpn.com.conf` 只有 `listen 80`），请求落到 `server_name _` 的 default 站点，返回 138 字节的 nginx 404 页面（`etag 6a95b4ca-8a`，与 EdgeOne 返回的完全一致 → 确认是同一个源站文件）。
+- **诱因**：`html_xiaojiecpn.com.conf` 的 mtime 是当天 **10:14:23** —— 宝塔保存站点配置时重写了该文件，**把 443 SSL 站点块冲掉了**（证书文件本身还在：`vhost/cert/xiaojiecpn.com/{fullchain,privkey}.pem`，CN=www.xiaojiecpn.com，SAN 含裸域，有效期 2026-08-31 ~ 2026-11-29，只是没有任何 server 块引用它）。
+- **修复**：在 `html_xiaojiecpn.com.conf` **末尾追加**一个 443 server 块（复用现成证书 + `include extension/xiaojiecpn.com/*.conf` 提供 /api、/image、/upload 反代与 SPA 伪静态），`nginx -t` 通过后 reload。备份 `html_xiaojiecpn.com.conf.bak-20261031-114239`。
+- **注意**：
+  - 80 端口保留（EdgeOne 强制 HTTPS、ACME 验证、应急直连），用户侧全程 HTTPS，**EdgeOne→源站也是 TLS**（没有走明文回源）。
+  - 该文件由**宝塔托管**，宝塔保存站点配置会重写它 → 必须去宝塔把该站点 **SSL 开关打开**，否则下次保存又掉 443。
+  - 证书 **2026-11-29 到期**，需在宝塔设自动续签或换证。
+  - 修完后 `/`、`/index.html`、各路由、`/assets/*`、`/api/*` 回源全部正常；但 EdgeOne 边缘仍缓存着旧的 404（`EO-Cache-Status: HIT`，Age 3100s+）。**未做手工刷新**：TTL 到期后边缘自动回源，11:56 复查三个 EdgeOne IP 与本地代理路径全部返回正确的商城首页（1022 字节），无需去控制台刷缓存；若是紧急故障再手工刷（URL 刷新 `https://www.xiaojiecpn.com/`）。
+
+### 线上事故：后台子路由 404（2026-10-31，同日）
+
+- **现象**：`https://www.jiemids.com/goods/list`、`/login`、`/system/users` 全部 nginx 404（首页正常）。
+- **根因**：后台是 Vue3 **history 路由**，但 `html_jiemids.com.conf` 里只有 `/api/`、`/image/`、`/upload/`、`/ws/` 四个反代，**没有 `location /` 的 SPA 回落**；`rewrite/html_jiemids.com.conf` 也是宝塔默认空文件 → 任何子路由直接 404（刷新即白屏）。
+- **修复**：新建 `/www/server/panel/vhost/nginx/extension/jiemids.com/spa.conf`：
+  ```
+  location / { try_files $uri $uri/ /index.html; }
+  ```
+  放 extension 目录（主配置里 `include extension/jiemids.com/*.conf`），宝塔重写主 conf 时不会丢。reload 后 `/`、`/goods/list`、`/login`、`/system/users` 全部 200 返回后台首页 HTML。
+- **同源模式提醒**：PC 商城（`extension/xiaojiecpn.com/mall.conf`）早就有 `location / { try_files ... /index.html; }`，所以商城子路由一直正常 —— 两个站点的配置并不一致。
+
+### 线上巡检
+
+- `deploy/healthcheck.sh`：检查商城首页 / 商城接口 / 商城静态资源 / 后台 / 小程序两个接口。
+- **商城首页故意不做 cache-buster**（请求的就是用户实际访问的 URL）——2026-10-31 那次"源站好、线上坏"的故障只有按用户视角检查才测得出来；接口类才加时间戳绕过缓存。
+- 告警走企业微信/钉钉机器人（`healthcheck.env` 里的 `HEALTHCHECK_WEBHOOK`），未配置则只写 `/www/logs/healthcheck.log`；连续失败 2 次才告警。
+
 ## 已知风险 / 遗留
 
 | 风险 | 影响 | 处置 |
@@ -453,6 +482,8 @@ ecommerce
 | 公网延迟 ~0.9s | Cloudflare 香港跨境 | 待决定是否 DNS-only 直连 |
 | Python `/recommend` 不存在 | 猜你喜欢走销量兜底 | 用户决定近期不实现 |
 | `user.id_number` 空列 | 代码不引用 | 待手动 DROP，不阻塞 |
+| 宝塔托管的 `html_xiaojiecpn.com.conf` 会被重写 | 宝塔保存站点配置会冲掉 443 SSL 块 → 商城首页 404 | 2026-10-31 已补 443 块；**需在宝塔打开该站点 SSL 开关**，否则复发 |
+| 后台 jiemids.com 缺 SPA 回落 | Vue3 history 路由刷新即 404（首页正常，子路由白屏） | 2026-10-31 已在 `extension/jiemids.com/spa.conf` 加 `try_files $uri $uri/ /index.html` |
 
 ## 资源
 

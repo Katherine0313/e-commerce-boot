@@ -302,3 +302,35 @@ SSH 到服务器 `docker pull <目标镜像>` → `docker compose -f docker-comp
 - 静态文件不需要 reload Nginx；`assets` 文件名带 hash，不会命中旧缓存；若 `index.html` 被 Cloudflare 缓存，到控制台清一次缓存
 
 前置条件：本机能 `ssh ecommerce true` 免密登录，且 `../e-commerce/node_modules` 已安装。
+
+## 13. 线上巡检（healthcheck）
+
+`deploy/healthcheck.sh` 检查 C 端商城、后台管理端、小程序 API 是否正常：
+
+```bash
+./deploy/healthcheck.sh                # 巡检一次（有异常时 exit 1）
+./deploy/healthcheck.sh --install-cron # 装到服务器后开每 5 分钟一次
+./deploy/healthcheck.sh --uninstall-cron
+```
+
+- 检查项：商城首页、商城商品接口、商城静态资源、后台管理端、小程序首页接口、小程序商品接口
+- **商城首页不做 cache-buster**：请求的就是用户实际访问的 URL。
+  2026-10-31 商城首页 404 的根因是 EdgeOne 边缘缓存里存着旧 404 页面，源站一直是好的——
+  只有按"用户视角"检查才能发现这类"源站好、线上坏"的问题；接口类检查才加时间戳绕过缓存
+- 告警：把企业微信/钉钉机器人地址写进脚本同目录的 `healthcheck.env`（cron 无环境变量）：
+  ```
+  HEALTHCHECK_WEBHOOK="https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx"
+  ```
+  未配置时只写 `/www/logs/healthcheck.log` 和 `/www/logs/healthcheck.status`
+- 连续失败 2 次才告警（`HEALTHCHECK_FAIL_THRESHOLD`），避免网络抖动误报
+
+安装到生产服务器：
+
+```bash
+ssh ecommerce "mkdir -p /www/java/healthcheck /www/logs"
+scp deploy/healthcheck.sh ecommerce:/www/java/healthcheck/healthcheck.sh
+ssh ecommerce "chmod +x /www/java/healthcheck/healthcheck.sh && /www/java/healthcheck/healthcheck.sh --install-cron"
+```
+
+在服务器上跑时，请求从服务器出网到公网 DNS，会完整经过 EdgeOne/CDN，测的是真实用户路径。
+
