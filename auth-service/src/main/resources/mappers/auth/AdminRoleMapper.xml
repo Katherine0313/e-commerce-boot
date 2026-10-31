@@ -59,4 +59,13 @@
         SELECT COUNT(*) FROM admin_user_role WHERE role_id = #{roleId}
     </select>
 
+    <!-- 只统计启用中的账号：禁用账号登录不了，不该阻止角色删除 -->
+    <select id="countEnabledUsers" resultType="long">
+        SELECT COUNT(*)
+        FROM admin_user_role ur
+                 JOIN admin a ON a.id = ur.admin_id
+        WHERE ur.role_id = #{roleId}
+          AND a.status = 1
+    </select>
+
 </mapper>

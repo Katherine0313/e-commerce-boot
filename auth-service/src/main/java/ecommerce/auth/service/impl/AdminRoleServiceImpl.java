@@ -125,9 +125,15 @@ public class AdminRoleServiceImpl implements AdminRoleService {
         if ("admin".equals(role.getRoleKey())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "店铺管理员角色不能删除");
         }
-        if (adminRoleMapper.countUsers(id) > 0) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "该角色下还有账号，不能删除");
+        // 只有「启用中」的账号会阻止删除：禁用账号登录不了，不该再锁住角色。
+        // 表上没有外键约束，所以删除时要顺手解绑这些已禁用账号，
+        // 否则会残留指向已删角色的孤儿关联（账号重新启用后登录进去一个菜单都没有）。
+        long enabledUsers = adminRoleMapper.countEnabledUsers(id);
+        if (enabledUsers > 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST,
+                    "该角色下还有 " + enabledUsers + " 个启用中的账号，不能删除；请先停用或改派这些账号");
         }
+        adminUserRoleMapper.deleteDisabledByRoleId(id);
         adminRoleMapper.deleteRoleMenus(id);
         adminRoleMapper.delete(id);
     }
@@ -197,6 +203,7 @@ public class AdminRoleServiceImpl implements AdminRoleService {
                 .status(role.getStatus())
                 .remark(role.getRemark())
                 .userCount(adminRoleMapper.countUsers(role.getId()))
+                .enabledUserCount(adminRoleMapper.countEnabledUsers(role.getId()))
                 .createTime(role.getCreateTime())
                 .build();
     }

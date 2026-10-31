@@ -330,7 +330,7 @@ ecommerce
 - 审计发现 `opt/upload` 缺 33~50 共 18 张缩略图（回落到 800px 原图，50.webp 186KB），另有 9/12/17/21/22/31/32 共 7 张 opt 超过 30KB。
 - 新增 `docs/sql/product-expand/generator/rebuild_opt_images.py`：从 `upload/image/upload/{id}.webp` 生成 400×400 白底 opt，quality 74、method 6；已补齐 18 张并重压 7 张，现在 136 张 opt 全部存在且均 ≤30KB（多数 5~18KB），50.webp 186KB → 8.6KB。图片已 scp 到生产 `/www/java/upload/image/opt/upload/`。
 - `WebMvcConfig` 图片缓存头由 `max-age=7d` 改为 `max-age=365d, immutable`（需重新发布 product-service 生效）。
-- 注意：Cloudflare 按 URL 缓存，33~50 之前缓存的是原图、7 张大图缓存的是旧 opt，**必须 Purge 这 25 个 URL** 后才会命中新文件；之后可 prewarm 全部图片。
+- 注意：CDN（**腾讯云 EdgeOne**）按 URL 缓存，33~50 之前缓存的是原图、7 张大图缓存的是旧 opt，**必须刷新这 25 个 URL** 后才会命中新文件；之后可 prewarm 全部图片。
 - 测速结论：内网 `/api/home` 79ms、`/api/products/hot` 13ms，公网均 ~1.4s；Cloudflare HIT 的 10.9KB 图片 TTFB 仍 1.65s → 瓶颈是 Cloudflare 香港跨境链路，不是后端/Redis。图片/API 若要明显变快，需图片走国内 CDN（COS+CDN 或 CDN 回源源站，源站 IP 仍隐藏），API 可评估 EdgeOne/全站加速或 Cloudflare China；灰云会暴露源站 IP，不采用。
 
 ### 后台 RBAC P0（2026-10-30）
@@ -389,7 +389,7 @@ ecommerce
 - 独立前端 `D:\study\my-workspace\wechat-workspace\ecommerce-mall`：Vue 3 + Vite + Pinia + Router + Axios + Element Plus，SPA；替换原静态企业站。
 - 线上 https://www.xiaojiecpn.com ，站点根 `/www/wwwroot/xiaojiecpn.com`；Nginx 配置 `extension/xiaojiecpn.com/mall.conf`（源文件 `ecommerce-mall/deploy/xiaojiecpn-mall.conf`）：`/api`、`/image`、`/upload` 同源代理到 `127.0.0.1:8080` + `try_files $uri $uri/ /index.html`。**443 站点块在主配置 `html_xiaojiecpn.com.conf` 末尾**（2026-10-31 补，EdgeOne 回源走 HTTPS，详见「线上事故：PC 商城首页 404」）。
 - 已上线：首页（分类 + 猜你喜欢）、商品列表/分类、商品详情、搜索，均接真实 C 端接口；游客可浏览。
-- 发布：`npm run build` 后，在 e-commerce-boot 里 `export WEB_DIR=.../ecommerce-mall`、`export WEB_ROOT=/www/wwwroot/xiaojiecpn.com`、`./deploy/release-web.sh --no-build`（脚本会留 `.bak.<时间戳>` 备份）。`release-web.sh` 的完成提示已改为按实际 `WEB_ROOT` 输出。
+- 发布：**在 e-commerce-boot 里执行 `./deploy/release-mall.sh`**（2026-10-31 新增的专用脚本，写死 `WEB_DIR=../ecommerce-mall` + `WEB_ROOT=/www/wwwroot/xiaojiecpn.com`，自动留 `.bak.<时间戳>` 备份）。⚠️ **不要用裸的 `./deploy/release-web.sh` 发商城** —— 它默认发后台管理端到 `/www/wwwroot/jiemids.com`，2026-10-31 已因此误发过一次。
 - 约定：单店 B2C、不做商家入驻、不做 SKU；登录后置，首页/浏览不登录，加购/购买再登录。
 - **Web 登录（2026-10-30，代码完成待联调）**：不复用后台 admin 登录，user-service 新增 `POST /api/user/login|register|send-code|login-code`：手机号+密码（BCrypt）、手机号+6 位验证码（Redis 5 分钟、60 秒限频；暂不接短信，接口直接返回模拟码；未注册自动建号）。`user.openid` 是 NOT NULL + 唯一键，PC 账号用 `pc_<uuid>` 占位；`phone` 历史数据可能重复，不建唯一索引，注册查重走服务层。迁移脚本 `docs/sql/user-pc-auth.sql`（新增 `password` 列 + `idx_user_phone`）待执行。PC 端新增全局 `LoginModal`（登录/注册 tab，登录内密码/验证码切换），详情页加购/立即购买、购物车入口未登录时先弹框，登录成功自动继续原操作；401 改为派发 `auth-expired` 事件弹框，不再跳不存在的 `/login`。
 - 文档：`ecommerce-mall/README.md`（决策、P0-P5 checklist、发布步骤）。
@@ -436,6 +436,14 @@ ecommerce
 - 发布：`./deploy/release.sh <svc>`（Maven → docker build/push → SSH pull + `compose up -d --no-build --no-deps`）；`--no-build`、`--no-deploy`、`--dry-run`、`--rollback <tag>`。
 - **发布顺序**：product → order → aftersale → user → ai → 后台前端 → gateway → **auth 最后**（auth 停止签发旧 claim 后旧服务会拒绝新 token）；`ALL_SERVICES` 已把 auth 排最后。
 - 后台前端：`./deploy/release-web.sh`（npm build → tar 上传 → rsync 到 `/www/wwwroot/jiemids.com`，保留 `.env/.htaccess/.user.ini/.well-known/public`，自动留 3 份备份）。
+- **两个前端站点必须用各自的脚本**（2026-10-31 新增 `release-mall.sh` 后固定）：
+
+  | 站点 | 域名 | 站点目录 | 前端工程 | 发布命令 |
+  |---|---|---|---|---|
+  | 后台管理端 | www.jiemids.com | `/www/wwwroot/jiemids.com` | `../e-commerce` | `./deploy/release-web.sh` |
+  | PC 商城 | www.xiaojiecpn.com | `/www/wwwroot/xiaojiecpn.com` | `../ecommerce-mall` | `./deploy/release-mall.sh` |
+
+  两个脚本底层都是 `release-web.sh`，靠 `WEB_DIR`/`WEB_ROOT` 区分；**漏带环境变量就会发错站点**（2026-10-31 已踩过一次，误把后台端重发到 jiemids.com）。`release-mall.sh` 已把两个值写死并加了工程目录校验。
 - compose 每个服务同时有 `image:` 和 `build:`；服务器必须 `--no-build`。`docker-compose.override.yml` 由 release.sh 生成，固定各服务当前镜像，全量 `up -d` 不要带新 TAG。
 - 服务器 `.env` 已有 `REGISTRY`；2026-10-29 补了 `MYSQL_HOST=host.docker.internal` / `MYSQL_PORT` / `MYSQL_DATABASE` 给 AI。
 - `upload` 是宿主机目录 `/www/java/upload`，bind mount 到 product/user，需单独备份。
@@ -479,7 +487,7 @@ ecommerce
 | 数据库凭据曾进 git 历史，MySQL 侧明文密码未处理 | 凭据泄露面 | 配置已移出版本库，历史/库侧未清理 |
 | `CorsConfig` 放开所有来源 + allowCredentials | 仅开发期可接受 | 生产需收紧 |
 | 未支付订阅消息 | 代码已完成、服务已部署 | 小程序发行后验证推送 |
-| 公网延迟 ~0.9s | Cloudflare 香港跨境 | 待决定是否 DNS-only 直连 |
+| 公网延迟 ~0.9s | CDN（腾讯云 EdgeOne）跨境链路 | 待决定是否 DNS-only 直连 |
 | Python `/recommend` 不存在 | 猜你喜欢走销量兜底 | 用户决定近期不实现 |
 | `user.id_number` 空列 | 代码不引用 | 待手动 DROP，不阻塞 |
 | 宝塔托管的 `html_xiaojiecpn.com.conf` 会被重写 | 宝塔保存站点配置会冲掉 443 SSL 块 → 商城首页 404 | 2026-10-31 已补 443 块；**需在宝塔打开该站点 SSL 开关**，否则复发 |

@@ -29,4 +29,7 @@ public interface AdminRoleMapper {
     int insertRoleMenus(@Param("roleId") Long roleId, @Param("menuIds") List<Long> menuIds);
 
     long countUsers(@Param("roleId") Long roleId);
+
+    /** 该角色下「启用中」的账号数（禁用账号不算，禁用账号不该锁住角色） */
+    long countEnabledUsers(@Param("roleId") Long roleId);
 }

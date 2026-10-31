@@ -135,7 +135,8 @@
 - [✓] AI 迁移上线（2026-10-26）：网关 `/api/agent/**` → `http://ai-service:8000`；线上 `/api/home` 200、`/api/cart/count` 401、`/api/agent/chat` 401（鉴权生效）
 - [✓] 发布切 TCR 镜像（2026-10-28）：初始 9 个仓库，2026-10-29 移除 shop-service 后为 8 个（7 Java + ai-service）；compose 加 `image:`；`deploy/release.sh` 支持构建/推送/回滚；服务器已切 `image:` + `--no-build`
 - [✓] 后台管理端一键发布（2026-10-28）：`deploy/release-web.sh` 构建 `../e-commerce` → rsync 到 `/www/wwwroot/jiemids.com`，保留运行时文件，支持 `--no-build` / `--dry-run` / `--rollback`
-- [ ] 分类图收尾（**仅剩清 CF 缓存**）：webp 已上传、生产库已改 `.webp`；product/user 已多次发布（含 2026-10-30 全量）
+- [✓] PC 商城一键发布（2026-10-31）：新增 `deploy/release-mall.sh` 构建 `../ecommerce-mall` → rsync 到 `/www/wwwroot/xiaojiecpn.com`（路径写死，避免与后台端搞混；此前误用裸 `release-web.sh` 发错过一次）
+- [ ] 分类图收尾（**仅剩清 EdgeOne 缓存**）：webp 已上传、生产库已改 `.webp`；product/user 已多次发布（含 2026-10-30 全量）
 - [✓] 线上问题修复（2026-10-25）：小程序审核白屏（上传了 `dist/dev`，接口地址是 127.0.0.1 → 改传 `dist/build`）、分类接口 Redis 降级 + Redis 容器化、用户头像 http→https（`UrlUtil` 非本机强制 https）、机器人头像本地 webp→jpg（iOS 兼容）
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + 后台三个域名（request/uploadFile/downloadFile）
 - [ ] 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分/协议死链已于 2026-10-28 用功能开关隐藏）
@@ -301,7 +302,7 @@
 - [✓] order-service 一并收紧：加购/下单**不采信前端**传来的 `insuranceDetail`/`insuranceFee`，由 `support/InsuranceReviewer` 按同一规则复核重算
 - [✓] order-service `entity/Product` 补 `categoryId`（`ProductMapper.xml` 补 `category_id`），加购用 `promotionPricingService.quoteDirect` 取活动价计价
 - [✓] 本地验证：136 个上架商品逐个核对（81 个 3 项 / 29 个 2 项 / 24 个配件排除 / 2 个低价排除）；伪造加购与伪造下单（传 fee=999 + 假 code）均被剔除重算
-- [ ] **发布生产**：后端 `release.sh product-service order-service` → PC 商城 `release-web.sh` → 小程序 `dist/build/mp-weixin`（后端必须先发）
+- [ ] **发布生产**：后端 `release.sh product-service order-service` → PC 商城 `./deploy/release-mall.sh` → 小程序 `dist/build/mp-weixin`（后端必须先发）
 - [ ] 后台商品预览 `e-commerce/src/pages/goods/list/Mall.vue` 仍是旧硬编码保障卡（用户 2026-10-31 决定先只管 C 端）
 - [ ] 购物车里**加购时**用旧规则写入的历史快照不回溯重算
 

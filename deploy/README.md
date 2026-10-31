@@ -191,7 +191,7 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 - [ ] `DB_URL` 指向正确的库，且库里有表和数据
 - [ ] `/www/java/upload` 存在且可写，且已上传现有图片（`image/upload`、`body`、`category`、`swiper`、`share`、`QRcode.webp`、`store-logo.webp` 等）
 - [ ] 已上传压缩图目录 `/www/java/upload/image/opt/`（`category` 200px、`upload` 1024px、`body` 1080px）；`WebMvcConfig` 优先读 opt，缺失时回落原图
-- [ ] 图片/分类更新后已清 Cloudflare 缓存（`/image/category/*` 曾缓存 404，不清会继续 404，最长 4 小时）
+- [ ] 图片/分类更新后已清 **EdgeOne** 缓存（`/image/category/*` 曾缓存 404，不清会继续 404，最长 4 小时）
 - [ ] 时区是 `Asia/Shanghai`（Dockerfile 已带）
 - [ ] 只放行 22/80/443；Nacos 控制台限制来源 IP
 - [ ] 3306 不暴露公网；Redis 容器没有 `ports` 映射
@@ -299,9 +299,46 @@ SSH 到服务器 `docker pull <目标镜像>` → `docker compose -f docker-comp
 - 备份**不放 `wwwroot` 下**（`BACKUP_ROOT` 可覆盖），避免站点目录旁的旧代码被误暴露；`./deploy/release-web.sh --rollback` 会自动从新位置找最近一份
 - 回滚：`./deploy/release-web.sh --rollback`（同步最近一份备份，不重新构建）
 - 跳过构建：`--no-build`；只打印命令：`--dry-run`
-- 静态文件不需要 reload Nginx；`assets` 文件名带 hash，不会命中旧缓存；若 `index.html` 被 Cloudflare 缓存，到控制台清一次缓存
+- 静态文件不需要 reload Nginx；`assets` 文件名带 hash，不会命中旧缓存；若 `index.html` 被 **EdgeOne** 缓存，到控制台刷新一次（见下）
+
+### EdgeOne 刷新缓存（CDN 是腾讯云 EdgeOne，不是 Cloudflare）
+
+链路：`浏览器 → 腾讯云 EdgeOne → 源站 nginx`。EdgeOne **回源走 HTTPS(443)**。
+
+发布前端后如果老用户仍是旧页面，在 EdgeOne 控制台刷新缓存：
+
+| 场景 | 操作 |
+|---|---|
+| 换了 `index.html` / 入口 js | 控制台 → EdgeOne → 站点 → **缓存刷新 → 整站刷新** |
+| 只改了某个目录 | **目录刷新**，填 `/assets/*` |
+| 只改了某个文件 | **URL 刷新**，填完整 URL |
+| 商品图换了 | **URL 刷新**该图 URL（图片缓存头是 365d immutable，不刷新永远不生效） |
+
+命令行快速自查是否命中边缘缓存（看响应头）：
+
+```bash
+curl -I https://www.xiaojiecpn.com/ | grep -i "EO-Cache-Status\|Age"
+# EO-Cache-Status: HIT + Age 很大 = 命中边缘缓存，需要去控制台刷新
+```
 
 前置条件：本机能 `ssh ecommerce true` 免密登录，且 `../e-commerce/node_modules` 已安装。
+
+## 12.1 PC 商城发布（xiaojiecpn.com）
+
+PC 商城是**另一个前端工程**（`../ecommerce-mall`，Vue3 + Element Plus），
+和后台管理端共用 `release-web.sh`，但工程目录和站点目录都不同，**必须用专用脚本避免发错站点**：
+
+```bash
+./deploy/release-mall.sh
+```
+
+- 工程目录固定 `../ecommerce-mall`（可用 `MALL_DIR` 覆盖），站点目录固定 `/www/wwwroot/xiaojiecpn.com`（可用 `MALL_WEB_ROOT` 覆盖）
+- 脚本开头会打印发布目标（`==> 发布目标：... → ...`），发完最后一行是 `==> 完成：/www/wwwroot/xiaojiecpn.com`
+- 参数与 `release-web.sh` 一致：`--no-build` / `--dry-run` / `--rollback`
+- 备份同样落在 `/www/backup/web/xiaojiecpn.com.bak.<时间戳>`，保留 3 份
+
+> ⚠️ 不要用裸的 `./deploy/release-web.sh` 发商城 —— 它默认发的是**后台管理端**到 `www.jiemids.com`，
+> 两个站点都用同一个脚本，不带环境变量极易发错（已发生过一次）。
 
 ## 13. 线上巡检（healthcheck）
 

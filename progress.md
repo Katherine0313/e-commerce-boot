@@ -5,6 +5,7 @@
 ## 当前进度（五问重启检查）
 
 - **我在哪里？**
+  2026-10-31 后台 RBAC 收口 + 发版脚本防呆：① **移除 `admin.role` 冗余字段** —— 该列是 RBAC 落地前的老字段（单角色字符串），与 `admin_user_role` 关联表重复且违反 3NF，还导致「主角色」写入按前端数组顺序、读取按 role_id 排序的两处不一致。已删实体/VO/Mapper/JWT claim/前端 `isAdmin()` 的 `role` 分支，超管判定改为「roles 含 admin **或 id=1 兜底**」（防绑定丢失导致无人能管理系统）。**生产库已执行 `ALTER TABLE admin DROP COLUMN role`，但线上 auth-service 还是老代码 → 账号管理页会 500，必须尽快发版**；迁移脚本与补绑定 SQL 见 `docs/sql/rbac/02-drop-admin-role-column.sql`。② **角色删除不再被禁用账号卡住** —— 原逻辑 `countUsers>0` 把已禁用账号也算进去；改为只拦启用中账号，删除时顺带解绑禁用账号（表无外键，不解会留孤儿关联）。③ **新增 `deploy/release-mall.sh`** —— PC 商城与后台管理端共用 `release-web.sh`，只靠 `WEB_DIR`/`WEB_ROOT` 区分，已因漏带环境变量把后台端误发到 `www.jiemids.com` 一次；现为商城单独建脚本并写死两个路径，另在 `deploy/README.md` 补 12.1 节。④ **小程序商品图旧图** —— 首页「热门推荐」`hot-panel.vue` 硬拼 `/image/upload/{id}.webp`，把后端 image 字段里的 `?v=20261030` 版本号丢了，命中 365 天 immutable 缓存显示旧图（其余页面都用 image 字段，正常）；已改为优先用后端返回的 image。**根因是版本号手工写在 SQL 里，建议后端按 `update_time` 自动追加，未做**。
   2026-10-31 线上站点 404 事故与巡检上线：① 商城首页 `https://www.xiaojiecpn.com/` 404 —— EdgeOne 回源走 HTTPS(443)，源站当时没有 xiaojiecpn.com 的 443 站点块，请求落到 default 站点返回 nginx 自带的 404 页（**状态码却是 200**，所以 DevTools 显示 200 OK）；诱因是宝塔 10:14 保存站点配置重写了 `html_xiaojiecpn.com.conf`，把 443 SSL 块冲掉（证书文件一直还在）。修复：主配置末尾追加 443 server 块（复用现成证书 + `include extension/xiaojiecpn.com/*.conf`）+ `nginx -t` + reload，备份 `.bak-20261031-114239`。② 后台 `www.jiemids.com/goods/list`、`/login` 等子路由 404 —— Vue3 history 路由但缺 `location /` 回落，新增 `extension/jiemids.com/spa.conf` 的 `try_files $uri $uri/ /index.html`。同日新增 `deploy/healthcheck.sh`（**商城首页故意不加 cache-buster**，按用户视角检查才能发现"源站好、线上坏"；连续失败 2 次才告警），已上传生产 `/www/java/healthcheck/healthcheck.sh` 并装 cron 每 5 分钟，检查商城首页/商城接口/静态资源/后台/小程序两个接口，日志 `/www/logs/healthcheck.log`、状态 `/www/logs/healthcheck.status`。待办：宝塔打开 xiaojiecpn.com 的 SSL 开关、证书 2026-11-29 到期续签、告警 webhook。
   2026-10-31 增值保障规则收口（代码完成，**未发布生产**）：规则下沉到 `common/insurance/InsurancePolicy`（配件类不出 + 售价<300 不出 + 无电池类目不出「电池无忧」）；`GET /api/products/{id}` 返回 `insuranceOptions`，按活动价计价；小程序/PC 商城详情页改为按接口渲染；order-service 加购/下单不采信前端明细与费用，按同一规则复核重算；本地 136 商品 + 伪造加购/下单实测全过。**未做**：后台预览 `Mall.vue` 仍是旧硬编码（用户决定先只管 C 端）；三端均未发布；购物车旧快照不回溯重算。
   2026-10-30 PC 商城登录/注册（代码完成，待联调）：user-service 新增 `POST /api/user/login|register|send-code|login-code`（手机号+密码 BCrypt、手机号+6 位验证码；验证码存 Redis 5 分钟、60 秒限频，不接短信，接口直接返回模拟码；验证码登录未注册时自动建号）；`user` 表需新增 `password` 列与 `idx_user_phone`，迁移脚本 `docs/sql/user-pc-auth.sql` **待执行**；PC 端新增全局登录弹窗（默认登录 tab、可切注册；登录 tab 内密码/验证码切换），已接入详情页加购/立即购买、购物车入口，401 改为弹登录框而非跳转不存在的 `/login`。user-service 编译与前端 build 通过，待执行迁移并重启后联调登录→加购→下单。
@@ -39,7 +40,7 @@
   5. 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分占位已用功能开关隐藏）
   6. 生产安全收尾：安全组关闭 8848/9848/9849/18080/9001~9007，停旧 Node 3000，删网站根 `.env`
   7. 参数表 `parameters`（促销/优惠券/会员已完成，表名 `promotion_*` / `coupon_*` / `member_*`）
-  8. 图片/API 国内加速：Cloudflare 不能灰云（会暴露源站 IP），图片计划 COS+CDN（`img.jiemids.com`），API 评估腾讯云 EdgeOne/全站加速；同时清 CF 旧图缓存并预热
+  8. 图片/API 国内加速：**CDN 已切腾讯云 EdgeOne**（2026-10-31 确认，回源走 HTTPS 443）；图片仍计划 COS+CDN（`img.jiemids.com`），清 EdgeOne 旧图缓存并预热
   9. 购物车 2 个缺口 + 商品/订单/售后端到端验证
   10. file-service（CDN/通用文件）
   11. PC 商城 P2：user-service 的 C 端 demo 登录（user 令牌）+ 购物车/下单
@@ -93,7 +94,7 @@
 
 ## 未完成事项（速查）
 
-- [ ] 首页优化收尾：`opt/` 图与分类 webp 已上传、生产库 `categories.image` 已是 `.webp`；product/user 容器已于 2026-10-29 重建，还差清 Cloudflare `/image/category/*`
+- [ ] 首页优化收尾：`opt/` 图与分类 webp 已上传、生产库 `categories.image` 已是 `.webp`；product/user 容器已于 2026-10-29 重建，还差清 **EdgeOne** `/image/category/*`
 - [ ] 订阅消息：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，服务已部署；小程序发行后验证推送
 - [ ] 运营数据导出上线：新版 `order-service` 已随 TCR 部署；待上传新 `e-commerce/dist` + 清缓存 + 验证 xlsx
 - [ ] 微信二次提审：`dist/build` 包 + 完整录屏 + request/uploadFile/downloadFile 域名
@@ -101,8 +102,8 @@
 - [x] 线上巡检（2026-10-31）：`deploy/healthcheck.sh` 已上传到生产 `/www/java/healthcheck/`，cron 每 5 分钟一次；检查商城首页/商城接口/静态资源/后台/小程序两个接口，日志 `/www/logs/healthcheck.log`，状态 `/www/logs/healthcheck.status`；告警 webhook 待配（`healthcheck.env` 写 `HEALTHCHECK_WEBHOOK`）
 - [ ] 微信审核：模拟支付、隐私政策/用户协议真实页面、AI/UGC 内容安全（VIP/优惠券/积分/协议死链已于 2026-10-28 隐藏）
 - [ ] 生产安全：安全组关闭 8848/9848/9849/18080/9001~9008；停旧 Node 3000；删网站根 `.env`；Nacos 控制台保持 127.0.0.1
-- [ ] 公网延迟：本机接口 10～46ms、公网 ~1.4s；瓶颈在 Cloudflare 香港跨境。**不能改灰云**（源站 IP 暴露）；图片计划走国内 CDN（COS+CDN，源站 IP 隐藏），API 评估 EdgeOne/全站加速
-- [ ] 图片加速落地：补 opt 已完成并上传生产；待清 Cloudflare 旧图缓存、预热 136 张图，再评估 COS+CDN/`img.jiemids.com`
+- [ ] 公网延迟：本机接口 10～46ms、公网 ~1.4s；瓶颈在 CDN 跨境链路。**不能改灰云**（源站 IP 暴露）；**CDN 已切腾讯云 EdgeOne**（2026-10-31），图片计划走国内 CDN（COS+CDN，源站 IP 隐藏）
+- [ ] 图片加速落地：补 opt 已完成并上传生产；待清 **EdgeOne** 旧图缓存、预热 136 张图，再评估 COS+CDN/`img.jiemids.com`
 - [ ] 购物车：加购校验上架状态；5 接口端到端验证
 - [ ] 商品：`parameters` 参数表（促销/优惠券/会员已完成 2026-10-30，建表脚本已在本地/生产执行）
 - [ ] 售后：退货入库单（仓库核验）
