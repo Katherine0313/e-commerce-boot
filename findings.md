@@ -392,7 +392,7 @@ ecommerce
 - 发布：**在 e-commerce-boot 里执行 `./deploy/release-mall.sh`**（2026-10-31 新增的专用脚本，写死 `WEB_DIR=../ecommerce-mall` + `WEB_ROOT=/www/wwwroot/xiaojiecpn.com`，自动留 `.bak.<时间戳>` 备份）。⚠️ **不要用裸的 `./deploy/release-web.sh` 发商城** —— 它默认发后台管理端到 `/www/wwwroot/jiemids.com`，2026-10-31 已因此误发过一次。
 - 约定：单店 B2C、不做商家入驻、不做 SKU；登录后置，首页/浏览不登录，加购/购买再登录。
 - **Web 登录（2026-10-31 更新：支持用户名 + 手机号双账号）**：不复用后台 admin 登录，user-service 新增 `POST /api/user/login|register|send-code|login-code`。
-  - **账号密码登录**：`POST /api/user/login` 入参 `account`（**用户名或手机号都行**）+ `password`。后端先按 `username` 查、查不到再按 `phone` 查（`PcAuthServiceImpl.findByAccount`）。旧前端传 `phone` 仍兼容（`account`/`phone` 二选一，优先 `account`）。密码 BCrypt；账号不存在与密码错误返回**同一句**「账号或密码错误」，不暴露账号是否注册。
+  - **账号密码登录**：`POST /api/user/login` 入参 `username` + `password`，**只认用户名**。刻意不做「用户名或手机号二选一」的模糊匹配 —— 两种登录方式在 PC 端是两个独立 tab，凭据各归各，混用会让「我明明用手机号登的怎么提示用户名错误」这类困惑无法排查。手机号登录一律走验证码那条路。密码 BCrypt；用户名不存在与密码错误返回**同一句**「用户名或密码错误」，不暴露账号是否注册。
   - **手机号验证码登录**：`POST /api/user/login-code`（手机号 + 6 位码，Redis 5 分钟、60 秒限频；暂不接短信，接口直接返回模拟码；未注册自动建号）。
   - **注册**：`POST /api/user/register` 入参 `username` + `phone` + `password`（`PcRegisterDTO`）。用户名规则 `^[a-zA-Z0-9_]{3,30}$`（与后台 admin 一致），**统一转小写存储**；表 collation `utf8mb4_general_ci` 大小写不敏感，DB 唯一索引 `uk_user_username` 拦截重名。
   - `user` 表新增三样：`username` VARCHAR(64) NULL + `uk_user_username` 唯一索引、`password` VARCHAR(255) NULL（BCrypt）、`idx_user_phone` 普通索引。`phone` 历史数据可能重复，**不建唯一索引**，注册查重走服务层。迁移脚本 `docs/sql/user-pc-auth.sql`（**已在本地与生产执行**）。
