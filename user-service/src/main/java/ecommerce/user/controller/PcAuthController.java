@@ -30,7 +30,7 @@ public class PcAuthController {
         this.pcAuthService = pcAuthService;
     }
 
-    @Operation(summary = "账号密码登录（账号支持用户名或手机号）")
+    @Operation(summary = "账号密码登录（用户名 + 密码）")
     @PostMapping("/login")
     public Result<PcLoginVO> login(@RequestBody PcLoginDTO dto) {
         return Result.success(pcAuthService.loginByPassword(dto));

@@ -12,7 +12,7 @@ import ecommerce.user.vo.PcSendCodeVO;
  */
 public interface PcAuthService {
 
-    /** 账号（用户名或手机号）+ 密码登录 */
+    /** 用户名 + 密码登录 */
     PcLoginVO loginByPassword(PcLoginDTO dto);
 
     /** 用户名 + 手机号 + 密码注册 */

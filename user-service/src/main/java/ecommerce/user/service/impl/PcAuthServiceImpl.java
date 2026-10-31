@@ -66,15 +66,14 @@ public class PcAuthServiceImpl implements PcAuthService {
 
     @Override
     public PcLoginVO loginByPassword(PcLoginDTO dto) {
-        String account = resolveAccount(dto.getAccount(), dto.getPhone());
-        // 账号可能是用户名也可能是手机号：先按用户名查，查不到再按手机号查
-        User user = findByAccount(account);
-        // 账号不存在与密码错误统一提示，避免暴露账号是否注册
+        String username = requireUsername(dto.getUsername());
+        User user = userMapper.findForLoginByUsername(username);
+        // 用户名不存在与密码错误统一提示，避免暴露账号是否注册
         if (user == null || user.getPassword() == null) {
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, "账号或密码错误");
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "用户名或密码错误");
         }
         if (!PasswordUtil.matches(dto.getPassword(), user.getPassword())) {
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, "账号或密码错误");
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "用户名或密码错误");
         }
         return buildLoginVO(user);
     }
@@ -179,37 +178,8 @@ public class PcAuthServiceImpl implements PcAuthService {
     }
 
     /**
-     * 取登录账号：新前端传 account，旧前端传 phone，两个都传以 account 为准。
-     */
-    private String resolveAccount(String account, String phone) {
-        String value = account == null || account.isBlank() ? phone : account;
-        String trimmed = value == null ? "" : value.trim();
-        if (trimmed.isEmpty()) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "请输入用户名或手机号");
-        }
-        return trimmed;
-    }
-
-    /**
-     * 按登录账号查用户：先当用户名查，查不到再当手机号查。
-     * 用户名统一小写存储，表 collation 是 utf8mb4_general_ci（大小写不敏感），
-     * 所以用户输入 Tom 也能匹配到 tom。
-     */
-    private User findByAccount(String account) {
-        if (USERNAME_PATTERN.matcher(account).matches()) {
-            User byUsername = userMapper.findForLoginByUsername(account.toLowerCase(Locale.ROOT));
-            if (byUsername != null) {
-                return byUsername;
-            }
-        }
-        if (PHONE_PATTERN.matcher(account).matches()) {
-            return userMapper.findForLoginByPhone(account);
-        }
-        return null;
-    }
-
-    /**
      * 校验用户名：3-30 位字母/数字/下划线，统一转小写存储。
+     * 表 collation 是 utf8mb4_general_ci（大小写不敏感），所以用户输入 Tom 也能匹配到 tom。
      */
     private String requireUsername(String username) {
         String value = username == null ? "" : username.trim();
