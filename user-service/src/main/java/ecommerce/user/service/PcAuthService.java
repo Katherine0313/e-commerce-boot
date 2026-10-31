@@ -2,6 +2,7 @@ package ecommerce.user.service;
 
 import ecommerce.user.dto.PcCodeLoginDTO;
 import ecommerce.user.dto.PcLoginDTO;
+import ecommerce.user.dto.PcRegisterDTO;
 import ecommerce.user.dto.PcSendCodeDTO;
 import ecommerce.user.vo.PcLoginVO;
 import ecommerce.user.vo.PcSendCodeVO;
@@ -11,11 +12,11 @@ import ecommerce.user.vo.PcSendCodeVO;
  */
 public interface PcAuthService {
 
-    /** 手机号 + 密码登录 */
+    /** 账号（用户名或手机号）+ 密码登录 */
     PcLoginVO loginByPassword(PcLoginDTO dto);
 
-    /** 手机号 + 密码注册 */
-    PcLoginVO register(PcLoginDTO dto);
+    /** 用户名 + 手机号 + 密码注册 */
+    PcLoginVO register(PcRegisterDTO dto);
 
     /** 发送登录验证码（60 秒限频，5 分钟有效，模拟返回） */
     PcSendCodeVO sendLoginCode(PcSendCodeDTO dto);

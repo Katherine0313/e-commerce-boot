@@ -23,10 +23,15 @@ public class User {
     /** 微信 openid；PC 账号没有微信身份，用 pc_ 前缀占位（该列 NOT NULL + 唯一键） */
     private String openid;
     private String name;
+    /**
+     * PC 商城登录用户名（全局唯一，uk_user_username）。
+     * 统一转小写存储；小程序用户没有用户名，为 NULL。
+     */
+    private String username;
     private String phone;
     /**
      * PC 商城登录密码（BCrypt）。
-     * select=false：常规查询不把密文带到业务层，登录时由 UserMapper.findForLoginByPhone 单独读取。
+     * select=false：常规查询不把密文带到业务层，登录时由 UserMapper.findForLoginByUsername/ByPhone 单独读取。
      */
     @TableField(select = false)
     private String password;

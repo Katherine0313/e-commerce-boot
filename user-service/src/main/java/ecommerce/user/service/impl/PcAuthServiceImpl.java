@@ -3,6 +3,7 @@ package ecommerce.user.service.impl;
 import ecommerce.exception.BusinessException;
 import ecommerce.user.dto.PcCodeLoginDTO;
 import ecommerce.user.dto.PcLoginDTO;
+import ecommerce.user.dto.PcRegisterDTO;
 import ecommerce.user.dto.PcSendCodeDTO;
 import ecommerce.user.entity.User;
 import ecommerce.user.mapper.UserMapper;
@@ -13,11 +14,14 @@ import ecommerce.user.vo.PcSendCodeVO;
 import ecommerce.utils.JwtUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.Duration;
+import java.util.List;
+import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -37,6 +41,16 @@ public class PcAuthServiceImpl implements PcAuthService {
     private static final Duration SEND_INTERVAL = Duration.ofSeconds(60);
     private static final Pattern PHONE_PATTERN = Pattern.compile("^1\\d{10}$");
     private static final Pattern CODE_PATTERN = Pattern.compile("^\\d{6}$");
+    /** 用户名：3-30 位字母/数字/下划线（与后台 admin 的用户名规则一致） */
+    private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_]{3,30}$");
+    /**
+     * 取出并删除验证码（一次性使用）。
+     * 不用 opsForValue().getAndDelete()：那是 Redis 6.2+ 的 GETDEL 命令，
+     * 本机装的旧版 Redis 不支持会报 unknown command。Lua 脚本同样原子，且兼容所有版本。
+     */
+    private static final DefaultRedisScript<String> GET_AND_DELETE = new DefaultRedisScript<>(
+            "local v = redis.call('GET', KEYS[1]); if v then redis.call('DEL', KEYS[1]) end; return v",
+            String.class);
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final UserMapper userMapper;
@@ -52,22 +66,28 @@ public class PcAuthServiceImpl implements PcAuthService {
 
     @Override
     public PcLoginVO loginByPassword(PcLoginDTO dto) {
-        String phone = requirePhone(dto.getPhone());
-        User user = userMapper.findForLoginByPhone(phone);
-        // 账号不存在与密码错误统一提示，避免暴露手机号是否注册
+        String account = resolveAccount(dto.getAccount(), dto.getPhone());
+        // 账号可能是用户名也可能是手机号：先按用户名查，查不到再按手机号查
+        User user = findByAccount(account);
+        // 账号不存在与密码错误统一提示，避免暴露账号是否注册
         if (user == null || user.getPassword() == null) {
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, "手机号或密码错误");
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "账号或密码错误");
         }
         if (!PasswordUtil.matches(dto.getPassword(), user.getPassword())) {
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, "手机号或密码错误");
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "账号或密码错误");
         }
         return buildLoginVO(user);
     }
 
     @Override
-    public PcLoginVO register(PcLoginDTO dto) {
+    public PcLoginVO register(PcRegisterDTO dto) {
+        String username = requireUsername(dto.getUsername());
         String phone = requirePhone(dto.getPhone());
         String password = requirePassword(dto.getPassword());
+        // 用户名唯一（应用层先查，给友好提示而不是等唯一索引报错）
+        if (userMapper.countByUsername(username) > 0) {
+            throw new BusinessException(HttpStatus.CONFLICT, "该用户名已被注册，请换一个");
+        }
         User exist = userMapper.findForLoginByPhone(phone);
         if (exist != null) {
             // 小程序用户可能只有手机号没有密码，引导走验证码登录
@@ -76,6 +96,9 @@ public class PcAuthServiceImpl implements PcAuthService {
         }
         User user = User.builder()
                 .openid(newPcOpenid())
+                // 昵称没填时用用户名兜底，避免后台会员列表出现空昵称
+                .name(username)
+                .username(username)
                 .phone(phone)
                 .password(PasswordUtil.encode(password))
                 .build();
@@ -123,7 +146,7 @@ public class PcAuthServiceImpl implements PcAuthService {
         String saved;
         try {
             // 取出即删除：验证码一次性使用
-            saved = stringRedisTemplate.opsForValue().getAndDelete(key);
+            saved = stringRedisTemplate.execute(GET_AND_DELETE, List.of(key));
         } catch (RuntimeException e) {
             log.error("PC 登录验证码读取 Redis 失败", e);
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "验证码服务暂不可用，请稍后重试");
@@ -149,9 +172,51 @@ public class PcAuthServiceImpl implements PcAuthService {
                 .token(jwtUtil.generateUserToken(user.getId()))
                 .id(user.getId())
                 .name(user.getName())
+                .username(user.getUsername())
                 .phone(user.getPhone())
                 .avatar(user.getAvatar())
                 .build();
+    }
+
+    /**
+     * 取登录账号：新前端传 account，旧前端传 phone，两个都传以 account 为准。
+     */
+    private String resolveAccount(String account, String phone) {
+        String value = account == null || account.isBlank() ? phone : account;
+        String trimmed = value == null ? "" : value.trim();
+        if (trimmed.isEmpty()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "请输入用户名或手机号");
+        }
+        return trimmed;
+    }
+
+    /**
+     * 按登录账号查用户：先当用户名查，查不到再当手机号查。
+     * 用户名统一小写存储，表 collation 是 utf8mb4_general_ci（大小写不敏感），
+     * 所以用户输入 Tom 也能匹配到 tom。
+     */
+    private User findByAccount(String account) {
+        if (USERNAME_PATTERN.matcher(account).matches()) {
+            User byUsername = userMapper.findForLoginByUsername(account.toLowerCase(Locale.ROOT));
+            if (byUsername != null) {
+                return byUsername;
+            }
+        }
+        if (PHONE_PATTERN.matcher(account).matches()) {
+            return userMapper.findForLoginByPhone(account);
+        }
+        return null;
+    }
+
+    /**
+     * 校验用户名：3-30 位字母/数字/下划线，统一转小写存储。
+     */
+    private String requireUsername(String username) {
+        String value = username == null ? "" : username.trim();
+        if (!USERNAME_PATTERN.matcher(value).matches()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "用户名需为 3-30 位字母、数字或下划线");
+        }
+        return value.toLowerCase(Locale.ROOT);
     }
 
     /**

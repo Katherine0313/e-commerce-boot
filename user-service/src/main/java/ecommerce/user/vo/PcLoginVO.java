@@ -24,6 +24,9 @@ public class PcLoginVO {
     @Schema(description = "昵称，可能为空")
     private String name;
 
+    @Schema(description = "登录用户名，小程序用户可能为空")
+    private String username;
+
     @Schema(description = "手机号")
     private String phone;
 

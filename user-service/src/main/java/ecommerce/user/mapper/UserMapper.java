@@ -32,7 +32,22 @@ public interface UserMapper extends BaseMapper<User> {
      * PC 端登录/注册查用户：按手机号取一条正常账号，并带出密码哈希。
      * phone 没有唯一索引（历史数据可能重复），固定取最早注册的一条。
      */
-    @Select("SELECT id, openid, name, phone, avatar, password FROM `user` " +
+    @Select("SELECT id, openid, name, username, phone, avatar, password FROM `user` " +
             "WHERE phone = #{phone} AND is_deleted = 0 ORDER BY id ASC LIMIT 1")
     User findForLoginByPhone(@Param("phone") String phone);
+
+    /**
+     * PC 端按用户名查用户：带出密码哈希。
+     * username 有唯一索引（uk_user_username），最多一条。
+     */
+    @Select("SELECT id, openid, name, username, phone, avatar, password FROM `user` " +
+            "WHERE username = #{username} AND is_deleted = 0 LIMIT 1")
+    User findForLoginByUsername(@Param("username") String username);
+
+    /**
+     * 用户名是否已被占用（注册查重，给友好提示而不是等唯一索引报错）。
+     * 已注销（is_deleted=1）的账号不占用用户名。
+     */
+    @Select("SELECT COUNT(*) FROM `user` WHERE username = #{username} AND is_deleted = 0")
+    int countByUsername(@Param("username") String username);
 }

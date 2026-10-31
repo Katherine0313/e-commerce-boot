@@ -3,6 +3,7 @@ package ecommerce.user.controller;
 import ecommerce.common.Result;
 import ecommerce.user.dto.PcCodeLoginDTO;
 import ecommerce.user.dto.PcLoginDTO;
+import ecommerce.user.dto.PcRegisterDTO;
 import ecommerce.user.dto.PcSendCodeDTO;
 import ecommerce.user.service.PcAuthService;
 import ecommerce.user.vo.PcLoginVO;
@@ -29,15 +30,15 @@ public class PcAuthController {
         this.pcAuthService = pcAuthService;
     }
 
-    @Operation(summary = "账号密码登录")
+    @Operation(summary = "账号密码登录（账号支持用户名或手机号）")
     @PostMapping("/login")
     public Result<PcLoginVO> login(@RequestBody PcLoginDTO dto) {
         return Result.success(pcAuthService.loginByPassword(dto));
     }
 
-    @Operation(summary = "账号密码注册")
+    @Operation(summary = "账号密码注册（用户名 + 手机号 + 密码）")
     @PostMapping("/register")
-    public Result<PcLoginVO> register(@RequestBody PcLoginDTO dto) {
+    public Result<PcLoginVO> register(@RequestBody PcRegisterDTO dto) {
         return Result.success(pcAuthService.register(dto));
     }
 
