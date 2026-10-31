@@ -19,6 +19,9 @@ public class UserProfileVO {
     /** 昵称 */
     @Schema (description = "昵称，未设置时为 null")
     private String name;
+    /** 登录用户名（PC 注册账号有，小程序用户为 null） */
+    @Schema(description = "登录用户名，小程序用户为 null")
+    private String username;
     /** 头像地址 */
     @Schema (description = "头像地址，未上传时为 null")
     private String avatar;

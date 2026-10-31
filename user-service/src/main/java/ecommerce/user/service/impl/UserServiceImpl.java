@@ -146,6 +146,7 @@ public class UserServiceImpl implements UserService {
         return UserProfileVO.builder()
                 .id(user.getId())
                 .name(user.getName())
+                .username(user.getUsername())
                 .avatar(user.getAvatar())
                 .phone(user.getPhone())
                 .sex(user.getSex())
