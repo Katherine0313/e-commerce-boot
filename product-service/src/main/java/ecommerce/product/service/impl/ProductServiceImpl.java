@@ -1,6 +1,7 @@
 package ecommerce.product.service.impl;
 
 import ecommerce.common.PageVO;
+import ecommerce.common.insurance.InsurancePolicy;
 import ecommerce.exception.BusinessException;
 import ecommerce.product.entity.Category;
 import ecommerce.product.entity.Product;
@@ -163,6 +164,8 @@ public class ProductServiceImpl implements ProductService {
         }
         ProductVO vo = toVO(product);
         promotionService.applyDisplay(List.of(vo));
+        // 增值保障按最终展示价（含活动价）计价，规则由后端统一判断，前端只渲染返回的选项
+        vo.setInsuranceOptions(InsurancePolicy.options(vo.getCategoryId(), vo.getPrice()));
         return vo;
     }
 

@@ -1,5 +1,6 @@
 package ecommerce.order.service.impl;
 
+import ecommerce.common.insurance.InsurancePolicy;
 import ecommerce.common.promotion.QuoteItemInput;
 import ecommerce.common.promotion.QuoteItemResult;
 import ecommerce.common.promotion.QuoteResult;
@@ -11,6 +12,7 @@ import ecommerce.order.mapper.CartMapper;
 import ecommerce.order.mapper.ProductMapper;
 import ecommerce.order.service.CartService;
 import ecommerce.order.service.PromotionPricingService;
+import ecommerce.order.support.InsuranceReviewer;
 import ecommerce.order.vo.CartVO;
 import ecommerce.utils.UserContext;
 import lombok.extern.slf4j.Slf4j;
@@ -27,7 +29,7 @@ import java.util.Map;
  * 购物车 Service 实现。
  * <p>
  * 快照字段（name/image/price/description）加购时从 products 表查出，不信任前端传入的价格；
- * 增值保障（insuranceDetail/insuranceFee）由加购弹窗随请求传入，快照到购物车（不选则空数组 / 0）。
+ * 增值保障（insuranceDetail/insuranceFee）前端勾选后提交，后端按统一规则复核并重算费用再快照到购物车。
  */
 @Slf4j
 @Service
@@ -66,9 +68,6 @@ public class CartServiceImpl implements CartService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "product_id 不能为空");
         }
         int quantity = dto.getQuantity() == null ? 1 : Math.max(1, dto.getQuantity());
-        // 增值保障：前端加购弹窗里勾选的保障项随请求带上，不选则空数组 / 0
-        BigDecimal insuranceFee = dto.getInsuranceFee() == null ? BigDecimal.ZERO : dto.getInsuranceFee();
-        String insuranceDetail = toInsuranceJson(dto.getInsuranceDetail());
         Long userId = currentUserId();
 
         // 商品必须存在（且属于模板店），否则 404；同时拿快照字段
@@ -76,6 +75,14 @@ public class CartServiceImpl implements CartService {
         if (product == null) {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
+
+        // 增值保障：不采信前端传来的明细和费用，按后端规则复核
+        // （配件类、低价商品本来就不卖保障，前端伪造也会被剔掉）
+        BigDecimal activityPrice = activityPrice(product, userId);
+        InsurancePolicy.Result reviewed = InsuranceReviewer.review(
+                product.getCategoryId(), activityPrice, dto.getInsuranceDetail(), objectMapper);
+        BigDecimal insuranceFee = reviewed.fee();
+        String insuranceDetail = InsuranceReviewer.toJson(reviewed.options(), objectMapper);
 
         Cart existing = cartMapper.findByUserAndProduct(userId, dto.getProductId());
 
@@ -208,16 +215,30 @@ public class CartServiceImpl implements CartService {
         return safePrice.add(safeFee).multiply(BigDecimal.valueOf(quantity == null ? 0 : quantity));
     }
 
-    /** 增值保障明细 → JSON 字符串，空或序列化失败返回 "[]" */
-    private String toInsuranceJson(List<Map<String, Object>> detail) {
-        if (detail == null || detail.isEmpty()) {
-            return "[]";
-        }
+    /**
+     * 商品活动价（直减后）：增值保障按活动价计价，和详情页、购物车展示口径一致。
+     * 促销算价失败退回售价，不阻断加购。
+     */
+    private BigDecimal activityPrice(Product product, Long userId) {
+        BigDecimal price = product.getSalesPrice() == null ? BigDecimal.ZERO : product.getSalesPrice();
         try {
-            return objectMapper.writeValueAsString(detail);
-        } catch (Exception e) {
-            return "[]";
+            QuoteResult quote = promotionPricingService.quoteDirect(
+                    List.of(QuoteItemInput.builder()
+                            .productId(product.getId())
+                            .quantity(1)
+                            .originalPrice(price)
+                            .build()),
+                    userId);
+            if (quote != null && !quote.getItems().isEmpty()) {
+                BigDecimal finalPrice = quote.getItems().get(0).getFinalPrice();
+                if (finalPrice != null) {
+                    return finalPrice;
+                }
+            }
+        } catch (RuntimeException e) {
+            log.warn("计算商品活动价失败，增值保障按售价计价：productId={}", product.getId(), e);
         }
+        return price;
     }
 
     /** JSON 字符串 → 数组（增值保障明细），解析失败返回空数组 */

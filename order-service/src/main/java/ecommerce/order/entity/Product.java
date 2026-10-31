@@ -17,4 +17,6 @@ public class Product {
     private BigDecimal salesPrice;
     private String description;
     private Integer stock;
+    /** 所属分类 ID：增值保障规则要按类目判断（配件类不出保障） */
+    private Long categoryId;
 }

@@ -109,6 +109,7 @@
 - [ ] 小程序重新上传：热门推荐（推荐分类优先）+ 单店化登录（不再传 shopId）
 - [ ] PC 商城 P2：登录/注册已实现（手机号+密码、手机号+模拟验证码；PC 登录弹窗），购物车/结算/模拟支付已接；待执行 `docs/sql/user-pc-auth.sql` 并重启 user-service 联调
 - [x] 商品扩容生产发布（2026-10-29）：SQL + 51~126 图片 + product-service 已上线
+- [x] 增值保障规则收口到后端（2026-10-31）：规则下沉到 `common/insurance/InsurancePolicy`（配件类/低价商品不出保障），`GET /api/products/{id}` 返回 `insuranceOptions`；小程序 + PC 商城详情页已改为按接口渲染；order-service 加购/下单按同一规则复核重算（不采信前端传的保障明细和费用）；本地 136 个商品 + 加购/下单实测全部通过。**未做**：后台商品预览 `e-commerce/src/pages/goods/list/Mall.vue` 仍是旧硬编码（用户决定先只管 C 端）；三端均未发布生产
 - [ ] 商品扩容前端：小程序/后台/PC 接 specs、分类侧边栏（**分页已完成 2026-10-30**：小程序分类/搜索 + PC 列表/搜索均走 `/api/products/page`）
 - [ ] title 重命名生产收尾（本地已完成）：确认生产 `products.title` 已有值 → 部署 product-service/order-service 新代码 → 验证商品/库存/加购 → 执行 `06b-drop-description.sql` → 发布后台 `dist`
 - [ ] 删除生产多余的空「家电 / 电冰箱」分类（用户自行处理）

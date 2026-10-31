@@ -8,7 +8,8 @@
 
 **把**
 
-> 该地址会 302 跳转到 `/swagger-ui/index.html`（两者都已实测可用）；若浏览器没自动跟随跳转，直接用 http://localhost:8080/swagger-ui/index.html
+> 该地址会 302 跳转到 `/swagger-ui/index.html`（两者都已实测可用）；若浏览器没自动跟随跳转，
+> 直接用 http://localhost:8080/swagger-ui/index.html
 
 ## 访问前提
 

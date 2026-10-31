@@ -14,8 +14,8 @@ public class OrderItemDTO {
     private Long productId;
     @Schema(description = "数量")
     private Integer quantity;
-    @Schema(description = "增值保障明细（暂未启用，忽略）")
+    @Schema(description = "增值保障明细（前端勾选的保障项，后端按规则复核后重算）")
     private String insuranceDetail;
-    @Schema(description = "增值保障费（暂未启用，默认 0）")
+    @Schema(description = "增值保障费（后端按规则重算，不采信前端值）")
     private BigDecimal insuranceFee;
 }

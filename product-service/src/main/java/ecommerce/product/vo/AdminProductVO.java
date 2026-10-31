@@ -1,6 +1,7 @@
 package ecommerce.product.vo;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import ecommerce.common.insurance.InsuranceOptionVO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -60,6 +61,8 @@ public class AdminProductVO {
     private BigDecimal volume;
     @Schema(description = "规格参数（有序键值对，非 SKU）")
     private List<SpecItemVO> specs;
+    @Schema(description = "可选增值保障项（商品不适用保障时为空列表）")
+    private List<InsuranceOptionVO> insuranceOptions;
     @Schema(description = "创建时间")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime createdAt;

@@ -1,5 +1,6 @@
 package ecommerce.product.vo;
 
+import ecommerce.common.insurance.InsuranceOptionVO;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -59,4 +60,6 @@ public class ProductVO {
     private BigDecimal volume;
     @Schema(description = "规格参数（有序键值对，非 SKU）")
     private List<SpecItemVO> specs;
+    @Schema(description = "可选增值保障项（商品不适用保障时为空列表）")
+    private List<InsuranceOptionVO> insuranceOptions;
 }

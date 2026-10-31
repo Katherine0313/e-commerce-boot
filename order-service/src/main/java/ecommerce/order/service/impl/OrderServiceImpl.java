@@ -1,5 +1,6 @@
 package ecommerce.order.service.impl;
 
+import ecommerce.common.insurance.InsurancePolicy;
 import ecommerce.common.promotion.QuoteItemInput;
 import ecommerce.common.promotion.QuoteItemResult;
 import ecommerce.common.promotion.QuoteResult;
@@ -24,6 +25,7 @@ import ecommerce.order.mapper.UserMapper;
 import ecommerce.order.service.CouponPricingService;
 import ecommerce.order.service.OrderService;
 import ecommerce.order.service.PromotionPricingService;
+import ecommerce.order.support.InsuranceReviewer;
 import ecommerce.order.vo.LogisticsTraceVO;
 import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderItemVO;
@@ -169,8 +171,6 @@ public class OrderServiceImpl implements OrderService {
         // 逐个查商品，校验库存，组装算价入参（价格只用后端查询结果，不信任前端）
         List<Product> products = new ArrayList<>();
         List<QuoteItemInput> quoteInputs = new ArrayList<>();
-        List<BigDecimal> insuranceFees = new ArrayList<>();
-        List<String> insuranceDetails = new ArrayList<>();
         for (OrderItemDTO itemDTO : dto.getItems()) {
             if (itemDTO.getProductId() == null) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID 不能为空");
@@ -191,8 +191,6 @@ public class OrderServiceImpl implements OrderService {
                     .quantity(quantity)
                     .originalPrice(price)
                     .build());
-            insuranceFees.add(itemDTO.getInsuranceFee() == null ? BigDecimal.ZERO : itemDTO.getInsuranceFee());
-            insuranceDetails.add(itemDTO.getInsuranceDetail() == null ? "[]" : itemDTO.getInsuranceDetail());
         }
 
         // 促销算价：直减改商品价、满减改商品小计，均由服务端计算
@@ -214,7 +212,11 @@ public class OrderServiceImpl implements OrderService {
             Product product = products.get(i);
             QuoteItemResult quoted = quotedItems.get(i);
             int quantity = quoted.getQuantity();
-            BigDecimal insuranceFee = insuranceFees.get(i);
+            // 增值保障：不采信前端传来的明细和费用，按后端规则复核（配件类、低价商品不卖保障）
+            InsurancePolicy.Result reviewed = InsuranceReviewer.review(
+                    product.getCategoryId(), quoted.getFinalPrice(),
+                    dto.getItems().get(i).getInsuranceDetail(), objectMapper);
+            BigDecimal insuranceFee = reviewed.fee();
             BigDecimal insuranceTotal = insuranceFee.multiply(BigDecimal.valueOf(quantity));
             BigDecimal subTotal = quoted.getSubTotal().add(insuranceTotal);
             orderItems.add(OrderItem.builder()
@@ -226,7 +228,7 @@ public class OrderServiceImpl implements OrderService {
                     .quantity(quantity)
                     .subTotal(subTotal)
                     .discountAmount(quoted.getDiscountAmount())
-                    .insuranceDetail(insuranceDetails.get(i))
+                    .insuranceDetail(InsuranceReviewer.toJson(reviewed.options(), objectMapper))
                     .insuranceFee(insuranceFee)
                     .build());
             totalAmount = totalAmount.add(subTotal);

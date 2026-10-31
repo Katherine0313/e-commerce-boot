@@ -409,6 +409,26 @@ ecommerce
 - dev-only demo：`ecommerce.order.mq.demo`，启动自动发一条并消费；生产 profile 不加载。
 - 待做：未支付 30 分钟延迟队列、WebSocket 跨实例 fanout、生产 compose 加 rabbitmq。
 
+### 增值保障规则（2026-10-31）
+- 起因：用户反馈「鼠标、手机壳这种便宜商品没必要加增值保障」。排查发现 **products 表根本没有保障相关字段**（22 列里没有），保障卡片是写死在前端的，三端一视同仁 —— 97 元的手机壳也弹「电池无忧 ¥20」「全面保修 ¥0.97」。
+- 规则收口到 **common**：`ecommerce/common/insurance/InsurancePolicy`（唯一规则处，product-service 与 order-service 共用）+ `InsuranceOptionVO`。口径：
+  - 售价 < 300 元不出保障；
+  - 数码配件类目不出保障：701 手机配件 / 702 电脑配件 / 703 存储设备 / 704 充电设备（壳膜、扩展坞、充电器本身就有品牌质保）；
+  - 「电池无忧」只对有电池的类目开放，排除 401/402/403 耳机音箱、801 智能音箱、803 智能照明；
+  - 费用：全面保修 = 售价 1%、一年意外保 = 售价 2%、电池无忧 = 固定 20 元。
+- 接口：`GET /api/products/{id}` 返回 `insuranceOptions: [{code,name,fee,desc}]`（不适用时为空数组），按**最终展示价（含活动价）**计价；列表接口不返回该字段。VO 用 common 的 `InsuranceOptionVO`；后台 `AdminProductVO` 也带同字段。
+- 前端只渲染：`insuranceOptions` 为空则整块隐藏。已改：小程序 `pages/goods/detail.vue`、PC 商城 `src/views/products/ProductDetail.vue`。**后台商品预览 `e-commerce/src/pages/goods/list/Mall.vue` 保持旧硬编码**（用户 2026-10-31 决定先只管 C 端），所以后台预览里配件仍会显示三张卡。
+- 保障明细字段统一成 `{code, name, fee}`（PC 商城原先用 `{name, price}`，与小程序不一致）。
+- **order-service 一并收紧**（用户 2026-10-31 决定）：加购/下单不再采信前端传来的 `insuranceDetail`/`insuranceFee`，改由 `order-service/support/InsuranceReviewer` 按 `InsurancePolicy` 复核 —— 只保留该商品允许的保障项、费用按活动价重算、明细由后端重新序列化。order-service 与 product-service 同库，`order/entity/Product` 加了 `categoryId`（`ProductMapper.xml` 的 findById 补 `category_id`），加购时用 `promotionPricingService.quoteDirect` 取活动价计价。
+- 验证（本地）：
+  - product-service 全量 136 个上架商品：81 个 3 项、29 个 2 项（无电池）、24 个配件类排除、2 个低价排除（284 元摄像头、277 元灯带），与规则完全一致。
+  - order-service 加购实测：iPhone 前端传 fee=999 + 伪造 code → 后端重算为 274.97 并剔除伪造项；AirPods 传「电池无忧」被剔除；手机壳、鼠标传任何保障都被剔除成 0.00 / `[]`。
+  - order-service 下单实测：手机壳伪造 fee=999 → 订单 insurance_fee=0.00、insurance_detail=`[]`、pay_amount=97.31。
+- 未做：`order-service` 购物车里已存在的旧快照（加购时是旧规则下的数据）不会回溯重算。
+- **生产库核对（2026-10-31，SSH 直连生产查的）**：本次改动 **零 SQL**，生产库不需要同步任何东西。已核对：① `products` 表 22 列与本地逐列一致（含 `category_id`，order-service 新 SQL 依赖它）；② `order_items`/`cart` 的 `insurance_detail varchar(512)`、`insurance_fee decimal(10,2)` 两边一致；③ 四张表 collation 都是 `utf8mb4_general_ci`；④ `categories` 全表 md5 两边相同（`a57bc997...`）；⑤ `products` 逐列 md5：name/sub_title/brand/title/sales_price/market_price/category_id/listing_status/specs/product_code/image 全一致，只有 **stock 不同**（线上有真实订单扣库存，属正常）；⑥ 生产 136 个商品全上架、无空字段、无 null category_id，按新规则会有 26 件不出保障 —— 与本地完全一致。⑦ 生产当前仍是旧代码（镜像 tag `20261030-aacd85f-dirty`），接口尚无 `insuranceOptions` 字段。
+- `products.id=128` 的图（**本地/线上都正常，无需任何改动**）：本地库 image = `/image/upload/e8dc2234-9fe6-4dc4-a3fe-20854f992049.jpg`，本地 `upload/image/upload/` 下该文件存在（89,293 字节，2026-10-31 09:00）；生产库 image = `/image/upload/128.webp`，生产服务器上 `128.webp`（6,786 字节）与同名 `e8dc2234-….jpg`（89,293 字节）**两个文件都在**。两者是同一张浪琴名匠 L2.628 男表图的不同压缩版本（128.webp 是带「浪琴 / 名匠 L2.628 机械男表 / SEED-128」字样的宣传图，UUID jpg 是实物白盘图）。两边各自的库里指向的文件都存在、都能正常显示。
+- 生产 `order_items` 里有 8 条历史订单 `insurance_fee>0`（老规则下真实成交），金额已定、不受影响；生产 `cart` 里 0 条带保障。
+
 ## 发布与部署
 
 - TCR：`ccr.ccs.tencentyun.com`，命名空间 `jiemi-ecommerce`，**8 个仓库**（7 Java + ai-service）。

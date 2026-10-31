@@ -4,9 +4,9 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="ecommerce.order.mapper.ProductMapper">
 
-    <!-- 查商品快照：加购/下单时校验商品存在 + 拿 name/image/price/description/stock -->
+    <!-- 查商品快照：加购/下单时校验商品存在 + 拿 name/image/price/description/stock/category_id -->
     <select id="findById" resultType="ecommerce.order.entity.Product">
-        SELECT id, name, image, sales_price, title AS description, stock
+        SELECT id, name, image, sales_price, title AS description, stock, category_id
         FROM products
         WHERE id = #{id}
     </select>

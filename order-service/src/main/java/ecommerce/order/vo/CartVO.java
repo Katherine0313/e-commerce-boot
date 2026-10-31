@@ -31,7 +31,7 @@ public class CartVO {
     private String description;
     @Schema(description = "数量")
     private Integer quantity;
-    @Schema(description = "增值保障明细（数组，暂未启用为空）")
+    @Schema(description = "增值保障明细（数组，后端按规则复核后的结果）")
     private List<Map<String, Object>> insuranceDetail;
     @Schema(description = "增值保障费")
     private BigDecimal insuranceFee;

@@ -3,6 +3,7 @@ package ecommerce.product.service.impl;
 import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
 import ecommerce.product.cache.CategoryCacheEvictor;
+import ecommerce.common.insurance.InsurancePolicy;
 import ecommerce.product.dto.AdminProductDTO;
 import ecommerce.product.entity.Product;
 import ecommerce.product.mapper.ProductMapper;
@@ -155,6 +156,8 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .weight(p.getWeight())
                 .volume(p.getVolume())
                 .specs(specsCodec.decode(p.getSpecs()))
+                // 后台商品预览弹窗也展示增值保障，与 C 端同一套规则
+                .insuranceOptions(InsurancePolicy.options(p.getCategoryId(), p.getSalesPrice()))
                 .createdAt(p.getCreateTime())
                 .updatedAt(p.getUpdateTime())
                 .build();
