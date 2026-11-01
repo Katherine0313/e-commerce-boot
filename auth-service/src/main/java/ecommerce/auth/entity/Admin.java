@@ -22,6 +22,8 @@ public class Admin {
     private String name;
     private String phone;
     private Integer status;
+    /** 软删标记：0 正常 1 已删除（已删除的账号查不到，也不能登录） */
+    private Integer isDeleted;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }

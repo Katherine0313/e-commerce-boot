@@ -325,6 +325,22 @@
 - [ ] 配告警 webhook（企业微信/钉钉机器人），写进 `/www/java/healthcheck/healthcheck.env` 的 `HEALTHCHECK_WEBHOOK`
 - [ ] 检查 `api.jiemids.com` / `www.jiemids.com` 是否有同类缺 443 块 / 缺 SPA 回落的隐患（当前两个站点的 443 块都在）
 
+### 阶段 21：后台账号软删除 + 「禁用」改「停用」（2026-11-01）
+
+> 起因：账号删除按钮缺失，无法下线离职/误建的账号；删除若走物理 DELETE 会丢历史操作痕迹，故改为软删。
+> 口径：`admin` 表加 `is_deleted`（0 正常 / 1 已删除），删账号 = 置 1 + `status=0` + 解绑角色。
+
+- [✓] `admin` 表加 `is_deleted tinyint NOT NULL DEFAULT 0`（脚本 `docs/sql/add-admin-soft-delete.sql`，幂等：**本地与生产各跑一次**，生产执行前已备份 `/www/backup/e_commerce_db_2026-11-01_1504.sql`）
+- [✓] Mapper 四处过滤：`findByUsername` / `findById` / `listAdmins` / `countAdmins` 全部加 `is_deleted = 0`；新增 `softDelete(id, now)`
+- [✓] Service `delete(id)`：禁删 id=1（超管）、禁删当前登录账号；先解绑 `admin_user_role` 再软删；提交后写 Redis 令牌失效标记（旧 token 立刻 401）
+- [✓] Controller `DELETE /api/admin/system/users/{id}`，权限码 `system:user:remove`（`admin_menu` id=812 早已存在，此前无人使用）
+- [✓] 用户名唯一性改查全量（含已删）：已删账号占用时提示「用户名已被删除的账号占用，请换一个」，不误报「用户名已存在」
+- [✓] 前端 `api/system.js` 加 `deleteAdminUser`；`UserList.vue` 加删除按钮（`v-permission="'system:user:remove'"`，popconfirm 二次确认）
+- [✓] 文案统一「禁用」→「停用」（前端状态标签/按钮/弹窗/表单开关 + 后端提示语与注释）
+- [✓] 本地验证（临时实例 9011）：列表/新建/删除/列表不再显示/旧 token 401/同名再建 400/删超管 400/删不存在 404 全过；测试账号已清理
+- [ ] **发布生产**：auth-service `./deploy/release.sh auth-service` → 后台前端 `./deploy/release-web.sh`（**必须先发 auth-service**，否则前端会调一个尚不存在的接口）
+- [ ] `admin` 表 `is_deleted` 与生产已一致（5 个账号全部 `is_deleted=0`），无需再跑数据修复
+
 ## 风险与待确认
 
 | # | 风险/待确认 | 影响 | 处置 |

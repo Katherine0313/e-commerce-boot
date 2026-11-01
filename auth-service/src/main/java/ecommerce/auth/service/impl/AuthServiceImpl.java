@@ -1,6 +1,7 @@
 package ecommerce.auth.service.impl;
 
 import ecommerce.auth.dto.AdminLoginDTO;
+import ecommerce.auth.entity.Admin;
 import ecommerce.auth.entity.AdminMenu;
 import ecommerce.auth.entity.AdminRole;
 import ecommerce.auth.mapper.AdminMapper;
@@ -102,9 +103,9 @@ public class AuthServiceImpl implements AuthService {
         }
         // 5. 登录成功清零失败计数
         clearLoginFailures(username, clientIp);
-        // 6. 账号禁用拦截（status=0）
+        // 6. 账号停用拦截（status=0；已软删的账号 findByUsername 查不到，走不到这里）
         if (admin.getStatus() != null && admin.getStatus() == 0) {
-            throw new BusinessException(HttpStatus.FORBIDDEN, "账号已被禁用");
+            throw new BusinessException(HttpStatus.FORBIDDEN, "账号已停用");
         }
         // 历史明文密码升级为 BCrypt（失败不影响本次登录）
         if (!PasswordUtil.isEncoded(admin.getPassword())) {

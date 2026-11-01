@@ -1,6 +1,7 @@
 package ecommerce.auth.service.impl;
 
 import ecommerce.auth.dto.AdminAccountDTO;
+import ecommerce.auth.entity.Admin;
 import ecommerce.auth.entity.AdminRole;
 import ecommerce.auth.mapper.AdminMapper;
 import ecommerce.auth.mapper.AdminRoleMapper;
@@ -71,11 +72,16 @@ public class AdminAccountServiceImpl implements AdminAccountService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "用户名不能为空");
         }
         String username = dto.getUsername().trim();
-        if (!username.matches("^[a-zA-Z0-9_]{3,30}$")) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "用户名只能是 3~30 位字母、数字或下划线");
+        if (!username.matches("[a-zA-Z0-9_]{6,16}")) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "用户名长度6~16位，仅允许字母、数字、下划线");
         }
-        if (adminMapper.findByUsername(username) != null) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "用户名已存在");
+        // 用户名唯一性：已软删的账号仍然占着 username（唯一索引不会因软删释放），
+        // 所以要用含已删除的查询来判重，否则前端看着"可用"，提交时数据库直接报重复键
+        Admin sameName = adminMapper.findByUsernameIncludingDeleted(username);
+        if (sameName != null) {
+            boolean deleted = sameName.getIsDeleted() != null && sameName.getIsDeleted() == 1;
+            throw new BusinessException(HttpStatus.BAD_REQUEST,
+                    deleted ? "用户名已被删除的账号占用，请换一个" : "用户名已存在");
         }
         if (dto.getPassword() == null || dto.getPassword().length() < 6) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "密码至少 6 位");
@@ -107,17 +113,17 @@ public class AdminAccountServiceImpl implements AdminAccountService {
         }
         List<AdminRole> roles = validateRoles(dto.getRoleIds());
         Integer status = validateStatus(dto.getStatus());
-        // 超级管理员账号不能禁用、不能丢掉 admin 角色
+        // 超级管理员账号不能停用、不能丢掉 admin 角色
         if (Objects.equals(id, 1L)) {
             if (status == 0) {
-                throw new BusinessException(HttpStatus.BAD_REQUEST, "超级管理员账号不能禁用");
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "超级管理员账号不能停用");
             }
             if (roles.stream().noneMatch(r -> "admin".equals(r.getRoleKey()))) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "超级管理员必须保留店铺管理员角色");
             }
         }
         if (status == 0 && Objects.equals(UserContext.getUserId(), id)) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "不能禁用当前登录账号");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "不能停用当前登录账号");
         }
         Admin update = Admin.builder()
                 .id(existing.getId())
@@ -138,6 +144,25 @@ public class AdminAccountServiceImpl implements AdminAccountService {
         if (authChanged) {
             adminTokenInvalidator.invalidateAfterCommit(id);
         }
+    }
+
+    @Override
+    @Transactional
+    public void delete(Long id) {
+        // requireAdmin 已过滤 is_deleted=0，删过的账号再删一次会 404
+        requireAdmin(id);
+        if (Objects.equals(id, 1L)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "超级管理员账号不能删除");
+        }
+        if (Objects.equals(UserContext.getUserId(), id)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "不能删除当前登录账号");
+        }
+        // 解绑角色：软删后不再参与权限，但留着绑定会成为指向"已删除账号"的孤儿数据
+        adminUserRoleMapper.deleteByAdminId(id);
+        // 软删 + 置停用：status=0 让登录拦截和旧 token 失效立刻生效
+        adminMapper.softDelete(id, LocalDateTime.now());
+        // 已签发的 token 立即失效（事务提交后写 Redis 失效时间点）
+        adminTokenInvalidator.invalidateAfterCommit(id);
     }
 
     @Override

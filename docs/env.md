@@ -3,6 +3,11 @@
 > 本地开发凭据写在各服务的 `application-dev.yml`（已被 .gitignore 忽略，不进 git），换设备需重新生成。
 > 下方表格是完整清单：本地从 `application-dev.yml` 取值，生产部署改用系统环境变量覆盖。
 > 缺失时 `JwtProperties` / `WeChatProperties` 启动校验非空会直接失败。
+>
+> **`JWT_SECRET` 以系统环境变量为准**：IDEA 启动的服务读的是用户级环境变量 `JWT_SECRET`（`setx` 写入），
+> 它的优先级高于 `application-dev.yml`。所以两处必须保持一致，否则本地会出现「登录态失效/接口 401」，
+> 而且用文件里的旧值签的 token 一律 401（2026-11-01 就是踩了这个坑：yml 里是旧值，环境变量是新的）。
+> 校验方法：`printf %s "$JWT_SECRET" | md5sum` 与文件里那行对比指纹。
 
 ## 必填（缺失会导致启动失败）
 
@@ -25,7 +30,7 @@
 
 ## 说明
 
-- 之前这些值散落在各模块的 `application-dev.yml`（已删除）。现在主配置 `application.yml` 里
-  统一用 `${环境变量}` 占位，凭据只有一个来源。
+- 主配置 `application.yml` 里统一用 `${环境变量}` 占位；各模块 `application-dev.yml` 只在本地开发时提供一份真实值（已 gitignore）。
+- `JWT_SECRET` 是唯一「两处都有」的：yml 里那份必须和系统环境变量一致（见顶部说明）。
 - MySQL 统一用本机 3306（MySQL80），不再用 Docker 部署；`DB_URL` 用默认 3306 即可。
 - 用户名/密码故意不给默认值，缺失就启动失败，避免悄悄用了错误的值。

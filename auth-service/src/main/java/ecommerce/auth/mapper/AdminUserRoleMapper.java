@@ -18,7 +18,7 @@ public interface AdminUserRoleMapper {
     long countByRoleId(@Param("roleId") Long roleId);
 
     /**
-     * 解绑该角色下所有「已禁用」账号的绑定。
+     * 解绑该角色下所有「已停用」账号的绑定。
      * 表上没有外键约束，角色被删除后残留的关联会变成孤儿数据
      * （账号重新启用时角色查不到，登录后没有任何菜单）。
      */

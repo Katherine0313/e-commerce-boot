@@ -30,6 +30,6 @@ public interface AdminRoleMapper {
 
     long countUsers(@Param("roleId") Long roleId);
 
-    /** 该角色下「启用中」的账号数（禁用账号不算，禁用账号不该锁住角色） */
+    /** 该角色下「启用中」的账号数（停用账号不算，停用账号不该锁住角色） */
     long countEnabledUsers(@Param("roleId") Long roleId);
 }

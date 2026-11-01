@@ -9,6 +9,7 @@ import ecommerce.common.Result;
 import ecommerce.common.annotation.RequirePerm;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -60,6 +61,14 @@ public class AdminSystemUserController {
     @PutMapping("/{id}")
     public Result<Void> update(@PathVariable Long id, @RequestBody AdminAccountDTO dto) {
         adminAccountService.update(id, dto);
+        return Result.success();
+    }
+
+    @Operation(summary = "删除账号（软删：列表不再显示，账号立刻退出登录）")
+    @RequirePerm("system:user:remove")
+    @DeleteMapping("/{id}")
+    public Result<Void> delete(@PathVariable Long id) {
+        adminAccountService.delete(id);
         return Result.success();
     }
 

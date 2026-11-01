@@ -17,5 +17,10 @@ public interface AdminAccountService {
 
     void update(Long id, AdminAccountDTO dto);
 
+    /**
+     * 删除账号（软删）：账号从列表消失、立刻踢下线，订单等历史数据不受影响。
+     */
+    void delete(Long id);
+
     void resetPassword(Long id, String password);
 }

@@ -18,7 +18,7 @@ public class AdminAccountDTO {
     private String name;
     @Schema(description = "手机号")
     private String phone;
-    @Schema(description = "状态：1 正常 0 禁用")
+    @Schema(description = "状态：1 正常 0 停用")
     private Integer status;
     @Schema(description = "角色 ID 列表")
     private List<Long> roleIds;

@@ -577,6 +577,16 @@ ecommerce
 | 宝塔托管的 `html_xiaojiecpn.com.conf` 会被重写 | 宝塔保存站点配置会冲掉 443 SSL 块 → 商城首页 404 | 2026-10-31 已补 443 块；**需在宝塔打开该站点 SSL 开关**，否则复发 |
 | 后台 jiemids.com 缺 SPA 回落 | Vue3 history 路由刷新即 404（首页正常，子路由白屏） | 2026-10-31 已在 `extension/jiemids.com/spa.conf` 加 `try_files $uri $uri/ /index.html` |
 
+## 后台账号软删除（2026-11-01）
+
+- **为什么软删**：后台账号没有外键依赖，但物理 DELETE 会丢掉历史操作痕迹，且 C 端 `user` 表已用 `is_deleted`（注销）做先例，保持口径一致。软删 = `is_deleted=1` + `status=0`，账号从列表消失、登录被拒、旧 token 立即失效，数据仍留在表里可追溯。
+- **四处过滤必须改全**：`findByUsername` / `findById` / `listAdmins` / `countAdmins` 都加了 `is_deleted = 0`。漏掉任何一处都会导致「已删账号还能登录」或「列表里还显示」。
+- **登录路径的天然拦截**：`AuthServiceImpl.login` 用的是 `findByUsername`（已带过滤），软删账号直接查不到 → 走「用户名或密码错误」分支，不会泄露账号是否存在；`status=0` 的停用账号仍走原有的 403「账号已停用」。
+- **令牌失效用现成机制**：复用 `AdminTokenInvalidator.invalidateAfterCommit`（写 Redis `auth:admin:invalid-before:{id}`，事务提交后才写，Redis 异常 fail-open）。注意 `isInvalid` 是严格比较 `issuedAt < invalidBefore`，**同一秒签发的 token 最多还能活 1 秒**，属已知边界，不算 bug。
+- **用户名唯一性要查全量**：唯一性检查改用 `findByUsernameIncludingDeleted`（不过滤），已删账号占用用户名时提示「用户名已被删除的账号占用，请换一个」—— 直接沿用 `findByUsername` 会误报「用户名已存在」，让管理员以为换名字就行。
+- **红线**：`id=1`（超管）和当前登录账号都禁止删除，前端按钮直接不显示、后端再校验一次（不能只靠前端隐藏）。
+- **生产执行方式**：SQL 用 `ssh ... mysql < docs/sql/add-admin-soft-delete.sql` 管道传入，**不在生产机写文件**；脚本幂等（先查 `information_schema.COLUMNS` 再决定是否 ALTER），重复执行安全。
+
 ## 资源
 
 | 项目 | 本地路径 | 说明 |
