@@ -81,6 +81,7 @@
     <select id="listItemsWithProduct" resultType="ecommerce.product.vo.PromotionItemVO">
         SELECT pi.product_id      AS product_id,
                p.name             AS product_name,
+               p.image            AS image,
                p.sales_price      AS sales_price,
                pi.promotion_price AS promotion_price
         FROM promotion_item pi

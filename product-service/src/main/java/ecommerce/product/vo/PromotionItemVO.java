@@ -20,6 +20,8 @@ public class PromotionItemVO {
     private Long productId;
     @Schema(description = "商品名称")
     private String productName;
+    @Schema(description = "商品主图（相对路径，如 /image/upload/xxx.webp）")
+    private String image;
     @Schema(description = "商品当前售价")
     private BigDecimal salesPrice;
     @Schema(description = "活动价（满减类为空）")
