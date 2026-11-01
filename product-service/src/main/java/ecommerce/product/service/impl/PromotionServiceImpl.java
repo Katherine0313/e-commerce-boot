@@ -85,6 +85,9 @@ public class PromotionServiceImpl implements PromotionService {
             vo.setOriginalPrice(vo.getPrice());
             vo.setPrice(item.getPromotionPrice());
             vo.setPromotionTag(tagOf(promoById.get(item.getPromotionId())));
+            // 有活动时划线价只留「活动前原价」一个：市场价本身就是商品的划线价，
+            // 两个一起下发会变成两个划线价格（小程序详情页、PC 商城卡片和详情都撞在一起）
+            vo.setMarketPrice(null);
         }
     }
 

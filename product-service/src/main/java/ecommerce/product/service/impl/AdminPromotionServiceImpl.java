@@ -95,7 +95,7 @@ public class AdminPromotionServiceImpl implements AdminPromotionService {
     @Transactional
     public void update(Long id, AdminPromotionDTO dto) {
         Promotion existing = requirePromotion(id);
-        assertStatus(existing, PromotionConstants.STATUS_PENDING, "只有未开始的活动可以编辑");
+        assertEditable(existing);
         validate(dto, id);
         Promotion promotion = Promotion.builder()
                 .id(id)
@@ -342,6 +342,20 @@ public class AdminPromotionServiceImpl implements AdminPromotionService {
     private void assertStatus(Promotion promotion, String expected, String message) {
         if (!expected.equals(statusOf(promotion, LocalDateTime.now()))) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, message);
+        }
+    }
+
+    /**
+     * 未开始、进行中的活动都允许编辑。
+     * 进行中的活动改价只影响改完之后的新订单：下单时价格已快照进 order_items.price，
+     * 优惠金额也已写进 promotion_usage，历史订单不受影响。
+     * 已结束/已失效的活动属于历史，改了没有意义，直接拦掉。
+     */
+    private void assertEditable(Promotion promotion) {
+        String status = statusOf(promotion, LocalDateTime.now());
+        if (!PromotionConstants.STATUS_PENDING.equals(status)
+                && !PromotionConstants.STATUS_ACTIVE.equals(status)) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "只有未开始或进行中的活动可以编辑");
         }
     }
 
