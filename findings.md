@@ -265,6 +265,7 @@ ecommerce
 - 时间字段 VO 用 `createdAt/updatedAt`，`LocalDateTime` 加 `@JsonFormat("yyyy-MM-dd HH:mm:ss")`。
 - 日期筛选收 `dateField/startDate/endDate`，`dateField` 走白名单（created_at/confirm_at/pay_at/ship_at/finish_at）防注入。
 - 售后审核只改主表 `status/merchant_remark/updated_at`，业务时间戳按状态写子表列（refunding/returning→review_at、rejected→rejected_at、refund_confirming→refund_at、refunded→refunded_at、exchanging→exchange_at、exchanged→exchanged_at）；删除为主表/明细/子表 `is_deleted=1` 软删。
+- **表名保持现状，不改成 `sys_user` 系（2026-11-01 决定）**：admin / admin_role / admin_user_role / admin_menu / admin_role_menu 五张表命名自洽、语义准确（admin = 后台账号，与 C 端 `user` 表天然区分）。评估过整套改成若依风格的 `sys_user`/`sys_role`/`sys_menu`，结论是不做：`admin` 在本项目同时承担「后台账号表」和「身份类型 admin（JWT type=admin、`/api/admin/**` 路径分流、Redis 失效标记 key、前端 token 守卫）」两套语义，连带改要动 107 个 Java 文件、956 处标识符、98 处前端请求路径，且 8 个服务 + 后台前端必须一次性发版（改错一环全线 401），收益却只有命名风格。**别再重复提这个改名方案。**
 
 ## 核心实现与口径
 
@@ -342,13 +343,38 @@ ecommerce
 - 前端：`utils/auth.js` 增加 `hasPermi/isAdminToken`；`v-permission` 按钮指令；`App.vue` 按 `meta.permission` 生成过滤后的 stepin 菜单；路由守卫拦截无权限直链；订单发货/取消/删除、售后审核、商品/分类/标签/库存、促销/优惠券/会员等按钮已接入。
 - 验证：operator 访问 `/api/admin/products` 200，warehouse/service 403；C 端 `/api/products/page` 无 token 200；operator 登录拿到 32 个权限。
 - P1 已完成（2026-10-30）：后台「系统管理」下新增「管理员账号」「角色管理」两个页面；
-  - 账号：分页/关键词/状态筛选、新增、编辑（显示名/手机号/状态/角色）、重置密码；超级管理员账号不能禁用、不能移除 admin 角色、不能禁用自己。
+  - 账号：分页/关键词/状态筛选、新增、编辑（姓名/手机号/状态/角色）、重置密码；超级管理员账号不能禁用、不能移除 admin 角色、不能禁用自己。
   - 角色：角色 CRUD（`admin` 角色不可删/不可停用、有账号使用中不可删）、菜单树勾选分配（保存时自动补父菜单）。
   - 密码：新增/重置统一 BCrypt（`spring-security-crypto`）；历史明文密码登录成功后自动升级；登录兼容 BCrypt 与旧明文。
   - API：`/api/admin/system/users`、`/roles`、`/menus/tree`，分别用 `system:user:*` / `system:role:*` / `system:role:assign` 权限。
   - 实测：admin 访问 system 接口 200，operator 403；新增账号落库为 `$2a$10$...` 且可用新密码登录；角色菜单分配可保存。
 - P1 剩余（2026-10-30 更新）：菜单管理 CRUD、角色/菜单变更强制下线已完成（见下节）；剩操作日志/登录日志、菜单动态路由（暂缓）、清理生产演示账号。
 - 发布顺序：**auth-service 先发**（新令牌才带 permissions），再发 product/order/aftersale/user/gateway，最后后台 dist；旧 token 需要重新登录。
+
+### 管理员姓名语义修正（2026-11-01）
+- **语义约定（别再填错）**：`admin.name` = **管理员本人姓名**（这条记录就是登录人）；`admin_role.role_name` = **角色名**（运营 / 客服 / 仓储发货）。角色归属一律走 `admin_user_role` 关联表，`admin` 表里不存角色字符串。
+- **问题**：RBAC 建表时把角色名误填进了 `admin.name`，4 个演示账号的 name 是「管理员 / 运营 / 客服 / 仓储发货」，与各自角色的 `role_name` 一字不差。前端账号页同时渲染「姓名」列和「角色标签」，看到的都是同一个词；同岗位再加一个人就彻底分不出来，将来操作日志审计记录的操作人只能是岗位名不是人。
+- **修法（纯数据修正 + 注释澄清，不动表结构、不动逻辑）**：本地库已 UPDATE（admin→王芳、operator→李强、service→赵敏、warehouse→孙磊）；`admin.name` 注释由「显示名」改为「管理员姓名」；前端列头/表单 label「显示名」→「姓名」；后端校验提示「显示名不能为空」→「姓名不能为空」；两处种子 SQL（`docs/sql/admin.sql`、`docs/sql/rbac/01-rbac-schema.sql`）同步改值，避免新库导入时复发。
+- **生产**：`docs/sql/rbac/03-fix-admin-name.sql`（按 username 定位、幂等、含改前快照与回滚语句），**本地与生产均已执行并核对**。
+- **安全性核对**：`admin.name` 无唯一索引（`uk_admin_username` 只约束 username），不参与任何查询条件、也不参与权限判定（权限走 `admin_user_role → admin_role.role_key`），所以改它不影响登录和 RBAC；`admin.name` 在代码里只有两处用途：登录后右上角显示、账号列表 VO。
+
+### 沙箱编号段主键压平（2026-11-01）
+- **背景**：早期为隔离沙箱，各表主键按段位手工指定（订单 51000220、用户 29000022、售后 10009115……）。沙箱下线后号段没回收，新数据 id 继续跳号（本地 orders 下个 id 51000221、生产 249000290），既难看又容易撞号。
+- **处理原则（脚本 `docs/sql/normalize-sandbox-ids.sql`）**：
+  1. **只动 id >= 100000 的行** —— 本来就正常的 id 一行不改，老订单链接、老用户 id、老商品 id 全部保持可用；
+  2. 新 id = 该表「现有正常 id 最大值 + 按老 id 升序的排名」，保证新老 id 单调递增、与创建顺序基本一致；
+  3. 引用列用映射表 JOIN 批量改，**不依赖执行顺序**（映射表是 old→new 快照，主键改完后引用列仍能匹配）；
+  4. 映射靠相关子查询算排名，**不写死行数/id**，所以同一份脚本本地生产各跑各的都对；
+  5. 幂等：重复执行不报错、无残留。
+- **本次实际改动**：本地 90 行、生产 121 行；覆盖 user/admin/tags/address/cart/orders/order_items/after_sales 及 3 张售后子表。products、categories、stock_alert、admin_menu 等 id 本来就正常，未动。
+- **已级联修正的引用列**（别漏）：orders.user_id、order_items.order_id、after_sales.order_id、after_sale_items.after_sale_id/order_item_id、after_sale_only_refunds/returns/exchange_returns.after_sale_id、cart.user_id、address.user_id、feedback.user_id、product_favorites.user_id、product_reviews.order_id/user_id、promotion_usage.order_id/user_id、user_coupon.order_id/user_id、admin_user_role.admin_id、products.tag_id。
+- **注意**：`product_reviews.order_id` **没有外键约束**，只能靠脚本手工同步 —— 以后加引用列时别只看 FK 列表。
+- **AUTO_INCREMENT 计数器**：MySQL 不允许把计数器调到 <= 当前 max(id)，但设成 max(id)+1 是允许的，所以脚本用 `ALTER TABLE ... AUTO_INCREMENT = max+1` 归位（本地 8.0 / 生产 5.7 都验证过生效）。**本地 MySQL 8.0 的 information_schema.TABLES 有统计缓存（默认 1 天）**，查 AUTO_INCREMENT 前要 `SET SESSION information_schema_stats_expiry = 0`，否则看到的是执行前的旧值（5.7 无缓存，直接查即实时）。
+- **副作用与处理**：
+  - C 端 token 带 user id，老 token 不报 401 只是查不到数据（小程序不会自动重登）→ 实测受影响面很小：生产有订单的 8 个用户各 1 单、2 个购物车、8 个地址，主力用户（id=13 有 246 单、id=5/6/7）本来就是正常 id 完全没动；
+  - 后台 4 个账号 id 变了 → 已用 Redis `auth:admin:invalid-before:{旧id}` 写失效标记（TTL 604860s），旧 token 立即失效、自动重新登录；
+  - `after_sale_items.order_item_id=74` 的孤儿是**历史遗留**（order_items 压根没有 id=74 这个行），与本次无关；核对孤儿时注意 `tag_id` 为 NULL 不算孤儿。
+- **备份**：本地 `backup_before_normalize_ids_2026-11-01.sql`；生产 `/www/backup/e_commerce_db_2026-11-01_0942.sql`。
 
 ### 后台菜单管理 + 令牌失效（2026-10-30）
 - 菜单管理：`GET /api/admin/system/menus/manage-tree`（含停用/隐藏/按钮）+ `POST/PUT/DELETE /api/admin/system/menus`，权限 `system:menu:list/add/edit/remove`；角色分配继续用 `GET /menus/tree`（仅 status=1，权限 `system:role:assign`），两个 VO 分开，RoleList 不受影响。

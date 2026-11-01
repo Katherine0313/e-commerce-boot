@@ -9,7 +9,7 @@ set -a
 set +a
 
 mkdir -p /www/backup
-OUT="/www/backup/e_commerce_db_before_single_shop_$(date +%F_%H%M).sql"
+OUT="/www/backup/e_commerce_db_$(date +%F_%H%M).sql"
 
 OPTS="--single-transaction --routines --triggers --default-character-set=utf8mb4"
 # 8.0 默认导出表空间，普通账号没 PROCESS 权限会报错；5.7 没这个参数

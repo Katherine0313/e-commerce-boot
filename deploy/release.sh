@@ -45,6 +45,8 @@ usage() {
   ./deploy/release.sh all
   ./deploy/release.sh --dry-run all
   ./deploy/release.sh --rollback 20261027-abc1234 order-service
+  # 全量发布，跳过 ai-service
+  ./deploy/release.sh --no-ai all
 EOF
 }
 

@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS `admin` (
     `id`          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
     `username`    VARCHAR(64)  NOT NULL                COMMENT '登录用户名',
     `password`    VARCHAR(128) NOT NULL                COMMENT '密码（开发期明文，生产换 BCrypt）',
-    `name`        VARCHAR(64)  NOT NULL                COMMENT '显示名',
+    `name`        VARCHAR(64)  NOT NULL                COMMENT '管理员姓名',
     `phone`       VARCHAR(32)  DEFAULT NULL            COMMENT '手机号',
     `status`      TINYINT      NOT NULL DEFAULT 1      COMMENT '状态：1 正常 0 禁用',
     `create_time` DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP COMMENT '创建时间',
@@ -22,5 +22,6 @@ CREATE TABLE IF NOT EXISTS `admin` (
 
 -- 种子数据：模板店管理员（与 Node 后端演示账号一致，只读维护演示素材用）
 -- 角色不进 admin 表：角色由 admin_role + admin_user_role 关联表决定
+-- name 是【管理员本人姓名】，不是角色名（角色名看 admin_role.role_name）
 INSERT IGNORE INTO `admin` (`username`, `password`, `name`)
-VALUES ('admin', 'admin123', '管理员');
+VALUES ('admin', 'admin123', '王芳');

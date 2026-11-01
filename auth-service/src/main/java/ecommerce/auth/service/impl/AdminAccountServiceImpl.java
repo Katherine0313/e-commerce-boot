@@ -202,7 +202,7 @@ public class AdminAccountServiceImpl implements AdminAccountService {
 
     private String validateName(String name) {
         if (name == null || name.isBlank()) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "显示名不能为空");
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "姓名不能为空");
         }
         return name.trim();
     }

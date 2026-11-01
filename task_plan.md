@@ -282,6 +282,8 @@
 - [ ] 删除生产演示账号、去掉登录页演示预填
 - [ ] 操作日志 + 登录日志：表 + AOP 注解 + 异步写入 + 后台只读页面
 - [✓] 角色/菜单变更后强制下线或刷新 token：Redis `auth:admin:invalid-before:{id}` + JwtInterceptor 校验（2026-10-30，已发布）
+- [✓] 管理员姓名语义修正：`admin.name` 由「角色名」改为真实姓名（2026-11-01，本地+生产均已执行；脚本 `docs/sql/rbac/03-fix-admin-name.sql`）
+- [✓] 主键号段压平：沙箱段 8 位 id（>=100000）改回连续小号，级联改 17 个引用列 + 归位 AUTO_INCREMENT（2026-11-01，本地+生产均已执行；脚本 `docs/sql/normalize-sandbox-ids.sql`）
 
 **P2：增强**
 - [ ] 数据权限（部门/门店维度，按需）

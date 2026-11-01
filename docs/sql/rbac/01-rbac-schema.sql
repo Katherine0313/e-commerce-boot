@@ -134,10 +134,11 @@ CREATE TABLE IF NOT EXISTS `admin_role_menu` (
 
 -- ==================== 演示账号（后续可在账号管理里修改/删除） ====================
 -- 注意：角色不存进 admin 表，一律通过 admin_user_role 关联表绑定
+-- name 是【管理员本人姓名】，不是角色名（角色名看 admin_role.role_name）
 INSERT IGNORE INTO `admin` (`username`, `password`, `name`, `status`) VALUES
-    ('operator',  'operator123',  '运营',      1),
-    ('service',   'service123',   '客服',      1),
-    ('warehouse', 'warehouse123', '仓储发货',  1);
+    ('operator',  'operator123',  '李强',      1),
+    ('service',   'service123',   '赵敏',      1),
+    ('warehouse', 'warehouse123', '孙磊',      1);
 
 -- 绑定角色：admin 为店铺管理员，其余按 username 绑定
 INSERT IGNORE INTO `admin_user_role` (`admin_id`, `role_id`)
