@@ -327,6 +327,28 @@ ecommerce
 - 并发：领券唯一键 + 原子扣减剩余；下单先算券再 `UPDATE ... status=UNUSED` 原子锁券（失败回滚）；支付 LOCKED→USED；取消/超时退回；整单退款（取消已支付订单）在有效期内返还已用券。**后台售后退款暂未返还券**，留 P1.5。
 - 接口：C 端 `/api/coupons/center`、`/{templateId}/claim`、`/mine`、`/available`；后台 `/api/admin/coupons` CRUD + `/{id}/stop`、`/{id}/grant`、`/{id}/records`；`POST /api/orders/quote` 与下单 `couponId` 已接入。
 - 前端：后台 `pages/business/coupon/index.vue`（模板 CRUD、停止、定向/全量发券、领取记录），促销页迁到 `pages/business/promotion/index.vue`，菜单为「经营工具 → 促销活动 / 优惠券」；小程序新增「我的优惠券」「领券中心」，确认页自动选最优券并可切换，订单页展示优惠合计与券优惠；`utils/features.js` 的 `coupon` 已置 true。ecommerce-mall 本期未动。
+- **C 端券状态有 5 种**（`CouponServiceImpl.userCouponStatus`）：`AVAILABLE`（可使用）、`NOT_STARTED`（未生效，固定有效期还没到）、`LOCKED`（使用中，下单锁券未支付）、`USED`、`EXPIRED`。小程序原来只按 `AVAILABLE/USED/EXPIRED` 三个页签 + 后端按状态过滤，**`NOT_STARTED`/`LOCKED` 的券在所有页签里都查不到** —— 后台发到手的券会「凭空消失」（2026-11-01 修：一次拉全量，页签本地过滤，「可使用」页签收纳 `AVAILABLE/NOT_STARTED/LOCKED`，卡片上再标出未生效/使用中）。
+- **MySQL 秒级进位的小坑**：`buildUserCoupon` 把带纳秒的 `LocalDateTime.now()` 写进 `DATETIME(0)`，MySQL 四舍五入到整秒 → 刚发的券 `start_time` 可能比真实时间晚 1 秒 → 状态算成 `NOT_STARTED`（实测复现，1 秒后自动变可使用）。影响很小，但排查时别误判成「券发早了」。
+- **定向发券必须校验用户存在**：后台填错用户 ID 时，原来照样发一张券（`granted=1`），券却没人看得到，运营还会以为发成功了。2026-11-01 加 `CouponMapper.listExistingUserIds`，发放前校验，不存在直接 400「用户 ID 不存在：xxx」（后台全量发券不受影响）。
+- **券数量口径**：小程序「我的」页的优惠券数量 = 还没用掉的券（`AVAILABLE + NOT_STARTED + LOCKED`），与「我的优惠券」的「可使用」页签一致；只数 `AVAILABLE` 会让后台刚发的券在数量上看不出来。
+
+### Banner 与文章模块（2026-11-01）
+
+- **归属**：product-service（内容域，跟商品放一起）。表 `promotion_banner`、`promotion_article_category`、`promotion_article`，脚本 `docs/sql/promotion/02-banner-article-schema.sql`（幂等，可重复执行）。
+- **约定对齐本项目**：软删列 `is_deleted`（无 `deleted`）、只有 `create_time`/`update_time`（无 creator/updater/tenant_id）、排序列 `sort_order`、状态 `status` 0/1、布尔用 tinyint、`utf8mb4_general_ci`（生产 MySQL 5.7 不支持 0900_ai_ci）。
+- **枚举放代码常量**：项目**没有字典表**，`position`（1 小程序首页 / 2 小程序分类页 / 11 PC 商城首页）、`link_type`（0 不跳转 / 1 商品 / 2 文章 / 3 外链）统一放 `BannerConstants`，不建 `parameters` 字典。
+- **Banner 一条记录只服务一个位置**：终端由 `position` 决定，所以只存一张图（不搞双图字段）；`link_type`+`link_value` 拆开，商品/文章存 id、外链存 URL。
+- **文章标题全量唯一**（含逻辑删除的记录）：小程序按标题查详情（「用户协议」「隐私政策」），重名会查错，所以校验和唯一索引都按全量算，删过的标题也占着。
+- **文章分类不单独建菜单**：分类的增删改复用文章权限（后台页面里一个「分类管理」弹窗搞定）。
+- **JSON 用 camelCase**：本模块后台与 C 端都 camelCase（只有 `AdminProductDTO/VO` 用 `@JsonNaming(SnakeCase)`），PC 商城与小程序能共用同一份接口。
+- **接口**：C 端 `GET /api/banners?position=`、`GET /api/articles`、`/api/articles/{id}`、`/api/articles/by-title?title=`、`POST /api/{banners|articles}/{id}/browse`（浏览量 +1）；后台 `/api/admin/banners`、`/api/admin/articles`、`/api/admin/article-categories`（各带 `{id}/status` 启停）。
+- **免登录白名单**：`common/WebMvcConfig.EXCLUDE_AUTH_PATHS` 加 `/api/banners/**`、`/api/articles/**`（只读 + 浏览量统计，PC 商城/小程序不需要登录）。
+- **网关必须同步**：gateway `application.yml` product-service 的 Path 列表要补全 Banner/文章路径，否则落到 `/api/**` 通配被 user-service 接走（404）。
+- **上传接口按 type 分支鉴权**：`/api/admin/upload?type=` —— `banner`→`business:banner:add`、`article`→`business:article:add`、`body`→`product:product:add` **或** `business:article:add`（正文图商品详情与文章正文共用 type=body，任一编辑权限即可传）。超管 `*:*:*` 直接放行。
+- **浏览量统计口径**：后台预览**不** +1，只在 C 端浏览接口 +1；文章浏览量与 Banner 点击量分开统计。
+- **前端**：后台 `pages/business/banner/BannerList.vue`、`pages/business/article/ArticleList.vue` + `ArticleCategoryModal.vue`；PC 商城 `Home.vue` 轮播改接口驱动（接口无数据时回落静态图，避免上线即空白）、新增 `views/article/ArticleDetail.vue`、页脚协议按标题进文章；小程序首页/分类页轮播改接口驱动，`components/custom-swiper.vue` 同时兼容字符串 URL 与对象 item（`item.src`/`item.image`），新增 `pages/article/detail.vue` 用 `rich-text` 渲染正文并把相对图片路径补成绝对地址。
+- **菜单与授权**：`admin_menu` 503/504 + 按钮 540~542、550~552；按用户决定把新菜单授权给**运营角色（role_id=2）**，与既有「经营工具」下的促销活动/优惠券/会员归属一致；店铺管理员是超管（`*:*:*`）不用授权。
+- **踩坑**：Windows 的 mysql 客户端默认 GBK，导 UTF-8 的 SQL 必须加 `--default-character-set=utf8mb4`；Git Bash 的 curl 发中文 JSON 会变 GBK 触发「请求参数格式错误」，校验类接口要用 Python `urllib`（UTF-8）调。
 
 ### 商品图片体积优化（2026-10-30）
 - 审计发现 `opt/upload` 缺 33~50 共 18 张缩略图（回落到 800px 原图，50.webp 186KB），另有 9/12/17/21/22/31/32 共 7 张 opt 超过 30KB。

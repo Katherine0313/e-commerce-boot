@@ -22,6 +22,7 @@ import java.math.BigDecimal;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Set;
@@ -121,6 +122,17 @@ public class AdminCouponServiceImpl implements AdminCouponService {
         }
 
         List<Long> userIds = resolveUserIds(dto);
+        // 定向发券先校验用户是否存在：把券发给不存在的 id，券就永远没人看得到，运营还以为是发成功了
+        if (!Boolean.TRUE.equals(dto.getAllUsers())) {
+            Set<Long> exists = new HashSet<>(couponMapper.listExistingUserIds(userIds));
+            List<String> missing = userIds.stream()
+                    .filter(userId -> !exists.contains(userId))
+                    .map(String::valueOf)
+                    .toList();
+            if (!missing.isEmpty()) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "用户 ID 不存在：" + String.join("、", missing));
+            }
+        }
         int granted = 0;
         int skipped = 0;
         for (Long userId : userIds) {

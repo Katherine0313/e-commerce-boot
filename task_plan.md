@@ -360,6 +360,48 @@
 - [✓] `pages/index/component/category-panel.vue` 注释同步（4 列 × 2 行 = 8、骨架占 8 格；骨架循环本来就是 `v-for="n in 8"`）
 - [ ] **发布**：重新构建并上传 `dist/build/mp-weixin`（小程序需重新提审版本）
 
+### 阶段 24：促销详情弹窗独立组件 + 活动商品带图（2026-11-01）
+
+> 起因：详情弹窗原来内联在列表页里，商品只显示名称和价格，没有主图。
+
+- [✓] 后端：`PromotionItemVO` 加 `productName` / `image` / `salesPrice`；`PromotionMapper.listItemsWithProduct` 关联 `products` 带出 `image`、`sales_price`
+- [✓] 前端：详情弹窗独立成 `e-commerce/src/pages/business/promotion/PromotionDetailModal.vue`（活动信息 descriptions + 活动商品表格带缩略图 + 满减阶梯表格），新建/编辑弹窗独立成 `PromotionEditModal.vue`（表单 + 提前结束/删除底部按钮），两个弹窗都用 `v-model:visible` + `activity-id` 由列表页驱动，`PromotionList.vue` 只剩列表逻辑
+- [✓] 列表操作列精简为「详情 / 编辑」两个按钮；「提前结束」「删除」移到编辑弹窗底部左侧（有订单时删除置灰 + tooltip 说明原因）；已结束/已失效的活动打开弹窗走只读模式（表单禁用、隐藏保存），仍能删除
+- [✓] 本地实测（临时实例 9012 + 合成活动 9001，已清理）：详情接口返回商品图片 `/image/upload/1.webp`、名称、活动价；生产活动 #1 的 10 个商品都有 `products.image`
+- [ ] **发布生产**：`release.sh product-service` → `release-web.sh`（后台前端）
+
+### 阶段 25：经营工具 Banner 管理 + 文章管理（2026-11-01，代码已完成，待发版）
+
+> 需求来源：AI 生成的芋道风格文档（仓库根目录 `promotion`），已按本项目约定 + 用户 4 个决定改写为可执行方案。
+> 用户 4 个决定：① 文章分类不单独做菜单 ② PC 商城需要文章详情页 ③ `recommend_hot` + `recommend_banner` 保留 ④ Banner 简化为单图（不再双图字段）。
+> 后续追加：⑤ 新菜单授权给运营角色（role_id=2），与既有「经营工具」菜单归属一致。
+
+- [✓] 方案改写完成，落到仓库根目录 `promotion`（含表结构、接口清单、后台表单交互、两端链路、改动文件清单、发布顺序、与原 AI 文档的 12 处差异说明）
+- [✓] 用户确认（「可以动手了」）
+- [✓] 建表 SQL `docs/sql/promotion/02-banner-article-schema.sql`（3 表 + `admin_menu` 503/504 + 按钮 540~542、550~552 + `admin_role_menu` 授权运营），**本地与生产同一份均已执行**（生产先备份 `/www/backup/e_commerce_db_2026-11-01_2048.sql`，SQL 经 stdin 管道导入，不在生产机写文件）
+- [✓] product-service：实体/Mapper(+XML)/Service/Controller 全部落地 —— `Banner`、`ArticleCategory`、`Article`；后台 `/api/admin/banners`、`/api/admin/articles`、`/api/admin/article-categories`，C 端 `/api/banners`、`/api/articles`（含 `/by-title`、`/{id}/browse`）；常量 `BannerConstants`
+- [✓] 网关路由（`gateway/application.yml` product-service Path 列表补 Banner/文章路径）+ 免登录白名单（`WebMvcConfig.EXCLUDE_AUTH_PATHS` 补 `/api/banners/**`、`/api/articles/**`）
+- [✓] 上传接口按 type 分支鉴权：`banner`→`business:banner:add`、`article`→`business:article:add`、`body`→商品编辑或文章编辑任一权限
+- [✓] 后台前端：`pages/business/banner/BannerList.vue`、`pages/business/article/ArticleList.vue`、`pages/business/article/ArticleCategoryModal.vue` + `api/banner.js`/`api/article.js` + 路由 `/business/banner`、`/business/article`
+- [✓] PC 商城（`ecommerce-mall`）：`Home.vue` 轮播改接口驱动（无数据回落静态图）、新增 `views/article/ArticleDetail.vue` + 路由 `article/:id`、页脚「关于我们 / 隐私政策」按标题进文章
+- [✓] 小程序（`e-commerce-uniapp`）：首页与分类页轮播改接口驱动、`components/custom-swiper.vue` 支持对象型 item、新增 `pages/article/detail.vue`（富文本）、`utils/features.js` 打开 agreement/privacy、关于我们页协议入口进文章详情
+- [✓] 本地全量实测（临时实例 9013，合成数据已清理，三表归零）：后台 CRUD / 校验分支 / C 端只读 / 浏览量计数 / 标题重复提示 / 删除保护全过；**修掉 3 个缺陷**：C 端 Banner 缺 `statusDesc`、分类详情缺 `articleCount`、`type=body` 上传误要求商品权限
+- [✓] 三端构建通过：后台 `npm run build`、PC 商城 `npm run build`（小程序无 npm 构建脚本，靠 diff 复核）
+- [ ] **发布生产**：`release.sh product-service` → `release.sh gateway` → `release-web.sh`（后台前端）→ `release-mall.sh`（PC 商城）→ 小程序 HBuilderX 重新构建上传
+- [ ] **后台录入素材**：建「关于我们 / 隐私政策 / 用户协议」三篇文章 + 上传 Banner 图到 `/image/banner/`，否则商城页脚与小程序协议入口跳过去是空文章
+
+### 阶段 26：优惠券发放后用户端可见性（2026-11-01，代码完成，待发版）
+
+> 起因：运营反馈「优惠券发放之后，用户要先去领券中心才能看到券 / 我的页优惠券数量还是 0」。
+> 实测（本地 order-service 临时实例 9014/9015 + 合成券，已清理）结论：后台发券 → `user_coupon` → C 端 `GET /api/coupons/mine` 这条链路**本来是通的**，发到真实用户的券能看到、我的页数量也会变；真正的缺口是下面两个。
+
+- [✓] 缺口一：后端会返回 `NOT_STARTED`（未生效）/ `LOCKED`（使用中）两种状态，小程序只有「可使用 / 已使用 / 已过期」三个页签且按状态向后端过滤 → **这两种券在所有页签里都查不到**，后台发到手的券会「凭空消失」。改法：小程序一次拉全量，页签本地过滤，「可使用」页签收纳 `AVAILABLE/NOT_STARTED/LOCKED`，卡片上再标出「未生效」「使用中」
+- [✓] 缺口二：`my.vue` 优惠券数量只数 `AVAILABLE`，未生效的券不计数 → 「发了券但数量还是 0」。改法：数量口径与「我的优惠券」的「可使用」页签一致（还没用掉的券）
+- [✓] 缺口三（后端）：后台定向发券填错用户 ID 时照样发一张券（`granted=1`），券没人看得到、运营还以为发成功了。改法：`CouponMapper.listExistingUserIds` 校验目标用户，发放前不存在直接 400「用户 ID 不存在：xxx」（全量发券不受影响）
+- [✓] 本地实测：发券给不存在的用户 → 400「用户 ID 不存在：999999」；发给真实用户 → granted=1，C 端一次拉到 4 张券（2 张 AVAILABLE + 2 张 NOT_STARTED），「可使用」页签 4 张、我的页数量 4，口径一致
+- [✓] 合成数据已清理（本地 `coupon_template` / `user_coupon` / `coupon_scope` 均归零），临时实例已停
+- [ ] **发布生产**：`./deploy/release.sh order-service`（后端校验）+ 小程序 HBuilderX 重新构建上传
+
 ## 风险与待确认
 
 | # | 风险/待确认 | 影响 | 处置 |

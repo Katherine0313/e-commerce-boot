@@ -1,0 +1,9 @@
+1. 小程序评价提交接口已经完成，ReviewServiceImpl 负责买家提交评价，存入ProductReview。
+2. ProductReview现有字段：id,orderId,userId,productId,productName,productImage,rating,tag,content,images媒体JSON,createdAt
+3. 已经ALTER表新增字段：reply、reply_time、visible、is_virtual、update_time、del_flag逻辑删除。
+
+现在开发【后台商品评价管理模块】，要求：
+1. 新建 AdminReviewService，和小程序端ReviewService职责隔离，不要修改原有买家提交评价逻辑。
+2. 后台接口：分页列表、新增虚拟评价、编辑评价、回复评价、切换显示状态、逻辑删除、导出Excel。
+3. 核心业务约束：is_virtual=0 买家真实评价，禁止编辑评价内容；is_virtual=1虚拟评价允许编辑；所有评价都可以回复、隐藏、删除。
+4. 分页查询支持筛选：商品名称、订单号、星级、is_virtual、visible、创建时间区间。

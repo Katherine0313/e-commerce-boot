@@ -106,4 +106,7 @@ public interface CouponMapper {
 
     // 全部有效用户 id（后台全量发券）
     List<Long> listActiveUserIds();
+
+    // 校验定向发券的目标用户是否存在（防止把券发给不存在的用户 id，用户端永远看不到）
+    List<Long> listExistingUserIds(@Param("ids") List<Long> ids);
 }

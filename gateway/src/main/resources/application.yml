@@ -61,7 +61,7 @@ spring:
             - id: product-service
               uri: lb://product-service
               predicates:
-                - Path=/api/home,/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**,/api/favorites,/api/favorites/**,/api/admin/products,/api/admin/products/**,/api/admin/categories,/api/admin/categories/**,/api/admin/tags,/api/admin/tags/**,/api/admin/stock,/api/admin/stock/**,/api/admin/promotions,/api/admin/promotions/**,/api/admin/upload,/api/admin/upload/**,/api/upload,/api/upload/**,/image/**
+                - Path=/api/home,/api/products,/api/products/**,/api/categories,/api/categories/**,/api/tags,/api/tags/**,/api/favorites,/api/favorites/**,/api/admin/products,/api/admin/products/**,/api/admin/categories,/api/admin/categories/**,/api/admin/tags,/api/admin/tags/**,/api/admin/stock,/api/admin/stock/**,/api/admin/promotions,/api/admin/promotions/**,/api/admin/upload,/api/admin/upload/**,/api/upload,/api/upload/**,/api/admin/banners,/api/admin/banners/**,/api/banners,/api/banners/**,/api/admin/articles,/api/admin/articles/**,/api/admin/article-categories,/api/admin/article-categories/**,/api/articles,/api/articles/**,/image/**
             # 购物车 + 订单 + 报表 → order-service；放在 /api/** 通配之前（操作需登录，鉴权由下游 JwtInterceptor 承担）
             - id: order-service
               uri: lb://order-service

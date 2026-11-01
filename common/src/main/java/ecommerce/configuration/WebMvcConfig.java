@@ -41,7 +41,10 @@ public class WebMvcConfig implements WebMvcConfigurer {
             "/api/home",
             "/api/tags", "/api/tags/**",
             // 售后状态/原因/类型字典（公共只读，后台与 C 端共用，免登录）
-            "/api/after-sales/status-constants"
+            "/api/after-sales/status-constants",
+            // Banner 轮播与文章（PC 商城 / 小程序公共内容，只读 + 浏览量统计，免登录）
+            "/api/banners", "/api/banners/**",
+            "/api/articles", "/api/articles/**"
     );
 
     private final JwtInterceptor jwtInterceptor;
