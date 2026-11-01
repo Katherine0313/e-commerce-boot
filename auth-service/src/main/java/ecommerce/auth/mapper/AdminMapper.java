@@ -1,6 +1,5 @@
 package ecommerce.auth.mapper;
 
-import ecommerce.auth.entity.Admin;
 import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;

@@ -175,6 +175,7 @@
 
 ### 阶段 11：后台实时提醒（WebSocket）
 - [✓] 单实例版：`order-service /ws/order` + 握手鉴权 + 单集合广播 + 支付成功推送 + 前端弹窗/语音/心跳/重连
+- [✓] 线上连不上的修复（2026-11-01）：EdgeOne 回源剥掉 `Upgrade` 头 → nginx 写死 `proxy_set_header Upgrade websocket;`；`location ^~ /ws/` 从宝塔托管的主 conf 移到 `extension/jiemids.com/ws.conf`（防被重写冲掉），源站日志握手从 400 → 101
 - [✓] RabbitMQ 最小 demo（2026-10-29，仅 dev）：`order-service` 加 `spring-boot-starter-amqp`，`demo.exchange/demo.queue` 启动自动发一条并消费打日志
 - [ ] RabbitMQ fanout 跨实例广播（替代单机内存注册表，解 `lb://` 长连接钉死单实例）
 - [ ] 事件补齐：发货、新售后单
@@ -284,6 +285,9 @@
 - [✓] 角色/菜单变更后强制下线或刷新 token：Redis `auth:admin:invalid-before:{id}` + JwtInterceptor 校验（2026-10-30，已发布）
 - [✓] 管理员姓名语义修正：`admin.name` 由「角色名」改为真实姓名（2026-11-01，本地+生产均已执行；脚本 `docs/sql/rbac/03-fix-admin-name.sql`）
 - [✓] 主键号段压平：沙箱段 8 位 id（>=100000）改回连续小号，级联改 17 个引用列 + 归位 AUTO_INCREMENT（2026-11-01，本地+生产均已执行；脚本 `docs/sql/normalize-sandbox-ids.sql`）
+- [✓] 商品价格校正：按品类真实价重定 98 个商品售价（划线价 ×1.10、成本价 ×0.72），并统一全表口径（2026-11-01，本地+生产均已执行；脚本 `docs/sql/fix-product-pricing.sql`，只读预览 `fix-product-pricing-preview.sql`）
+- [✓] 本地↔生产库一致性审计与补同步（2026-11-01）：字段 329/329、索引补齐（生产加 `user.uk_user_username`）、运营配置以生产为准反向对齐本地（recommend / tags / 标签绑定 / 客服2 账号）；核对工具 `docs/sql/check-local-prod-parity.sql`，同步脚本 `sync-local-to-prod.sql` / `sync-prod-to-local.sql`
+- [ ] EdgeOne 给 `www.jiemids.com` 开 WebSocket 加速（用户侧控制台操作；当前靠 nginx 写死 `Upgrade websocket` 兜底）
 
 **P2：增强**
 - [ ] 数据权限（部门/门店维度，按需）

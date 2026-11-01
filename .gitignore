@@ -38,3 +38,7 @@ upload/
 
 ### 生产部署密钥（不要提交）###
 deploy/.env
+
+# Python 缓存
+__pycache__/
+*.pyc

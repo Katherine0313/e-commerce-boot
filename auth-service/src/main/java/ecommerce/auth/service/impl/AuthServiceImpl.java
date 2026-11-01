@@ -1,7 +1,6 @@
 package ecommerce.auth.service.impl;
 
 import ecommerce.auth.dto.AdminLoginDTO;
-import ecommerce.auth.entity.Admin;
 import ecommerce.auth.entity.AdminMenu;
 import ecommerce.auth.entity.AdminRole;
 import ecommerce.auth.mapper.AdminMapper;

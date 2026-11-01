@@ -266,6 +266,7 @@ ecommerce
 - 日期筛选收 `dateField/startDate/endDate`，`dateField` 走白名单（created_at/confirm_at/pay_at/ship_at/finish_at）防注入。
 - 售后审核只改主表 `status/merchant_remark/updated_at`，业务时间戳按状态写子表列（refunding/returning→review_at、rejected→rejected_at、refund_confirming→refund_at、refunded→refunded_at、exchanging→exchange_at、exchanged→exchanged_at）；删除为主表/明细/子表 `is_deleted=1` 软删。
 - **表名保持现状，不改成 `sys_user` 系（2026-11-01 决定）**：admin / admin_role / admin_user_role / admin_menu / admin_role_menu 五张表命名自洽、语义准确（admin = 后台账号，与 C 端 `user` 表天然区分）。评估过整套改成若依风格的 `sys_user`/`sys_role`/`sys_menu`，结论是不做：`admin` 在本项目同时承担「后台账号表」和「身份类型 admin（JWT type=admin、`/api/admin/**` 路径分流、Redis 失效标记 key、前端 token 守卫）」两套语义，连带改要动 107 个 Java 文件、956 处标识符、98 处前端请求路径，且 8 个服务 + 后台前端必须一次性发版（改错一环全线 401），收益却只有命名风格。**别再重复提这个改名方案。**
+- **后台 token 改存 sessionStorage（2026-11-01 决定）**：`utils/token.js` 从 localStorage 改为 sessionStorage —— 关掉标签页/浏览器即清空，下次打开必须重新登录（后台管理系统安全要求：离开工位关页面就登出）。同一标签页刷新仍保持登录。**副作用**：sessionStorage 按标签页隔离，新开标签页也要重新登录（预期行为）。后端 JWT 有效期仍是 7 天，但 token 只活在会话里。「记住密码」（utils/remember.js）与之无关，仍用 localStorage 存 30 天。PC 商城与小程序（C 端）保持 localStorage 不变。
 
 ## 核心实现与口径
 
@@ -375,6 +376,56 @@ ecommerce
   - 后台 4 个账号 id 变了 → 已用 Redis `auth:admin:invalid-before:{旧id}` 写失效标记（TTL 604860s），旧 token 立即失效、自动重新登录；
   - `after_sale_items.order_item_id=74` 的孤儿是**历史遗留**（order_items 压根没有 id=74 这个行），与本次无关；核对孤儿时注意 `tag_id` 为 NULL 不算孤儿。
 - **备份**：本地 `backup_before_normalize_ids_2026-11-01.sql`；生产 `/www/backup/e_commerce_db_2026-11-01_0942.sql`。
+
+### 商品价格校正（2026-11-01）
+- **问题**：products 的价格是造数据时按「cost_price × 1.16」编的，而 cost_price 本身也是编的，导致小件品类价格离谱：手机壳 ¥97~373、米家台灯 ¥900、智能灯泡 ¥829、门磁传感器 ¥2515、人体传感器 ¥1546、读卡器 ¥803、U 盘 ¥1543；大件里也有明显偏离真实市场价的（索尼 A6700 ¥25360、索尼 A7 IV ¥24976、石头 G20 ¥1348、AirPods 4 ¥499）。
+- **处理原则**：按各品类真实市场价格重新定价，售价取整；划线价 = 售价 × 1.10；成本价 = 售价 × 0.72（零售毛利率 28%）。未调价的 38 个商品也一并统一划线价/成本价口径 —— 旧数据里存在「成本价 > 售价」的倒挂（如 iPhone 15 Pro 成本 ¥9699 > 售价 ¥8499）。
+- **脚本**：`docs/sql/fix-product-pricing.sql`
+  1. **按「商品名 + 原售价」匹配，不按 id** —— 商品若已被人工改过价就自动跳过，不会覆盖别人的修改；天然幂等（第二次执行旧价已不存在，匹配 0 行）；
+  2. 映射表 98 条，含改前价格快照 SELECT、改后自检 SELECT（成本 < 售价 < 划线价，异常 0 行）；
+  3. 只读预览版：`docs/sql/fix-product-pricing-preview.sql`（生产改价前必须先跑这个出对照）。
+- **实际改动**：98 个商品调价；手机配件区间 ¥97~373 → ¥39~99；智能照明 ¥277~929 → ¥49~299；智能安防 ¥284~2815 → ¥39~399；存储设备 → ¥79~599；充电设备 → ¥69~179；电脑配件 → ¥99~399；扫地机器人统一 ¥2599~3299。**本地与生产均已执行并核对一致**。
+- **影响面核对**：只改 products 的 sales_price/market_price/cost_price；历史订单价格记在 order_items.price（快照）不受影响；promotion / promotion_rule / promotion_item / promotion_usage 四张促销表**当前全为空**，不存在价格区间错配；商品详情 body 里不含价格文字（详情是图片）；Redis 只缓存分类树（30 分钟）和推荐结果（60 秒），**不缓存商品价格**，无需清缓存。
+
+### 后台来单提醒 WebSocket 修复（2026-11-01）
+- **现象**：后台 `wss://www.jiemids.com/ws/order?token=...` 一直连不上（DevTools 报 WebSocket failure），来单提醒/语音播报失效。
+- **分层定位**（关键：先分清是后端还是链路）：
+  | 测试 | 结果 |
+  |---|---|
+  | 网关直连 `http://127.0.0.1:8080/ws/order` + 真实 admin token | **101 Switching Protocols** ✓ |
+  | 公网 `https://www.jiemids.com/ws/order` + 同一个 token | **HTTP/2 400** ✗ |
+  | 源站 access log | Chrome 的请求也是 400、响应体 34 字节（Spring 的错误体，不是 nginx 的 400 页） |
+  → 后端、网关、token、nginx `/ws/` location 全部正常，问题在 CDN 回源这一段。
+- **根因**：nginx 的 `/ws/` location 里写的是 `proxy_set_header Upgrade $http_upgrade;`，而**腾讯云 EdgeOne 回源时把客户端的 `Upgrade` 头剥掉了**（hop-by-hop 头，EdgeOne 没开 WebSocket 加速就按普通代理处理）。实测探针（在 extension 目录临时加一个 `location = /ws-probe`，把 `$http_upgrade`/`$http_sec_websocket_key`/`$http_sec_websocket_version`/`$http_connection` 用 `add_header` 打出来）显示：`Sec-WebSocket-Key`、`Sec-WebSocket-Version`、`Connection: Upgrade` 都还在，**只有 `Upgrade` 是空的** → nginx 转发给上游时 `Upgrade` 为空 → Spring 判定握手不完整 → **400 Bad Request**。
+- **修法**：把 `Upgrade` 写死 —— `proxy_set_header Upgrade websocket;`（这个 location 只服务 WebSocket，写死安全；客户端的 Upgrade 值本来就恒为 `websocket`）。改完源站日志从 400 变成 **101**（成功升级）→ 浏览器请求变成 **499**（长连接建立后客户端断开，nginx 对长连接的正常记法）。
+- **配置放 extension 目录**：`location ^~ /ws/` 已从宝塔托管的 `html_jiemids.com.conf` **移出**，改放 `extension/jiemids.com/ws.conf` —— 主 conf 被宝塔保存站点配置时重写（`xiaojiecpn.com` 就因此掉过 443 SSL 块，见上文线上事故），扩展目录不会被冲掉。注意主 conf 与 extension 里**不能同时存在 `location ^~ /ws/`**，会触发 `duplicate location` 导致 `nginx -t` 失败。
+- **备份**：`/www/server/panel/vhost/nginx/html_jiemids.com.conf.bak-2026-11-01-125212`（及迁移时又备份一份）。
+- **排查手法（可复用）**：① 先用「网关直连 + 手工签一个 token」区分是后端还是链路；② 用 `add_header` 探针把关键请求头打出来，看 CDN 到底传了什么；③ 看源站 access log 的状态码：**400 = 握手残缺、101 = 升级成功、499 = 已连接后被关闭**。
+- **遗留**：EdgeOne 控制台建议给 `www.jiemids.com` 开启 **WebSocket 加速**（当前未开，边缘不转发 Upgrade，靠 nginx 写死兜底）。若不开，边缘与浏览器之间的长连接可能不稳，表现为连上又断 —— 前端有 25 秒心跳 + 退避重连兜底。
+
+### 本地 ↔ 生产库一致性审计（2026-11-01）
+- **背景**：「每次改本地 MySQL 都要同步生产」这条规矩执行下来一直缺一个**核对**环节 —— 本次逐表比对才发现两边的差异，同时暴露了一类**方向相反**的差异（本地改了没同步、生产改了没同步）。
+- **比对方法（可复用）**：
+  1. **字段**：比 `information_schema.COLUMNS`（表名/字段名/类型/可空/默认值）。⚠️ 本地 MySQL 8.0、服务器 5.7，`bigint` vs `bigint(20)`、`int(11)`、`tinyint(4)` 是**展示宽度差异**，必须先用正则归一化再比，否则会误报几百条。
+  2. **索引**：比 `information_schema.STATISTICS` 的 (表, 索引名, 非唯一, 列, 序号)。⚠️ 两边排序规则不同（`utf8mb4_0900_ai_ci` vs `utf8mb4_general_ci`），`ORDER BY` 出来的行序会不同，**要比集合不能比序列**。
+  3. **数据**：对配置类表算 `MD5(GROUP_CONCAT(CONCAT_WS('|',列...) ORDER BY 主键))` 指纹，两边逐行比；`GROUP_CONCAT` 默认长度上限 1024，先 `SET SESSION group_concat_max_len = 1048576`。
+  4. 工具：`docs/sql/check-local-prod-parity.sql`（含上面 10 张配置表的指纹），两边各跑一遍比对。
+- **本次发现的三类差异**：
+  | # | 差异 | 归属 | 处理 |
+  |---|---|---|---|
+  | 1 | 生产缺 `user.uk_user_username` 唯一索引（`docs/sql/user-pc-auth.sql` 头部却写着「本地与生产均已执行」） | **本地→生产漏同步** | 生产补建（`sync-local-to-prod.sql`，幂等） |
+  | 2 | `categories.recommend`：生产 {101,201,301,302,501,601,801}、本地还是种子集合 {101,102,201,301,501,601} | **各自在后台控制台改过**（种子脚本注释还写着「与本地一致」，实际生产被人手改过） | **以生产为准**同步本地 |
+  | 3 | `tags`：生产只有「最新」（绑 10 件），本地多一个 2026-10-29 在本地后台点出来的演示标签「爆款」（绑 17/42、并解绑 10/11、绑上 4）；生产多一组已禁用的「客服2」账号+角色；`admin.id=1` 手机号生产为空、本地是种子值 | 同上 | **以生产为准**同步本地 |
+- **处理原则（重要）**：
+  - **结构缺陷 → 以本地为准，往生产补**。唯一索引是代码依赖（PC 商城用户名全局唯一，同名注册出现两条记录会让登录 `selectOne` 抛 TooManyResultsException），生产缺就是生产有 bug。
+  - **运营配置 → 以生产为准，往本地对齐**。首页推荐分类、商品标签绑定是**线上正在展示给真实用户**的东西，为「对齐」去改生产等于拿线上体验冒险；反过来把生产的人工调整同步到本地，零风险。本地是开发沙箱，生产才是业务事实。
+  - 判据：**生产是人实际操作的地方（用户会登录后台点），本地是脚本操作的地方** —— 谁是人改的，就以谁为准。
+- **脚本**：
+  - `docs/sql/sync-local-to-prod.sql` → 执行到**生产**：幂等补 `uk_user_username`（先查 `information_schema.STATISTICS` 再建，重跑只提示跳过），带三条校验 SELECT。
+  - `docs/sql/sync-prod-to-local.sql` → 执行到**本地**：recommend / tags / 商品标签绑定 / 角色账号对齐，幂等可重复。
+  - `docs/sql/gen-admin5-transfer.sql` → 搬运生产 admin 第 5 行（密码是 BCrypt 哈希）：用管道把生产的 INSERT 文本直接喂给本地 mysql，**哈希不落盘、不进对话记录**。
+- **核对结果**：索引 102/102 一致；10 项配置指纹全同；生产备份 `/www/backup/e_commerce_db_2026-11-01_1330.sql`。
+- **顺带确认线上代码是否已发**：容器镜像 tag 即为发布记录 —— `auth-service:20261101-c7b4851`（含「姓名不能为空」）、其余服务 `20261031-9e60424`（含 PC 用户名登录、增值保障规则）、后台前端 dist 11:02、PC 商城 dist 10-31 22:40；比对 `git merge-base --is-ancestor <功能提交> <镜像对应提交>` 即可确认某功能是否已上线。
 
 ### 后台菜单管理 + 令牌失效（2026-10-30）
 - 菜单管理：`GET /api/admin/system/menus/manage-tree`（含停用/隐藏/按钮）+ `POST/PUT/DELETE /api/admin/system/menus`，权限 `system:menu:list/add/edit/remove`；角色分配继续用 `GET /menus/tree`（仅 status=1，权限 `system:role:assign`），两个 VO 分开，RoleList 不受影响。
