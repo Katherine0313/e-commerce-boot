@@ -1,0 +1,169 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.product.mapper.ArticleMapper">
+
+    <!-- ==================== 后台：列表 / 详情 ==================== -->
+    <sql id="adminWhere">
+        a.is_deleted = 0
+        <if test="keyword != null and keyword != ''">
+            AND a.title LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        <if test="categoryId != null">
+            AND a.category_id = #{categoryId}
+        </if>
+        <if test="status != null">
+            AND a.status = #{status}
+        </if>
+    </sql>
+
+    <select id="listAdmin" resultType="ecommerce.product.entity.Article">
+        SELECT a.id, a.category_id, c.name AS category_name, a.title, a.author, a.cover,
+               a.introduction, a.sort_order, a.status,
+               a.recommend_hot, a.recommend_banner, a.browse_count, a.spu_id,
+               a.is_deleted, a.create_time, a.update_time
+        FROM promotion_article a
+                 LEFT JOIN promotion_article_category c ON c.id = a.category_id
+        WHERE <include refid="adminWhere"/>
+        ORDER BY a.sort_order ASC, a.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM promotion_article a
+        WHERE <include refid="adminWhere"/>
+    </select>
+
+    <select id="findById" resultType="ecommerce.product.entity.Article">
+        SELECT a.id, a.category_id, c.name AS category_name, a.title, a.author, a.cover,
+               a.content, a.introduction, a.sort_order, a.status,
+               a.recommend_hot, a.recommend_banner, a.browse_count, a.spu_id,
+               a.is_deleted, a.create_time, a.update_time
+        FROM promotion_article a
+                 LEFT JOIN promotion_article_category c ON c.id = a.category_id
+        WHERE a.id = #{id} AND a.is_deleted = 0
+    </select>
+
+    <!-- ==================== C 端 ==================== -->
+    <!-- 按 id 查启用中的详情（PC 商城文章详情页用） -->
+    <select id="findEnabledById" resultType="ecommerce.product.entity.Article">
+        SELECT a.id, a.category_id, c.name AS category_name, a.title, a.author, a.cover,
+               a.content, a.introduction, a.sort_order, a.status,
+               a.recommend_hot, a.recommend_banner, a.browse_count, a.spu_id,
+               a.is_deleted, a.create_time, a.update_time
+        FROM promotion_article a
+                 LEFT JOIN promotion_article_category c ON c.id = a.category_id
+        WHERE a.id = #{id} AND a.is_deleted = 0 AND a.status = 1
+        LIMIT 1
+    </select>
+
+    <!-- 按标题查详情：只查启用且未删除的（小程序富文本页用） -->
+    <select id="findEnabledByTitle" resultType="ecommerce.product.entity.Article">
+        SELECT a.id, a.category_id, c.name AS category_name, a.title, a.author, a.cover,
+               a.content, a.introduction, a.sort_order, a.status,
+               a.recommend_hot, a.recommend_banner, a.browse_count, a.spu_id,
+               a.is_deleted, a.create_time, a.update_time
+        FROM promotion_article a
+                 LEFT JOIN promotion_article_category c ON c.id = a.category_id
+        WHERE a.title = #{title} AND a.is_deleted = 0 AND a.status = 1
+        LIMIT 1
+    </select>
+
+    <select id="listEnabled" resultType="ecommerce.product.entity.Article">
+        SELECT a.id, a.category_id, c.name AS category_name, a.title, a.author, a.cover,
+               a.introduction, a.sort_order, a.status,
+               a.recommend_hot, a.recommend_banner, a.browse_count, a.spu_id,
+               a.is_deleted, a.create_time, a.update_time
+        FROM promotion_article a
+                 LEFT JOIN promotion_article_category c ON c.id = a.category_id
+        WHERE a.is_deleted = 0
+          AND a.status = 1
+        <if test="recommendHot != null">
+            AND a.recommend_hot = #{recommendHot}
+        </if>
+        <if test="recommendBanner != null">
+            AND a.recommend_banner = #{recommendBanner}
+        </if>
+        ORDER BY a.sort_order ASC, a.id DESC
+        <if test="limit != null">
+            LIMIT #{limit}
+        </if>
+    </select>
+
+    <!-- ==================== 校验 ==================== -->
+    <!-- 标题查重：查全量（含已逻辑删除的记录，删除后标题仍占用） -->
+    <select id="countByTitle" resultType="long">
+        SELECT COUNT(*)
+        FROM promotion_article
+        WHERE title = #{title}
+        <if test="excludeId != null">
+            AND id != #{excludeId}
+        </if>
+    </select>
+
+    <select id="countByCategoryId" resultType="long">
+        SELECT COUNT(*)
+        FROM promotion_article
+        WHERE category_id = #{categoryId} AND is_deleted = 0
+    </select>
+
+    <!-- 只查未删除的同名文章 -->
+    <select id="countAliveByTitle" resultType="long">
+        SELECT COUNT(*)
+        FROM promotion_article
+        WHERE title = #{title} AND is_deleted = 0
+        <if test="excludeId != null">
+            AND id != #{excludeId}
+        </if>
+    </select>
+
+    <!-- ==================== 后台：写操作 ==================== -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO promotion_article (category_id, title, author, cover, content, introduction,
+                                       sort_order, status, recommend_hot, recommend_banner,
+                                       browse_count, spu_id, is_deleted, create_time)
+        VALUES (#{categoryId}, #{title}, #{author}, #{cover}, #{content}, #{introduction},
+                #{sortOrder}, #{status}, #{recommendHot}, #{recommendBanner},
+                0, #{spuId}, 0, #{createTime})
+    </insert>
+
+    <update id="update">
+        UPDATE promotion_article
+        <set>
+            <if test="categoryId != null">category_id = #{categoryId},</if>
+            <if test="title != null">title = #{title},</if>
+            <if test="author != null">author = #{author},</if>
+            <if test="cover != null">cover = #{cover},</if>
+            <if test="content != null">content = #{content},</if>
+            <if test="introduction != null">introduction = #{introduction},</if>
+            <if test="sortOrder != null">sort_order = #{sortOrder},</if>
+            <if test="status != null">status = #{status},</if>
+            <if test="recommendHot != null">recommend_hot = #{recommendHot},</if>
+            <if test="recommendBanner != null">recommend_banner = #{recommendBanner},</if>
+            <if test="spuId != null">spu_id = #{spuId},</if>
+            update_time = #{updateTime},
+        </set>
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="updateStatus">
+        UPDATE promotion_article
+        SET status = #{status}, update_time = #{updateTime}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="softDelete">
+        UPDATE promotion_article
+        SET is_deleted = 1, update_time = #{updateTime}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="increaseBrowseCount">
+        UPDATE promotion_article
+        SET browse_count = browse_count + 1
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+</mapper>
