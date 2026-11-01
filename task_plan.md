@@ -402,6 +402,29 @@
 - [✓] 合成数据已清理（本地 `coupon_template` / `user_coupon` / `coupon_scope` 均归零），临时实例已停
 - [ ] **发布生产**：`./deploy/release.sh order-service`（后端校验）+ 小程序 HBuilderX 重新构建上传
 
+### 阶段 27：后台图片上传按展示规格压缩（2026-11-02，代码完成，待发版）
+
+> 起因：用户问「图片上传的时候都不压缩吗？前端渲染压力不是，容易卡顿和白屏？」
+> 核查结论：**上传确实不压缩，但"白屏"判断有误** —— 两端轮播都有静态图兜底，不会白屏；真正的问题是**尺寸完全没适配展示位**。
+
+- [✓] 现状盘点（7 个真实上传点，全部走 `/api/admin/upload`）：
+  - 后端 `UploadServiceImpl` 零压缩，只做 Content-Type 白名单 → UUID 命名 → 原样落盘；`product-service` 全局上限 50MB
+  - 前端其实**已有** `utils/compressImage.js`（MAX_EDGE=1200 / jpeg q0.8），5 处 `a-upload` + 1 处富文本上传在用；但**全站一个硬编码规格**，没有按 type 区分
+  - 现网那两张 banner 是 1200×1200，**正好等于 MAX_EDGE** → 走「边长不超过限制原样返回」分支，压根没压（这也解释了为什么是 webp 而非工具产出的 jpg）
+  - **售后凭证图（`ShippedTable.vue` / `FinishedTable.vue`）完全没接 `:before-upload`**，手机拍照原图直传，是最大的未压缩黑洞
+  - 压缩产物只有 `opt/upload`、`opt/body`、`opt/category` 三个目录（python 离线脚本产的）；banner/article/review/feedback/after-sale 无 opt，永远回落原图
+- [✓] 新增规格表 `e-commerce/src/utils/image-spec.js`（按 type 给出目标尺寸 + 适配方式），尺寸 = 展示像素 × 2：
+  - `banner` 按 position 分档：1 小程序首页 750×375 / 2 小程序分类页 750×200 / 11 PC 首页 1600×700
+  - `article` 1200×675、`category` 400×400、`upload` 800×800 白底方、`body` 与 `after-sale` 最长边 1200
+- [✓] 改造 `utils/compressImage.js`：支持 `cover`（居中裁切填满）/ `contain`（等比缩放留白不裁）两种适配；统一输出 webp（浏览器不支持时回落 jpeg，并校验 `blob.type` 防静默回落成 png）；解码改用 `createObjectURL` 避开 base64 的 1/3 内存放大；不传 spec 时保持旧行为 → 既有调用点零改动
+- [✓] 8 个上传点接入：Banner（按 position 动态取规格 + 切位置提示重传）、文章、分类、商品主图（新增/编辑）、富文本正文图、售后凭证（新增压缩）
+- [✓] 顺带修 2 个缺陷：富文本的 10MB 体积判断挪到压缩之后（原图 12MB 压缩后只 200KB，之前会被误拒）；后端加 per-type 体积兜底（图片 5MB / 视频 50MB，防绕过前端直传大图）
+- [✓] 逻辑实测：Node 桩掉 DOM 跑 55 条断言全绿（各 type 画布尺寸/绘制区域/编码格式/文件名后缀、gif 跳过、已达标小体积图原样返回、webp 不支持回落 jpeg、解码失败兜底）；后端 `mvn compile` 通过、后台前端 `npm run build` 通过
+- [✓] 真实编码收益（用现网那张 1200×1200 banner 实测）：小程序首页位 58.2KB → **21.7KB**，像素 144 万 → 28 万（解码内存 5.76MB → 1.1MB）
+- [ ] **发布生产**：`./deploy/release.sh product-service`（体积兜底）→ `./deploy/release-web.sh`（后台前端）
+- [ ] **发布后清理旧素材**：现网那 2 张测试 banner（1200×1200）重新按新规格传一遍；旧文件 `upload/image/banner/` 下可删
+- [ ] 后台正式录素材：Banner 图按建议尺寸传（方形图传进宽幅位会被上下裁掉，运营需传宽幅图）
+
 ## 风险与待确认
 
 | # | 风险/待确认 | 影响 | 处置 |

@@ -21,6 +21,9 @@ import java.util.UUID;
  * 意见反馈截图 → upload/image/feedback/，Banner 图 → upload/image/banner/，文章封面图 → upload/image/article/。
  * 磁盘根目录与 WebMvcConfig 的 /image/** → file:upload/image/ 静态映射一致，存完返回 /image/{sub}/{文件名}
  * 相对路径，前端直接存库，展示走网关 /image/** 托管。
+ * <p>
+ * 体积：后台前端上传前会按展示规格压缩（见后台 utils/image-spec.js），后端这里只做兜底上限
+ * —— 图片 5MB、视频 50MB，防止绕过前端直传大图。
  */
 @Service
 public class UploadServiceImpl implements UploadService {
@@ -55,6 +58,12 @@ public class UploadServiceImpl implements UploadService {
             "video/mp4", "mp4"
     );
 
+    /** 图片体积上限（5MB）：后台前端已按展示规格压过，这里只做兜底，防止绕过前端直传大图 */
+    private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
+
+    /** 视频体积上限（50MB）：与 multipart 的 max-file-size 对齐，视频不压 */
+    private static final long MAX_VIDEO_BYTES = 50L * 1024 * 1024;
+
     @Override
     public UploadVO upload(MultipartFile file, String type) {
         if (file == null || file.isEmpty()) {
@@ -65,6 +74,14 @@ public class UploadServiceImpl implements UploadService {
         String suffix = contentType == null ? null : ALLOWED_MEDIA_TYPES.get(contentType);
         if (suffix == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "只支持 png / jpg / gif / webp 图片或 mp4 视频");
+        }
+        // 体积兜底：后台前端已按展示规格压过，后端再卡一道，防止绕过前端直传大图
+        if ("mp4".equals(suffix)) {
+            if (file.getSize() > MAX_VIDEO_BYTES) {
+                throw new BusinessException(HttpStatus.PAYLOAD_TOO_LARGE, "视频不能超过 50MB");
+            }
+        } else if (file.getSize() > MAX_IMAGE_BYTES) {
+            throw new BusinessException(HttpStatus.PAYLOAD_TOO_LARGE, "图片不能超过 5MB");
         }
 
         // Map.of 是不可变 Map，key 为 null 时 get/getOrDefault 会抛 NPE；

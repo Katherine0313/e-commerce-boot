@@ -33,7 +33,9 @@ spring:
       timeout: 2s
   servlet:
     multipart:
-      # 图片/视频上传限制：单文件 50MB（视频较大，图片仍建议前端按 10MB 拦截），整个请求 51MB 留余量。
+      # 图片/视频上传限制：单文件 50MB，整个请求 51MB 留余量。
+      # 这里只是总闸，实际按类型分级在 UploadServiceImpl：图片 5MB、视频 50MB。
+      # 后台前端上传前会按展示规格压缩（后台 utils/image-spec.js），正常不会碰到这两个上限。
       # 超限由 GlobalExceptionHandler 转成 413 + 可读提示。
       max-file-size: 50MB
       max-request-size: 51MB

@@ -105,19 +105,19 @@ run ssh "$SERVER" "
 
 echo "==> 上传 dist"
 if [[ $DRY_RUN -eq 1 ]]; then
-  echo "[dry-run] tar czf - -C '$DIST' . | ssh '$SERVER' '解压到 /tmp/admin-dist 后 rsync 到 $WEB_ROOT'"
+  echo "[dry-run] tar czf - -C '$DIST' . | ssh '$SERVER' '解压到独立临时目录后 rsync 到 $WEB_ROOT'"
 else
+  # 每次发布用独立的临时目录：后台端和商城端共用本脚本，并发发布时不会互相删除解压目录
   tar czf - -C "$DIST" . | ssh "$SERVER" "
     set -e
-    rm -rf /tmp/admin-dist
-    mkdir -p /tmp/admin-dist
-    tar xzf - -C /tmp/admin-dist
-    chown -R www:www /tmp/admin-dist
+    tmp=\$(mktemp -d /tmp/web-dist.XXXXXX)
+    trap 'rm -rf \"\$tmp\"' EXIT
+    tar xzf - -C \"\$tmp\"
+    chown -R www:www \"\$tmp\"
     rsync -a --delete \
       --exclude '.env' --exclude '.htaccess' --exclude '.user.ini' \
       --exclude '.well-known' --exclude 'public' \
-      /tmp/admin-dist/ '$WEB_ROOT/'
-    rm -rf /tmp/admin-dist
+      \"\$tmp/\" '$WEB_ROOT/'
   "
 fi
 

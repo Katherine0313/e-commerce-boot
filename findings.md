@@ -357,6 +357,33 @@ ecommerce
 - 注意：CDN（**腾讯云 EdgeOne**）按 URL 缓存，33~50 之前缓存的是原图、7 张大图缓存的是旧 opt，**必须刷新这 25 个 URL** 后才会命中新文件；之后可 prewarm 全部图片。
 - 测速结论：内网 `/api/home` 79ms、`/api/products/hot` 13ms，公网均 ~1.4s；Cloudflare HIT 的 10.9KB 图片 TTFB 仍 1.65s → 瓶颈是 Cloudflare 香港跨境链路，不是后端/Redis。图片/API 若要明显变快，需图片走国内 CDN（COS+CDN 或 CDN 回源源站，源站 IP 仍隐藏），API 可评估 EdgeOne/全站加速或 Cloudflare China；灰云会暴露源站 IP，不采用。
 
+### 图片规格表（2026-11-02）
+
+> **项目约定：后台上传的每一类图片都有固定的目标规格，规格表是唯一出处** —— `e-commerce/src/utils/image-spec.js`。
+> 以后新增图片类型或改展示位，必须改这张表，不要在页面里写死尺寸。
+
+- **为什么要按 type 分**：以前所有图片共用一套「最长边 1200」（`compressImage.js` 里的硬编码 `MAX_EDGE`），但展示位差别很大 —— banner 是宽幅轮播坑、商品卡是小方图、正文图是长图。尺寸不贴展示位 = 白下载一堆像素 + 画幅不对被 `object-fit:cover` / `aspectFill` 裁掉内容。
+- **目标尺寸 = 展示像素 × 2（retina）**，逐个核实过：
+
+  | type | 目标尺寸 | 适配 | 推导依据 |
+  |---|---|---|---|
+  | `banner` position=1 小程序首页 | 750×375 | cover | `custom-swiper` 默认 360rpx=180px 高、满屏 375px 宽 |
+  | `banner` position=2 小程序分类页 | 750×200 | cover | `category.vue` 传 `height="200rpx"`=100px 高 |
+  | `banner` position=11 PC 首页 | 1600×700 | cover | `Home.vue` hero 高 350px、`.banner` 宽 ≈798px |
+  | `article` 封面 | 1200×675 | cover | PC 详情页 `.article-cover{max-width:100%}` 铺满 1200 容器 |
+  | `category` 分类图 | 400×400 | cover | 分类小方图 |
+  | `upload` 商品主图 | 800×800 | contain + 白底 | 与 python 脚本 `to_square()` 口径一致（历史 136 个商品图同规格） |
+  | `body` 正文图 | 最长边 1200 | contain | 富文本满宽展示 |
+  | `after-sale` 凭证图 | 最长边 1200 | contain | 列表缩略 88px，但点开预览要看清晰 |
+
+- **两种适配**：`cover` = 填满目标画幅、按较大缩放比裁掉多余部分、裁切居中（画幅正确优先）；`contain` = 等比缩放塞进目标画布、居中留白、不裁不放大（照片类不能裁内容）。
+- **统一输出 webp**（quality 0.82）：同画质比 jpeg 小约 30%，且**保留 PNG 透明通道**（转 jpeg 会把分类图标这类透明图压成黑底）。gif 跳过（webp 不支持动图）。浏览器不支持 webp 编码时 `toBlob` 会按规范静默回落成 `image/png` —— 必须校验 `blob.type`，否则会白传 png。
+- **一个 banner 只服务一个位置**（沿用阶段 25 的结论），所以规格按 `position` 分档；切换位置后原图画幅就不对了，页面会提示重新上传。
+- **方形图传进宽幅位会被裁**：1200×1200 传小程序首页位（750×375）会上下各切 275px。运营必须传宽幅图，表单上的「建议尺寸」提示就是给这个用的。
+- **后端只做体积兜底**（`UploadServiceImpl`）：图片 5MB / 视频 50MB，防绕过前端直传大图。**后端不做图像处理** —— 压缩全在前端 canvas，后端零图片依赖。
+- **C 端上传不重复造**：小程序 review / feedback / after-sale 走微信原生 `uni.chooseImage({sizeType:['compressed']})`，已经压过了。
+- **实测收益**：用现网那张 1200×1200 banner 编码实测，小程序首页位 58.2KB → 21.7KB，像素 144 万 → 28 万（解码内存 5.76MB → 1.1MB）。方形图裁进宽幅位是设计取舍，画幅正确比清晰度更重要。
+
 ### 后台 RBAC P0（2026-10-30）
 - 表：`admin_role` / `admin_menu` / `admin_user_role` / `admin_role_menu`；`admin` 仍是账号表（没有 `admin_user`）。脚本 `docs/sql/rbac/01-rbac-schema.sql`，本地与生产均已执行（生产备份 `/www/backup/e_commerce_db_before_rbac_2026-10-30_1452.sql`）。
 - 初始 4 角色：`admin` 店铺管理员（超级权限）、`operator` 运营、`service` 客服、`warehouse` 仓储发货；演示账号 operator/operator123、service/service123、warehouse/warehouse123。
