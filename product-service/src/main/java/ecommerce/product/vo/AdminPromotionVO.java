@@ -52,6 +52,8 @@ public class AdminPromotionVO {
     private String statusDesc;
     @Schema(description = "活动商品数")
     private Integer productCount;
+    @Schema(description = "该活动产生过的订单数（>0 表示已产生订单，不能删除，只能提前结束）")
+    private Integer orderCount;
     @Schema(description = "活动商品（详情返回）")
     private List<PromotionItemVO> items;
     @Schema(description = "满减阶梯（详情返回）")

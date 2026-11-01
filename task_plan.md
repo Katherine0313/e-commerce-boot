@@ -325,6 +325,17 @@
 - [ ] 配告警 webhook（企业微信/钉钉机器人），写进 `/www/java/healthcheck/healthcheck.env` 的 `HEALTHCHECK_WEBHOOK`
 - [ ] 检查 `api.jiemids.com` / `www.jiemids.com` 是否有同类缺 443 块 / 缺 SPA 回落的隐患（当前两个站点的 443 块都在）
 
+### 阶段 22：促销活动可编辑 + 划线价去重（2026-11-01）
+
+> 起因：线上「限时立减」活动看不到编辑按钮；C 端出现两个划线价（活动前原价 + 市场价）。
+
+- [✓] 编辑权限放开：后端 `assertEditable` 允许「未开始 + 进行中」，已结束/已失效仍拦；前端 `PromotionList.vue` 按钮条件同步放开
+- [✓] 编辑进行中的活动时弹窗提示生效范围（只影响新订单）
+- [✓] 划线价去重放在后端一处：`PromotionServiceImpl.applyDisplay` 命中活动时 `marketPrice` 置 null，划线价只留「活动前原价」；客户端模板已按 `marketPrice` 判断，**不用重新编译**
+- [✓] 本地实测（临时实例 9012 + 合成活动，已清理）：活动商品 price/originalPrice/marketPrice 符合预期；非活动商品不受影响；编辑进行中的活动 200 且新价立即生效
+- [ ] **发布生产**：`release.sh product-service` → `release-web.sh`（后台前端）
+- [✓] 删除死路打通（用户 2026-11-01 确认）：删除规则从「只有未开始能删」改成「**没有产生过订单就能删，有订单只能提前结束**」。后端新增 `countUsageByPromotionId`（`promotion_usage` 去重 order_id），有订单直接 400「该活动已产生订单，只能提前结束，不能删除」；`AdminPromotionVO` 加 `orderCount` 给前端判断；前端删除按钮在有订单时置灰并给出原因 tooltip。本地实测：有订单 → 400；无订单（进行中）→ 200 且删完列表不再显示、详情 404
+
 ### 阶段 21：后台账号软删除 + 「禁用」改「停用」（2026-11-01）
 
 > 起因：账号删除按钮缺失，无法下线离职/误建的账号；删除若走物理 DELETE 会丢历史操作痕迹，故改为软删。
@@ -340,6 +351,14 @@
 - [✓] 本地验证（临时实例 9011）：列表/新建/删除/列表不再显示/旧 token 401/同名再建 400/删超管 400/删不存在 404 全过；测试账号已清理
 - [ ] **发布生产**：auth-service `./deploy/release.sh auth-service` → 后台前端 `./deploy/release-web.sh`（**必须先发 auth-service**，否则前端会调一个尚不存在的接口）
 - [ ] `admin` 表 `is_deleted` 与生产已一致（5 个账号全部 `is_deleted=0`），无需再跑数据修复
+
+### 阶段 23：小程序首页分类面板 8 个分类（2026-11-01）
+
+> 起因：首页只展示 6 个分类，分类面板本身是 4 列 × 2 行 = 8 格，第 7、8 个被 limit 挡掉了。
+
+- [✓] `pages/index/index.vue` 的 `<CategoryPanel>` `:limit` 6 → 8
+- [✓] `pages/index/component/category-panel.vue` 注释同步（4 列 × 2 行 = 8、骨架占 8 格；骨架循环本来就是 `v-for="n in 8"`）
+- [ ] **发布**：重新构建并上传 `dist/build/mp-weixin`（小程序需重新提审版本）
 
 ## 风险与待确认
 

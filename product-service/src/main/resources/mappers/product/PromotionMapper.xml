@@ -96,6 +96,13 @@
         ORDER BY threshold_amount ASC
     </select>
 
+    <!-- 该活动产生过的订单数：判断活动能不能删（有订单的只能结束，不能删） -->
+    <select id="countUsageByPromotionId" resultType="int">
+        SELECT COUNT(DISTINCT order_id)
+        FROM promotion_usage
+        WHERE promotion_id = #{promotionId}
+    </select>
+
     <!-- ==================== 后台：写操作 ==================== -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO promotion (name, type, rule_type, target_group, scope_type, tag_name,

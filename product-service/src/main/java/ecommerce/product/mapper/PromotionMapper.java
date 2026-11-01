@@ -43,11 +43,17 @@ public interface PromotionMapper {
 
     List<PromotionRule> listRules(@Param("promotionId") Long promotionId);
 
+    /**
+     * 该活动产生过的订单数（promotion_usage 去重 order_id）。
+     * 有订单的活动不能删：订单里存着活动价和优惠金额快照，删掉活动就没法解释历史订单。
+     */
+    int countUsageByPromotionId(@Param("promotionId") Long promotionId);
+
     int insert(Promotion promotion);
 
     int update(Promotion promotion);
 
-    // 逻辑删除（仅未开始的活动允许）
+    // 逻辑删除（没有产生过订单的活动允许）
     int softDelete(@Param("id") Long id, @Param("now") LocalDateTime now);
 
     // 运营提前结束

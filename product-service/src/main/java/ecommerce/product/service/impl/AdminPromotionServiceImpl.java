@@ -124,8 +124,11 @@ public class AdminPromotionServiceImpl implements AdminPromotionService {
 
     @Override
     public void delete(Long id) {
-        Promotion promotion = requirePromotion(id);
-        assertStatus(promotion, PromotionConstants.STATUS_PENDING, "只有未开始的活动可以删除");
+        requirePromotion(id);
+        // 有订单的活动只能提前结束：订单里存着活动价和优惠金额快照，删掉活动就没法解释历史订单
+        if (promotionMapper.countUsageByPromotionId(id) > 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "该活动已产生订单，只能提前结束，不能删除");
+        }
         promotionMapper.softDelete(id, LocalDateTime.now());
     }
 
@@ -374,6 +377,8 @@ public class AdminPromotionServiceImpl implements AdminPromotionService {
 
     private AdminPromotionVO toVO(Promotion p, LocalDateTime now) {
         int productCount = promotionMapper.listItemsWithProduct(p.getId()).size();
+        // 订单数：前端据此决定删除按钮能不能点（有订单的只能提前结束）
+        int orderCount = promotionMapper.countUsageByPromotionId(p.getId());
         String status = statusOf(p, now);
         return AdminPromotionVO.builder()
                 .id(p.getId())
@@ -392,6 +397,7 @@ public class AdminPromotionServiceImpl implements AdminPromotionService {
                 .status(status)
                 .statusDesc(statusDesc(status))
                 .productCount(productCount)
+                .orderCount(orderCount)
                 .createTime(p.getCreateTime())
                 .build();
     }
