@@ -44,7 +44,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
             "/api/after-sales/status-constants",
             // Banner 轮播与文章（PC 商城 / 小程序公共内容，只读 + 浏览量统计，免登录）
             "/api/banners", "/api/banners/**",
-            "/api/articles", "/api/articles/**"
+            "/api/articles", "/api/articles/**",
+            // 商品评价只读（商品详情页展示评价列表与星级统计，免登录）
+            "/api/reviews", "/api/reviews/**"
     );
 
     private final JwtInterceptor jwtInterceptor;

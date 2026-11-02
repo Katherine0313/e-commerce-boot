@@ -1,9 +1,905 @@
-1. 小程序评价提交接口已经完成，ReviewServiceImpl 负责买家提交评价，存入ProductReview。
-2. ProductReview现有字段：id,orderId,userId,productId,productName,productImage,rating,tag,content,images媒体JSON,createdAt
-3. 已经ALTER表新增字段：reply、reply_time、visible、is_virtual、update_time、del_flag逻辑删除。
+# 后台商品评价管理模块 · 需求与实施方案（v3 · 已实现并发布上线）
 
-现在开发【后台商品评价管理模块】，要求：
-1. 新建 AdminReviewService，和小程序端ReviewService职责隔离，不要修改原有买家提交评价逻辑。
-2. 后台接口：分页列表、新增虚拟评价、编辑评价、回复评价、切换显示状态、逻辑删除、导出Excel。
-3. 核心业务约束：is_virtual=0 买家真实评价，禁止编辑评价内容；is_virtual=1虚拟评价允许编辑；所有评价都可以回复、隐藏、删除。
-4. 分页查询支持筛选：商品名称、订单号、星级、is_virtual、visible、创建时间区间。
+> **状态：代码完成 + 本地验证通过 + 生产已发布（2026-11-02）。**
+> v1 提的 5 个问题已拍板：
+> **Q1 = 需要**（C 端一起补评价展示）｜**Q2 = 可以**（采纳合规建议）｜**Q3 = 订单管理**（产生订单才能评价）
+> ｜**Q4 = 整条只读**｜**Q5 = 已确认**（生产库与本地结构一致、从未 ALTER 过，见第 13 节）。
+>
+> 本文基于原始需求（附录 A）逐条对照**本仓库真实代码与本地库结构**核查后写成。
+> **v3 已按实际实现回改**：与实现不一致的地方（接口方法、菜单 ID、索引数量、图片规格、删除能力）均已修正，
+> 第 10 节标注了实测结果。**生产发布记录见第 9.3 节**。
+
+
+---
+
+## 0. 一句话结论
+
+原始需求方向没问题，但核查出 **1 处事实错误**（说已 ALTER 的 6 个字段实际 3 个不存在、3 个已有同义列）
+和 **1 处功能缺口**（C 端没有评价读取接口 → 「显示/隐藏」是空转功能，**本次一并补上**）。
+
+按本方案做，实际改动量：
+
+| 域 | 改动 |
+|---|---|
+| 数据库 | `product_reviews` 加 **4 列**（reply / reply_time / is_virtual / created_by）+ **2 个索引** |
+| 后端 | order-service 新增 1 个后台 Controller + 1 个 Service + 1 个 C 端 Controller + 3 个 DTO/VO + Mapper 加 10 个方法 |
+| 网关 | 2 行路由（`/api/admin/reviews/**` + `/api/reviews/**`） |
+| 后台前端 | 1 个列表页 + 1 个弹窗 + 1 个 api 文件 + 1 条路由 + `image-spec.js` 补 `review` 档 |
+| 小程序 | 商品详情页加评价区 + 1 个 api 文件 + 1 个工具文件 |
+| PC 商城 | 商品详情页加评价区 + 1 个 api 文件 + **顺带补图文详情 body 渲染** |
+
+**实际落地的文件清单（v3 补）**
+
+后端（e-commerce-boot）：
+- 新增 `order-service/.../controller/AdminReviewController.java`、`controller/ProductReviewController.java`
+- 新增 `order-service/.../service/AdminReviewService.java`、`service/impl/AdminReviewServiceImpl.java`
+- 新增 `order-service/.../dto/AdminReviewDTO.java`、`dto/AdminReviewQueryDTO.java`
+- 新增 `order-service/.../vo/AdminReviewVO.java`、`vo/ReviewDetailVO.java`、`vo/ReviewSummaryVO.java`、`vo/ProductSnapshotVO.java`
+- 改 `order-service/.../service/ReviewService.java`、`service/impl/ReviewServiceImpl.java`（**只加 C 端读方法，买家提交逻辑一行未动**）
+- 改 `order-service/.../entity/ProductReview.java`、`mapper/ProductReviewMapper.java`、`resources/mappers/order/ProductReviewMapper.xml`
+- 改 `common/.../configuration/WebMvcConfig.java`（C 端免登录白名单）
+- 改 `gateway/src/main/resources/application.yml`（order-service 路由）
+- 改 `product-service/.../controller/AdminUploadController.java`（`type=review` 上传权限）
+- 新增 `docs/sql/review/01-admin-review-schema.sql`、`docs/sql/review/02-admin-review-menu.sql`
+
+后台前端（e-commerce）：`src/api/review.js`、`src/pages/orders/review/ReviewList.vue`、
+`src/pages/orders/review/ReviewEditModal.vue`、改 `src/router/index.js`、`src/utils/image-spec.js`
+
+小程序（e-commerce-uniapp）：`api/review.js`、`utils/review-media.js`、改 `pages/goods/detail.vue`
+
+PC 商城（ecommerce-mall）：`src/api/review.js`、改 `src/views/products/ProductDetail.vue`
+
+**详情页三块顺序（已定）**：**商品评价 → 商品参数 → 图文详情**。
+评价是社会认同信号、影响跳出率，放最前；参数扫一眼就过；图文详情最费时间，放最后。
+小程序和 PC 商城统一按这个顺序。
+
+---
+
+## 1. 原始需求 vs 仓库实际
+
+### 1.1 字段：需求说「已经 ALTER 过」，实际没有
+
+原始需求第 3 条：
+
+> 已经ALTER表新增字段：reply、reply_time、visible、is_virtual、update_time、del_flag逻辑删除。
+
+**核查结果（本地库 `show create table product_reviews` 实测）**：
+
+```
+id, order_id, user_id, product_id, product_name, product_image,
+rating, tag, content, images,
+status      tinyint NOT NULL DEFAULT '1'   -- 状态：1 显示 0 隐藏
+is_deleted  tinyint NOT NULL DEFAULT '0'   -- 删除标记：1 已删 0 未删
+created_at, updated_at
+```
+
+**全仓库 grep `is_virtual` / `reply_time` / `del_flag` / `虚拟评价` → 零命中**（sql / java / xml / vue / js / md 全查过）。
+也就是说这 6 个字段**一个都不存在**，「已经 ALTER」这个前提是错的。
+
+但需求想要的语义，表里**已经有同义列**了：
+
+| 需求里写的 | 表里实际有的 | 处置 | 理由 |
+|---|---|---|---|
+| `visible` | `status`（注释就是「1 显示 0 隐藏」） | **复用 `status`，不新增列** | 新增 `visible` 会出现两个可见性字段打架；`status` 默认值 1、插入时已写死 1，历史数据语义完全一致 |
+| `del_flag` | `is_deleted` | **复用 `is_deleted`，不新增列** | 命名与 `products` / `orders` / `admin` / `user` 全库一致 |
+| `update_time` | `updated_at` | **复用 `updated_at`，不新增列** | 同上，全库统一 `updated_at` |
+| `reply` | 无 | **新增** `reply varchar(1000) DEFAULT NULL` | 商家回复正文 |
+| `reply_time` | 无 | **新增** `reply_time datetime DEFAULT NULL` | 回复时间 |
+| `is_virtual` | 无 | **新增** `is_virtual tinyint NOT NULL DEFAULT 0` | 1 虚拟评价 / 0 买家真实评价 |
+| （Q2 新增） | 无 | **新增** `created_by bigint DEFAULT NULL` | 虚拟评价创建人（后台管理员 admin.id），合规留痕 |
+
+**→ 实际只需新增 4 列，不是 6 列。** 全部向后兼容：历史 2 条真实评价 `is_virtual` 自动为 0。
+
+⚠️ ~~生产库我没权限查~~ → **已核对**（2026-11-02，用户提供生产 `SHOW COLUMNS` 输出）：
+生产与本地结构**完全一致**，且从未 ALTER 过（详见第 13 节 Q5 结论）。
+本地脚本已按**幂等**写法实现（重复跑不报错）。
+
+### 1.2 C 端没有评价读取接口 → 本次补上
+
+全仓库只有 **一个** 评价接口：
+
+- `POST /api/orders/{id}/review` —— 小程序提交评价（`order-service/.../ReviewController.java`）
+
+**没有任何接口能读出评价。** 小程序和 PC 商城的商品详情页都没有评价展示。
+所以「切换显示状态」如果只做后台，改了也**没有任何前端能体现**。
+→ **Q1 决策：需要，本次一起补 C 端评价展示**（第 8 节）。
+
+### 1.3 其它对照结论
+
+| 需求项 | 核查结论 |
+|---|---|
+| 「不要修改原有买家提交评价逻辑」 | ✅ 做不到零风险？——能做到：`ReviewServiceImpl` 一行不动，新建 `AdminReviewService`，只在 `ProductReviewMapper` 上**新增** admin 查询方法（不改动 `insert` / `findByOrderId`） |
+| 「按订单号筛选」 | ⚠️ `product_reviews` 表**只有 order_id 没有 order_no**，订单号在 `orders.order_no`。必须 `LEFT JOIN orders o ON o.id = r.order_id`（单店共享库，可直接 join） |
+| 「导出Excel」 | ✅ order-service 已依赖 `poi-ooxml`（`order-service/pom.xml`），**不用加依赖**。现成样板：`ReportServiceImpl.exportOperationReportByTemplate()` |
+| 「回复评价」 | ⚠️ 需求没定义回复后能否改回复。方案默认：**一条评价只保留一条回复，再次回复 = 覆盖 + 刷新 `reply_time`**（第 6.4 节） |
+| 虚拟评价挂哪 | `order_id=0`、`user_id=0`（不挂真实订单/用户），`product_id` 必填真实商品（第 6.1 节） |
+
+---
+
+## 2. 模块归属：放 order-service
+
+**结论：`order-service`。**
+
+理由：
+1. `ProductReview` 实体 + `ProductReviewMapper` + `ReviewService` + `ReviewVO` **已经全在 order-service**，
+   后台模块跟表在一起，不用跨服务调用，也不用在 product-service 复制一套实体。
+2. 评价和订单强关联：按订单号筛、详情要带订单信息，`AdminOrderController` 也在 order-service。
+3. C 端评价读取接口同样放这里（评价表在这）。
+
+**所有服务连的是同一个库**（实测 4 个服务的 `DB_URL` 都是 `e_commerce_db`），所以 join `orders` / `user` / `admin` 都不跨服务。
+
+包结构（照项目「业务模块包内分层」约定）：
+
+```
+order-service/src/main/java/ecommerce/order/
+├── controller/AdminReviewController.java       新增  后台接口 /api/admin/reviews
+├── controller/ProductReviewController.java     新增  C 端接口 /api/reviews
+├── service/AdminReviewService.java              新增
+├── service/ReviewService.java                   改    加 listByProduct / summary（C 端读，8.1）
+├── service/impl/AdminReviewServiceImpl.java     新增
+├── service/impl/ReviewServiceImpl.java          改    只加 C 端读方法，买家提交逻辑未动
+├── dto/AdminReviewDTO.java                      新增  新增/编辑虚拟评价入参
+├── dto/AdminReviewQueryDTO.java                 新增  列表筛选入参
+└── vo/AdminReviewVO.java                        新增  后台列表返回
+    vo/ReviewDetailVO.java                       新增  C 端评价返回
+    vo/ReviewSummaryVO.java                      新增  C 端评价统计
+    vo/ProductSnapshotVO.java                    新增  商品快照（虚拟评价取商品名/图）
+order-service/src/main/resources/mappers/order/ProductReviewMapper.xml   改  加 admin 查询 + C 端查询
+```
+
+> **实现说明**：C 端读接口没有另起 `ProductReviewQueryService`，
+> 而是**在既有 `ReviewService` 上加两个方法**（`listByProduct` / `summary`），
+> 这样 C 端读和买家写在同一个 Service 里但方法互不干扰，且不用再造一套 Mapper。
+
+**Mapper 归属**：沿用项目现状惯例 —— 订单端和后台端**共用同一个 Mapper**，
+`OrderMapper` 里同时有 `listAdmin` / `countAdmin`（`OrderMapper.java:62,68`）。
+所以 `ProductReviewMapper` 上**新增**方法，不另建 Mapper：
+`findById` / `listAdmin` / `countAdmin` / `insertVirtual` / `updateByAdmin` / `updateReply` /
+`updateStatus` / `softDelete` / `listByProduct` / `countByProduct` / `summaryByProduct`。
+（`insert` / `findByOrderId` **保持原样不动**。）
+
+---
+
+## 3. 数据库变更
+
+脚本：`docs/sql/review/01-admin-review-schema.sql`（新建目录）
+
+### 3.1 加列（幂等写法）
+
+MySQL 5.7 **不支持** `ADD COLUMN IF NOT EXISTS`，照 `docs/sql/sync-local-to-prod.sql` 的既有模式
+（先查 `information_schema` 再执行）写成可重复执行的：
+
+```sql
+-- 给 product_reviews 加 4 列，重复执行自动跳过
+SET @sql = (SELECT IF(COUNT(*)=0,
+  'ALTER TABLE product_reviews ADD COLUMN reply varchar(1000) DEFAULT NULL COMMENT ''商家回复''',
+  'SELECT ''reply 已存在''') FROM information_schema.COLUMNS
+  WHERE TABLE_SCHEMA=DATABASE() AND TABLE_NAME='product_reviews' AND COLUMN_NAME='reply');
+PREPARE s FROM @sql; EXECUTE s; DEALLOCATE PREPARE s;
+-- reply_time / is_virtual / created_by 同款，各一段
+```
+
+字段最终形态：
+
+| 列 | 类型 | 默认 | 注释 |
+|---|---|---|---|
+| `reply` | varchar(1000) | NULL | 商家回复 |
+| `reply_time` | datetime | NULL | 回复时间 |
+| `is_virtual` | tinyint NOT NULL | 0 | 是否虚拟评价 1 虚拟 0 买家真实 |
+| `created_by` | bigint | NULL | 虚拟评价创建人（后台管理员 admin.id） |
+
+> ⚠️ `created_by` 存的是 **admin.id**，跟 C 端的 `user.id` 是两套 ID 空间。
+> 本列**只有后台写入**（虚拟评价创建时），买家端永远不会写，所以不冲突。列注释已写明。
+> `UserContext.getUserId()` 在后台请求里就是 admin.id（C 端是 user.id），直接取即可。
+
+### 3.2 索引
+
+现有：`idx_review_order` / `idx_review_product` / `idx_review_user`。
+后台列表固定 `WHERE is_deleted=0` + `ORDER BY created_at DESC`，补一条：
+
+```sql
+CREATE INDEX idx_review_admin ON product_reviews (is_deleted, status, created_at);
+```
+
+C 端按商品查评价：`WHERE product_id=? AND is_deleted=0 AND status=1 ORDER BY created_at DESC`
+→ 现有 `idx_review_product(product_id)` 能用上，但**回表过滤 is_deleted/status**，
+再加一条 `idx_review_product_show (product_id, status, is_deleted, created_at)` 覆盖 C 端查询。
+
+> **v3 实测**：脚本 `01-admin-review-schema.sql` 里**这两条索引都写了**（`information_schema.STATISTICS` 判存在，
+> 幂等），本地已建：`idx_review_admin` + `idx_review_product_show`。
+
+### 3.3 执行纪律
+
+**本地 + 生产各跑一次**（项目硬规矩：改本地库必须同步生产）。
+生产执行前先备份（既有脚本 `./deploy/backup-prod-db.sh`）。
+脚本经 stdin 管道导入，生产机不落盘（照 `02-banner-article-schema.sql` 的做法）。
+
+**已核对（2026-11-02）**：生产 `product_reviews` 结构与本地**完全一致**，且**从未 ALTER 过**
+（详见第 13 节 Q5 结论）。所以：
+- 本地 + 生产**都要跑**这次 ALTER
+- 生产是 **MySQL 5.7**，脚本必须用 `information_schema` 幂等写法（不能用 `ADD COLUMN IF NOT EXISTS`）
+- 跑完用 `docs/sql/check-local-prod-parity.sql` 核对两边结构一致
+- 加列是**纯新增**，历史数据不受影响（`is_virtual` 自动 0、`created_by` 自动 NULL），**无需回填**
+
+---
+
+## 4. 后台接口清单
+
+Controller：`AdminReviewController`，`@RequestMapping("/api/admin/reviews")`，类上 `@RequirePerm("product:review:list")`。
+
+| # | 方法 | 路径 | 权限码 | 说明 |
+|---|---|---|---|---|
+| 1 | GET | `/api/admin/reviews` | `product:review:list` | 分页列表 + 筛选 |
+| 2 | GET | `/api/admin/reviews/{id}` | `product:review:list` | 详情（含回复、订单号、商品图、创建人） |
+| 3 | POST | `/api/admin/reviews` | `product:review:add` | **新增虚拟评价** |
+| 4 | PUT | `/api/admin/reviews/{id}` | `product:review:edit` | 编辑（**仅虚拟评价**） |
+| 5 | **PUT** | `/api/admin/reviews/{id}/reply` | `product:review:reply` | 回复 / 改回复 |
+| 6 | PUT | `/api/admin/reviews/{id}/visible` | `product:review:edit` | 切换显示状态（status 1↔0） |
+| 7 | DELETE | `/api/admin/reviews/{id}` | `product:review:remove` | 逻辑删除（`is_deleted=1`） |
+| 8 | GET | `/api/admin/reviews/export` | `product:review:export` | 导出 Excel（**与列表同一套筛选参数**） |
+
+> **v3 修正**：第 5 项**用的是 `PUT` 不是 `POST`** —— 回复是「设置/覆盖一条回复」的幂等语义，
+> 用 `PUT` 更贴（项目里同类「改状态」接口也是 PUT）。请求体 `{"reply": "..."}`。
+> 第 6 项请求体 `{"visible": 0|1}`。
+
+权限码命名照项目约定 `<模块>:<子模块>:<动作>`，动作取 `list/add/edit/remove/export`，回复单列 `reply`。
+类上 `@RequirePerm("product:review:list")` 作为兜底，逐个方法上再覆盖细粒度权限码。
+
+### 4.1 列表查询参数
+
+```
+page, pageSize, keyword(商品名), orderNo, rating, isVirtual, visible,
+startDate, endDate
+```
+
+> **v3 修正**：原方案写的 `userId(可选)` **没实现**（需求没提筛选人，后台列表也不展示 userId 筛选项）。
+> 参数处理：空值 → 不筛；**日期解析失败 → 忽略该条件**（不 500）；星级/类型/显示状态取值非法 → 400 提示。
+
+返回 `Result<PageVO<AdminReviewVO>>`（`common/PageVO`，前端取 `res.data.data.list` / `res.data.data.total`）。
+
+`AdminReviewVO` 字段（**驼峰**，与 `OrderVO` / `AdminPromotionVO` 一致；
+只有商品模块的 `AdminProductVO` 是蛇形，那是历史 Node 契约遗留，别照抄）：
+
+```
+id, orderId, orderNo, userId, userName, userAvatar,
+productId, productName, productImage,
+rating, tag, content, images(媒体 JSON 原样透传),
+isVirtual, createdBy, createdByName,
+status(可见性 1/0), statusDesc,
+reply, replyTime, createdAt, updatedAt
+```
+
+`images` 直接透传 JSON 字符串，**前端自己解析**
+（格式：`[{"url":"/image/review/xxx.png","type":"image"}]`，type 还有 `video`）。
+
+### 4.2 列表 SQL 要点
+
+```sql
+SELECT r.*, o.order_no, u.name AS user_name, u.avatar AS user_avatar,
+       a.name AS created_by_name
+FROM product_reviews r
+LEFT JOIN orders o ON o.id = r.order_id      -- 虚拟评价 order_id=0 → 订单号显示「—」
+LEFT JOIN `user` u ON u.id = r.user_id        -- 同上
+LEFT JOIN `admin` a ON a.id = r.created_by    -- 虚拟评价创建人
+WHERE r.is_deleted = 0
+  AND (r.product_name LIKE CONCAT('%', #{keyword}, '%'))
+  AND (o.order_no LIKE CONCAT('%', #{orderNo}, '%'))
+  AND (r.rating = #{rating})
+  AND (r.is_virtual = #{isVirtual})
+  AND (r.status = #{status})
+  AND (r.created_at >= #{start} AND r.created_at <= #{end})
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT #{offset}, #{pageSize}
+```
+
+- 时间区间照 `AdminOrderServiceImpl.parseDateTime()` 的写法解析 `yyyy-MM-dd HH:mm`；
+- `created_at` 是 Java 传的 `LocalDateTime.now()`，区间筛选用 `LocalDateTime` 比较，
+  **不要用 MySQL `NOW()`**（服务器时区是 UTC，会差 8 小时）。
+
+> **v3 实现说明**：SQL 用 `<if>` 动态拼条件（空值不加），`countAdmin` 与 `listAdmin` **同筛选条件**。
+> 前端传的 `visible` 在 `AdminReviewQueryDTO` 里落到 `status` 字段（可见性就是 `status`，不另开字段）。
+
+---
+
+## 5. 菜单与权限（挂「订单管理」）
+
+### 5.1 `admin_menu` 新增
+
+**Q3 决策：挂订单管理（id=3）** —— 评价必须由订单产生，归订单域运营心智更顺。
+
+订单管理下现有：200 订单列表（sort 1）、201 发货管理（sort 2）→ 评价管理 sort 3。
+
+```sql
+INSERT IGNORE INTO `admin_menu`
+    (`id`, `parent_id`, `menu_name`, `menu_type`, `path`, `component`, `perms`, `icon`, `sort_order`, `visible`, `status`)
+VALUES
+    (202, 3, '商品评价', 'C', '/orders/review', NULL, 'product:review:list', NULL, 3, 1, 1);
+
+INSERT IGNORE INTO `admin_menu`
+    (`id`, `parent_id`, `menu_name`, `menu_type`, `path`, `component`, `perms`, `icon`, `sort_order`, `visible`, `status`)
+VALUES
+    (230, 202, '评价回复', 'F', NULL, NULL, 'product:review:reply',  NULL, 1, 1, 1),
+    (231, 202, '评价新增', 'F', NULL, NULL, 'product:review:add',    NULL, 2, 1, 1),
+    (232, 202, '评价编辑', 'F', NULL, NULL, 'product:review:edit',   NULL, 3, 1, 1),
+    (233, 202, '评价删除', 'F', NULL, NULL, 'product:review:remove', NULL, 4, 1, 1),
+    (234, 202, '评价导出', 'F', NULL, NULL, 'product:review:export', NULL, 5, 1, 1);
+```
+
+> **v3 修正**：原方案写的 id 是 104 / 140~144，**落地时改成了 202 / 230~234**。
+> 原因：本地库 `admin_menu` 的 100~199 段已被其它模块占用（实测占用到了 199），
+> 202 与 230+ 段位确认空闲。脚本 `docs/sql/review/02-admin-review-menu.sql` 是**实际执行的版本**。
+> 菜单名也从「评价管理」改成「**商品评价**」，与需求标题一致。
+
+### 5.2 授权
+
+```sql
+INSERT IGNORE INTO `admin_role_menu` (`role_id`, `menu_id`) VALUES
+    (2, 202), (2, 230), (2, 231), (2, 232), (2, 233), (2, 234),
+    (3, 202), (3, 230);
+```
+
+- role_id=2 = **运营**：菜单 + 全部按钮（回复 / 新增虚拟 / 编辑虚拟 / 删除 / 导出）
+- role_id=3 = **客服**：菜单 + 回复（客服日常要回复评价）
+- 店铺管理员是超管（`*:*:*`），不需要显式授权。
+
+### 5.3 后端菜单表 vs 前端菜单
+
+**重要**：`admin_menu` 表**不驱动前端菜单渲染**。前端菜单是 `src/App.vue:122-150` 的 `buildMenu()`
+从**静态路由表**生成的，再按 `meta.permission` 过滤。
+所以必须**两处都改**：
+1. `admin_menu` 插权限点（后端接口鉴权靠它）
+2. `src/router/index.js` 加路由（前端菜单靠它）
+
+两边的 `path` 和 `perms` **必须一致**，否则：
+- `router/index.js` 的 `meta.permission` 与 `admin_menu.perms` 不一致 →
+  `src/router/permission.js:67-112` 的守卫会把页面**直接跳走**（用户看到的是「进不去页面」）。
+
+---
+
+## 6. 后台业务规则
+
+### 6.1 虚拟评价的数据模型
+
+虚拟评价**不挂真实订单、不挂真实用户**：
+
+| 字段 | 真实评价 | 虚拟评价 |
+|---|---|---|
+| `order_id` | 真实订单 id | **0** |
+| `user_id` | 真实用户 id | **0** |
+| `product_id` | 真实商品 id | **必填**，真实商品 |
+| `product_name` / `product_image` | 从 `order_items` 快照取 | **从 `products` 表快照取** |
+| `is_virtual` | 0 | 1 |
+| `created_by` | NULL | **后台管理员 id** |
+| `created_at` | Java `LocalDateTime.now()` | 同左 |
+
+安全性确认：`ReviewServiceImpl` 的防重复提交用 `findByOrderId`
+（`WHERE order_id = #{orderId} AND is_deleted = 0`），订单 id 从 1 自增，
+**虚拟评价 order_id=0 永远不会撞上**，不影响买家评价流程。
+
+新增虚拟评价时**必须绑定一个真实存在的商品**（校验 `products` 里有），否则会产生指向空气的评价。
+
+### 6.2 「禁止编辑」的确切边界（Q4 = 整条只读）
+
+| 操作 | 真实评价 (is_virtual=0) | 虚拟评价 (is_virtual=1) |
+|---|---|---|
+| 编辑内容 / 星级 / 标签 / 图片 | ❌ **禁止**（后端硬拦，前端也隐藏按钮） | ✅ 允许 |
+| 回复 | ✅ 允许 | ✅ 允许 |
+| 隐藏 / 显示 | ✅ 允许 | ✅ 允许 |
+| 逻辑删除 | ✅ 允许 | ✅ 允许 |
+
+**理由**：真实评价是消费者的原话，事后改动等于伪造消费者评价，比隐藏更严重。
+所以不是「只锁内容字段」，而是**整条真实评价只读**，只能回复 / 隐藏 / 删除。
+后端在 `updateByAdmin` 里判断 `is_virtual == 0` 直接抛 400「买家真实评价不可编辑」，
+**前端隐藏按钮只是体验，真正的拦截在后端**。
+
+### 6.3 新增虚拟评价的校验
+
+- `product_id` 必须存在 → 否则 400「商品不存在」
+- `rating` 1~5（跟买家端 `ReviewServiceImpl` 一致）
+- `content` 至少 5 个字（跟买家端一致）
+- `tag` 可选
+- `images` 走 `/api/admin/upload?type=review`，**前端压缩按 `image-spec.js` 的 review 规格**（最长边 800、webp）
+- `product_name` / `product_image` **后端从 products 表取，不信任前端传的**
+- `created_by` = `UserContext.getUserId()`（后台 token 的 admin.id）
+
+### 6.4 回复规则
+
+- 回复正文最长 1000 字（对应 `reply varchar(1000)`）
+- `reply_time` 用 **Java `LocalDateTime.now()`** 传参，不用 MySQL `NOW()`（时区坑）
+- 一条评价**只保留一条回复**：再次回复 = 覆盖旧回复 + 刷新 `reply_time`。
+  不做多条回复/追问流（需求没定义，且评价回复在电商里通常是单轮）。
+- 真实评价被删除（`is_deleted=1`）后不允许再回复；已回复的保留在库里。
+
+### 6.5 隐藏 / 显示
+
+- 就是 `status` 的 1 ↔ 0 切换
+- 已删除的评价不允许再切状态
+- **本次补了 C 端读取接口后，这个功能立刻有实际效果**（见第 8 节）
+
+### 6.6 逻辑删除
+
+- `is_deleted = 1`，**不物理删**（跟全库一致）
+- 跟 `products` / `orders` / `admin` 一样，删除后列表查不到
+- 是否要「恢复」？需求没提 → **本次不做**（要做得另加接口）
+- 买家端 `findByOrderId` 已带 `is_deleted = 0`，所以后台删了评价，
+  **买家端「该订单已评价」的判断不受影响**（仍然算已评价，不能重复评价）—— 这是合理的：
+  评价存在过，只是后台隐藏/删除了。
+
+---
+
+## 7. 后台前端
+
+### 7.1 新建文件
+
+```
+e-commerce/src/api/review.js                       API 层
+e-commerce/src/pages/orders/review/ReviewList.vue      列表页（挂订单管理）
+e-commerce/src/pages/orders/review/ReviewEditModal.vue  虚拟评价新增/编辑弹窗
+```
+
+### 7.2 列表页写法（照 `PromotionList.vue`，那是最新的干净写法）
+
+- 表格用 **`:columns` + `#bodyCell` slot**（不是老式 `<a-table-column>` 逐列展开）
+- 分页用 **table 自带**（`:pagination="pagination"` + `@change="handleTableChange"`），**不加单独的 `a-pagination`**
+- 筛选区 `a-form layout="inline"`：商品名 + 订单号 + 星级下拉 + 类型下拉 + 显示状态下拉 + 日期区间
+  - 日期区间用现成组件 `src/components/date-range-select.vue`，或裸 `a-range-picker`（`AfterSaleList.vue:13-17` 有现成写法）
+- 加载用 `onMounted` + `onActivated`（keep-alive 场景每次进入刷新）
+- 搜索时 `pagination.current = 1`
+
+### 7.3 虚拟评价的醒目标识（Q2 落地之一）
+
+后台列表必须让运营一眼分清虚拟评价：
+
+- 「类型」列：`isVirtual=1` 显示 `<a-tag color="purple">虚拟</a-tag>`，`0` 显示 `<a-tag color="blue">真实</a-tag>`
+- 「创建人」列显示 `created_by_name`（虚拟评价的造评价人），真实评价该列为「—」
+- C 端每条虚拟评价带「系统评价」标签、昵称显示「系统」（见 8.2 / 8.3）
+
+> **v3 实现**：原方案里的「商品名加（系统评价）前缀」和「列表顶部常驻提示语」**没做**——
+> 后台已有「类型」列 + 「创建人」列，运营能直接分辨；顶部提示语是纯文案，随时可加。
+> C 端的「系统评价」标签是**必须项**（合规区分标注），已实现。
+
+### 7.4 按钮权限
+
+用现成的 `v-permission` 指令（`src/directives/permission.js`，已在 `main.js` 注册）：
+
+```vue
+<a-button v-permission="'product:review:add'" type="primary" @click="openCreate">新增虚拟评价</a-button>
+<a-button v-permission="'product:review:edit'" v-if="record.isVirtual === 1"
+          size="small" @click="openEdit(record)">编辑</a-button>
+<a-popconfirm title="确定删除该评价？" @confirm="handleDelete(record)">
+  <a-button v-permission="'product:review:remove'" size="small" danger>删除</a-button>
+</a-popconfirm>
+```
+
+**真实评价的「编辑」按钮要额外 `v-if="record.isVirtual === 1"` 隐藏**（后端也会拦，双保险）。
+
+> **v3 实现**：编辑按钮用的是 `:disabled="record.isVirtual !== 1"`（**禁用而非隐藏**）——
+> 保留按钮能让运营一眼看到「这条也能编辑，只是被锁了」，比直接消失更可解释；
+> 点它时前端再 `message.warning('买家真实评价不可编辑')` 兜一道，**最终拦截在后端**（400）。
+> 删除按钮走 `Modal.confirm` 二次确认（项目里 `a-popconfirm` 用得少，`Modal.confirm` 更一致）。
+
+### 7.5 导出按钮
+
+全项目现成样板只有一处：`src/pages/workplace/Workplace.vue:158-182`。
+注意**不是 `window.open`**，是 blob 下载：
+
+```js
+const res = await exportReviews(query)
+const blob = new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' })
+const url = URL.createObjectURL(blob)
+const link = document.createElement('a')
+link.href = url
+link.download = `商品评价_${dayjs().format('YYYYMMDD')}.xlsx`
+document.body.appendChild(link); link.click(); document.body.removeChild(link)
+URL.revokeObjectURL(url)
+```
+
+API 层要 `responseType: 'blob'`：
+```js
+export function exportReviews(params) {
+  return axios.get('/api/admin/reviews/export', { params, responseType: 'blob' })
+}
+```
+
+⚠️ **已知坑**：`src/api/request.js:38-68` 的响应拦截器对 blob 响应的错误处理不友好，
+导出接口 4xx 时前端拿到的是一坨二进制。建议在 api 层判断
+`res.data.type.includes('json')` 时读出 message 提示，否则当文件下载。
+
+### 7.6 路由
+
+`src/router/index.js`，在 `/orders` 的 children 里加一条
+（`path: 'review'` 拼出来就是 `/orders/review`，与 `admin_menu.path` 一致）：
+
+```js
+{
+    path: 'review',
+    name: 'Review',
+    meta: { title: '商品评价', permission: 'product:review:list' },
+    component: () => import('@/pages/orders/review/ReviewList.vue')
+}
+```
+
+### 7.7 图片上传
+
+虚拟评价的晒图走现成的 `/api/admin/upload?type=review`（`a-upload` + `:before-upload`），
+**接上 `compressImage(file, getImageSpec('review'))`** —— 后台已有统一的图片规格压缩机制
+（`e-commerce/src/utils/image-spec.js`）。
+
+> **v3 实现**：`image-spec.js` 已补 `review` 档 —— `{ maxEdge: 800, fit: 'contain' }`
+> （**不是**与 `after-sale` 同档 1200：评价晒图展示位只有 ~100px 缩略，最长边 800 足够）。
+> 另外 `product-service` 的 `AdminUploadController` 也要给 `type=review` 放行权限，
+> 已加 `case "review" -> List.of("product:review:add", "product:review:edit")`。
+
+---
+
+## 8. C 端评价展示（Q1 = 需要，本次补）
+
+### 8.1 C 端接口（order-service）
+
+| # | 方法 | 路径 | 说明 |
+|---|---|---|---|
+| 1 | GET | `/api/reviews/product/{productId}` | 该商品的可见评价（分页 page/pageSize） |
+| 2 | GET | `/api/reviews/product/{productId}/summary` | 评价统计（总数/平均分/好评率/星级分布/有图数） |
+
+**为什么路径是 `/api/reviews/...` 而不是 `/api/products/{id}/reviews`**：
+网关的 product-service 规则是 `Path=/api/products,/api/products/**`，
+且这条规则**排在 order-service 前面**，写 `/api/products/{id}/reviews` 会被 product-service 抢走，
+而评价表在 order-service，走不通。所以用 `/api/reviews/product/{productId}`，网关加一行即可。
+
+**Controller**：新建 `ProductReviewController`（`@RequestMapping("/api/reviews")`）。
+与现有 `ReviewController`（`/api/orders`，负责**写**评价）职责分开：
+**`/api/reviews` = 读评价，`/api/orders/{id}/review` = 写评价**。
+
+**SQL**：
+
+```sql
+SELECT r.id, r.rating, r.tag, r.content, r.images, r.created_at,
+       r.reply, r.reply_time, r.is_virtual,
+       u.name AS user_name, u.avatar AS user_avatar
+FROM product_reviews r
+LEFT JOIN `user` u ON u.id = r.user_id
+WHERE r.product_id = #{productId} AND r.is_deleted = 0 AND r.status = 1
+ORDER BY r.created_at DESC, r.id DESC
+LIMIT #{offset}, #{pageSize}
+```
+
+**C 端 VO（`ReviewDetailVO`）字段**：
+
+```
+id, rating, tag, content, images, createdAt,
+userName, userAvatar, reply, replyTime, isVirtual
+```
+
+- **只返回 `status=1` 且 `is_deleted=0`** → 后台隐藏/删除立刻在 C 端生效（这就是 visible 的闭环）
+- **不返回 orderId / orderNo / userId** → 不泄露订单号、不暴露用户 id
+- 虚拟评价：`userName = "系统"`，`userAvatar = null`（前端不显示头像）
+- **昵称脱敏**：`user.name` 如果是 11 位纯数字（被填成手机号），后端打码成 `138****8000`
+
+**Summary VO（`ReviewSummaryVO`）**：
+
+```
+totalCount, avgRating, goodRate, withMediaCount,
+fiveStar, fourStar, threeStar, twoStar, oneStar
+```
+
+- `avgRating`：全部可见评价的平均分（保留 1 位小数）
+- `goodRate`：4~5 星占比（0~1），前端乘 100 显示
+- `withMediaCount`：带图/视频的评价条数（**含视频**，不是只数图片）
+- 星级分布用**扁平字段**（fiveStar…oneStar）而不是 map，前端直接取，不用遍历
+- **没有 `realCount` / `virtualCount`** —— C 端刻意不暴露「有几条是系统评价」这个总数，
+  但每条评价自己带 `isVirtual` 标记 → 前端打「系统评价」标签（合规要求的区分标注）
+
+### 8.2 小程序商品详情页
+
+**文件**：`e-commerce-uniapp/pages/goods/detail.vue`
+
+- **插入位置**：**「商品参数」section 之前**（现有结构：cover → info-card → assurance-row → quantity-row →
+  insurance-section → specs-section → body-section，评价 section 插在 insurance-section 与 specs-section 之间）
+
+  **→ 详情页三块顺序定为：商品评价 → 商品参数 → 图文详情**（决策 → 确认 → 展开）。
+  评价放最上面是因为它是社会认同信号、影响跳出率；参数扫一眼就过；图文详情是最费时间的兜底内容，
+  放最后。同理 PC 商城按这个顺序（见 8.3）。
+- **新建** `e-commerce-uniapp/api/review.js`：
+  ```js
+  export function getProductReviews(productId, page = 1, pageSize = 10) {
+    return request(`/api/reviews/product/${productId}?page=${page}&pageSize=${pageSize}`)
+  }
+  export function getReviewSummary(productId) {
+    return request(`/api/reviews/product/${productId}/summary`)
+  }
+  ```
+- **新建** `e-commerce-uniapp/utils/review-media.js`：
+  `parseReviewMedia(images)` 解析 `images` JSON 字符串 → 数组（解析失败安全返回 `[]`），
+  `reviewMediaUrl(url, baseUrl)` 拼 `BASE_URL`（照 `pages/order/review.vue` 的 `mediaUrl()` 写法，
+  小程序把 `/` 当包内路径，必须补绝对地址），并区分 `type==='video'` / `'image'`
+- **展示要素**：
+  - 头部：「用户评价（128）」+ 平均分「4.8」+ 好评率「98%」
+  - 每条：昵称（虚拟评价显示「系统」+ **「系统评价」灰色标签**）+ 星级 + 内容 + 标签 + 晒图九宫格 / 视频 + 时间
+  - 商家回复：缩进一条，前缀「商家回复：」
+  - **视频**：一条评价最多一个视频 → 单独一行 `<video controls>`（视频不进图片九宫格）
+  - 无评价：空态「暂无评价」
+  - **默认只展开前 3 条** + 「查看全部评价」按钮 → 点开就展开全部（本次一次拉 20 条，不做翻页请求）。
+    理由：评价区现在排在详情页最前面（第一屏位置），一上来铺 20 条会把图文详情顶到很下面，
+    等于把黄金位置让给了评价
+  - **不做 `onReachBottom` 无限滚** —— 商品详情页已有其它滚动逻辑，用「查看全部评价」按钮更可控，
+    也避免和现有 `onReachBottom` 冲突
+- **虚拟评价的标签样式**：浅灰底 + 小字「系统评价」，与真实评价的昵称区分开
+
+### 8.3 PC 商城商品详情页
+
+**文件**：`ecommerce-mall/src/views/products/ProductDetail.vue`
+
+- **插入位置**：`main-col` 里 **gallery 之后、「商品参数」section 之前**
+  （现有结构：gallery → specs-section → main-col 结束）
+- **⚠️ 顺带补「图文详情」渲染**：PC 商城商品详情页**目前根本没渲染图文详情 body** ——
+  `ProductDetail.vue:883-889` 有 `.detail-body` 的 CSS，但模板里没有对应 DOM，body 只被拿去解析图集
+  （`ProductDetail.vue:56-62`）。按「评价 → 参数 → 图文详情」的顺序，PC 商城要跟小程序对齐就得补上。
+
+  补法（全部有现成物，照抄即可）：
+  - 模板加 `<section class="detail-body" v-html="body"></section>`
+  - `v-html` 写法与 `src/views/article/ArticleDetail.vue:43` 一致（文章详情已经这么渲染富文本，是既有做法）
+  - `.detail-body` 的 CSS **已经写好了**（`ProductDetail.vue:883-889`），不用新写
+  - 图片懒加载**已经处理好了**：`ProductDetail.vue:117-118` 已经把 body 里的 `<img` 批量加上 `loading="lazy"`
+  - ⚠️ `v-html` 不过滤标签（微信 `rich-text` 会过滤）。body 是**后台运营录入**的富文本，不是用户输入，
+    风险可控；但建议顺手在渲染前剥掉 `<script>` / `<iframe>` / `on*` 事件属性，与后台录入侧的管理员权限配套
+- **新建** `ecommerce-mall/src/api/review.js`：
+  ```js
+  export const getProductReviews = (id, params) => request.get(`/reviews/product/${id}`, { params })
+  export const getReviewSummary = (id) => request.get(`/reviews/product/${id}/summary`)
+  ```
+  ⚠️ mall 的 request baseURL 是 `/api`（同源代理到网关），照 `src/api/product.js` 的写法对齐
+- **组件**：用 Element Plus 现成件
+  - `el-rate`（只读 `:disabled`）、`el-image`（`:preview-src-list` 预览）
+  - 「系统评价」标签用**自定义 span**（`.review-virtual`）而不是 `el-tag` —— 商城整体是自绘样式，
+    `el-tag` 的圆角/配色跟周围不搭；不用 `el-avatar`（同理由，头像位置用昵称文字）
+  - 好评率 / 平均分用**纯文本 + CSS 条形图**（`.score-bars`），不用 `el-progress`
+  - 空态用 `v-if="reviewTotal > 0"` 直接**整块不渲染**（不用 `el-empty`）
+- **图片预览**：评价晒图用 `el-image` 自带的灯箱（`:preview-src-list` + `preview-teleported`），
+  **不复用**商品图集的 `el-image-viewer`（那套 `allImages` 是商品图集，评价图要独立数组）
+- **图片 URL**：商城是同源，`/image/review/xxx.png` 直接可用（nginx `extension/xiaojiecpn.com/mall.conf` 已把 `/image` 代理到网关）
+- **视频**：一条评价最多一个视频 → 单独一行 `<video controls preload="none">`；
+  视频**不进**图片九宫格（`<img>` 播不了 mp4）
+
+### 8.4 C 端合规要点（Q2 落地之二）
+
+1. **虚拟评价在 C 端必须标注「系统评价」**，与真实买家评价视觉区分 —— 这是《网络交易监督管理办法》
+   对「系统评价」的展示要求，也是唯一能让虚拟评价不构成虚假宣传的做法
+2. **虚拟评价与真实评价混排**（按时间倒序），不打散重排 —— 混排才能起到补充评价的作用，
+   打标签满足区分标注要求
+3. **后台留存创建人**（`created_by` + `created_by_name`），谁造的虚拟评价可追溯
+4. 后台列表顶部常驻提示语（见 7.3）
+5. **建议**：虚拟评价数量在后台列表可见（「类型」列 + 「创建人」列能直接筛出来），
+   但 C 端不展示「其中 N 条为系统评价」这种总数，避免用户觉得被刷
+
+### 8.5 C 端其它约束
+
+- **免登录**：C 端接口放 `WebMvcConfig.EXCLUDE_AUTH_PATHS` 白名单（跟 `/api/banners/**` 一样），
+  未登录也能看评价
+- **性能**：商品详情页每次进入**并行**拉一次 summary + 一页评价（`page=1, pageSize=20`），
+  失败都 `.catch(() => null)` 兜住，**评价挂了不影响详情页其它内容**。
+  商品多、评价多的时候首屏会多 2 个请求 —— 可接受；若后续变慢，再考虑加 Redis 缓存
+  （评价更新频率低，缓存 5 分钟足够）
+- **空数据**：商品没有评价时，summary 返回 0 值而不是 null，前端直接判空渲染空态
+- **一次性拉 20 条 + 展示层只露 3 条**：接口一次给 20 条（够点开「查看全部评价」不用再请求），
+  页面默认 `visibleReviews` 只取前 3 条，避免评价区在详情页最上面（一上来就铺 20 条会把图文详情顶没）
+
+---
+
+## 9. 网关与部署
+
+### 9.1 网关路由（必改，否则调不通）
+
+`gateway/src/main/resources/application.yml`：
+
+**order-service 那条**的 `Path` 列表加：
+
+```
+/api/admin/reviews,/api/admin/reviews/**,/api/reviews,/api/reviews/**
+```
+
+> 不加的话 `/api/admin/reviews` 会被兜底的 `/api/**` 规则转给 user-service → 404；
+> `/api/reviews` 同理。
+
+### 9.2 发布顺序
+
+```
+1. 执行 SQL（本地 ✅、生产 ✅，见 9.3 节）
+   docs/sql/review/01-admin-review-schema.sql   # 加 4 列 + 2 索引
+   docs/sql/review/02-admin-review-menu.sql     # 菜单 + 角色授权
+   生产执行前先 ./deploy/backup-prod-db.sh 备份，脚本经 stdin 管道导入，服务器不落文件
+2. ./deploy/release.sh order-service     # 后端（后台接口 + C 端接口）
+3. ./deploy/release.sh gateway           # 网关路由
+4. ./deploy/release-web.sh               # 后台前端（含本次之前待发的图片压缩改造）
+5. ./deploy/release-mall.sh              # PC 商城
+6. 小程序 HBuilderX 重新构建上传 dist/build/mp-weixin
+```
+
+网关必须在 order-service 之后（或至少同时）发，否则中间有一段时间后台和 C 端都 404。
+
+> **v3 现状**：本地 SQL 已执行并校验通过；后端两个服务已编译通过；后台前端 / PC 商城 / 小程序均构建通过。
+> **生产发布已完成（2026-11-02）**，逐项记录见 **9.3 节**。
+
+### 9.3 生产发布记录（2026-11-02，已完成）
+
+**数据库**（生产 MySQL 5.7.44）
+
+| 步骤 | 结果 |
+|---|---|
+| 备份 | `/www/backup/e_commerce_db_2026-11-02_1227.sql`（302K，脚本自校验 `Dump completed` 通过） |
+| `01-admin-review-schema.sql` | ✅ 加 4 列（`reply` / `reply_time` / `is_virtual` / `created_by`）+ 2 索引（`idx_review_admin` / `idx_review_product_show`） |
+| `02-admin-review-menu.sql` | ✅ 菜单 202「商品评价」挂 parent_id=3（订单管理，与 200 订单列表 / 201 发货管理 同级，sort_order=3）+ 按钮 230~234；`admin_role_menu` 给 role 2（运营）全授权、role 3（客服）菜单 + 回复 |
+| 生产数据核对 | `product_reviews` 3 条，`is_virtual` 全为 0、`created_by` 全 NULL（**无需回填**） |
+
+> 两份 SQL 都经 **stdin 管道**导入，生产机**不落文件**；备份先行。
+
+**服务与前端**
+
+| 步骤 | 产物 | 结果 |
+|---|---|---|
+| `./deploy/release.sh order-service` | `20261102-83aa72c-dirty` | ✅ 容器 running |
+| `./deploy/release.sh gateway` | `20261102-83aa72c-dirty` | ✅ 容器 running |
+| `./deploy/release-web.sh` | 后台 dist（`index-87362cae.js`，ReviewList 14.56 kB） | ✅ → `/www/wwwroot/jiemids.com` |
+| `./deploy/release-mall.sh` | 商城 dist | ✅ → `/www/wwwroot/xiaojiecpn.com` |
+| 小程序 HBuilderX 编译 | `unpackage/dist/build/mp-weixin`（12:55） | ✅ 编译成功；**微信开发者工具自动拉起失败**（`cli.bat` 不在 PATH），需人工导入上传 |
+| product-service | 生产镜像 `20261102-83aa72c`（= HEAD，**未重发**） | 本模块后端在 order-service，无需重发；但 `AdminUploadController` 的 `case "review"` 一行**未上线** → 线上晒图上传走 `default` 分支要 `product:product:add`（运营角色本来就有，**功能不受影响**），随下次发版顺带补上 |
+
+> **后台前端这次同时带上了阶段 27 的图片压缩改造**（同一份 dist）。
+
+**生产验证（全部只读，输出脱敏）**
+
+| 检查 | 结果 |
+|---|---|
+| `GET /api/reviews/product/7`（免登录，过网关） | ✅ 200，返回真实评价；VO 无 `orderId`/`orderNo`/`userId` ✅、有 `isVirtual` ✅、有 `reply` ✅ |
+| `GET /api/reviews/product/7/summary` | ✅ 200，字段 `avgRating/goodRate/withMediaCount/fiveStar…oneStar/totalCount`；**无** `realCount`/`virtualCount` ✅ |
+| 商城同源代理 `www.xiaojiecpn.com/api/reviews/product/7` | ✅ 200 |
+| 后台列表 `GET /api/admin/reviews`（超管） | ✅ 200，3 条；字段含 `orderNo` / `createdByName` / `reply` / `isVirtual` / `statusDesc` |
+| 筛选：keyword / rating / isVirtual / visible / 时间区间 | ✅ 各自生效（keyword 3→1 条） |
+| 筛选：orderNo | ✅ 精确匹配 1 条、截断匹配 1 条、不存在 0 条（LEFT JOIN `orders` 生效） |
+| 详情 `GET /api/admin/reviews/1` | ✅ 200；`/999` → ✅ 404「评价不存在」 |
+| 导出 `GET /api/admin/reviews/export` | ✅ 200，**魔数 `PK\x03\x04`（真 xlsx）**，3997 字节 |
+| 权限：无 `product:review:*` 的令牌 | ✅ **403**「无权访问该功能」 |
+| 后台 SPA 路由 `www.jiemids.com/orders/review` | ✅ 200 |
+| 商城 `www.xiaojiecpn.com/product/7` | ✅ 200 |
+
+**未在生产验证的**（需人工/真机）
+
+- 后台页面**交互**（回复 / 隐藏 / 删除 / 新增虚拟评价）—— 生产上是真实买家评价，
+  写操作会改线上数据，**故意没跑**；这些路径已在本地全链路实测通过（第 10 节）。
+- Excel 打开后的实际排版（只验了文件头是合法 xlsx）。
+- 小程序真机渲染（评价区、晒图预览、视频播放）。
+- 运营账号登录后「订单管理 → 商品评价」菜单的实际可见性（库里权限已确认，页面侧需人眼确认）。
+
+---
+
+## 10. 验证清单
+
+> **v3 状态**：✅ = 本地已实测通过（2026-11-02，order-service 直连 :9004 + 本地 MySQL）；
+> ✅生产 = 在**生产环境**只读验证通过；⬜ = 代码已实现，但**未实测**（需要真实角色账号 / 真机 / Excel 打开 / 写操作），待人工补验。
+
+### 10.1 后台
+
+| # | 场景 | 期望 | 状态 |
+|---|---|---|---|
+| 1 | 列表默认加载 | 返回全部未删除评价，含虚拟/真实、含订单号/用户昵称/创建人 | ✅ 本地 + **✅生产**（3 条，字段含 `orderNo`/`createdByName`/`reply`/`isVirtual`） |
+| 2 | 按商品名筛 | 模糊匹配，命中 | ✅ 本地 + **✅生产**（keyword 3→1 条） |
+| 3 | 按订单号筛 | LEFT JOIN orders 生效，虚拟评价订单号显示「—」且筛不出来 | ✅ 本地 + **✅生产**（精确 1 / 截断 1 / 不存在 0） |
+| 4 | 按星级 / is_virtual / visible / 时间区间筛 | 各自生效，区间含首尾 | ✅ 本地 + **✅生产**（四类筛选各自生效） |
+| 5 | 真实评价点编辑 | 前端按钮禁用；**直接调后端 PUT 返回 400「买家真实评价不可编辑」** | ✅ |
+| 6 | 虚拟评价编辑 | 内容/星级/标签/图片都能改，`updated_at` 刷新 | ✅ |
+| 7 | 新增虚拟评价 | 成功，`is_virtual=1`、`order_id=0`、`created_by`=当前管理员、`product_name/image` 由后端从 products 取 | ✅ |
+| 8 | 新增虚拟评价传不存在的 product_id | 400「商品不存在，无法创建评价」 | ✅ |
+| 8b | 星级越界 / 内容不足 5 字 | 400（「请选择 1~5 星评分」/「评价内容至少 5 个字」） | ✅ |
+| 9 | 回复评价 | `reply` + `reply_time` 写入，`reply_time` 与库里其它时间口径一致（不差 8 小时） | ✅ |
+| 10 | 再次回复 | 覆盖旧回复，刷新 reply_time，不产生第二条 | ✅ |
+| 10b | 空回复 | 400「回复内容不能为空」 | ✅ |
+| 11 | 隐藏 / 显示 | `status` 在 1/0 间切换 | ✅ |
+| 12 | 逻辑删除 | 列表查不到；买家端「该订单已评价」仍生效（不能重复评价） | ✅（删除后详情 404、C 端不显示） |
+| 13 | 导出 | Excel 能打开，列齐全，中文不乱码；筛选条件生效；超 5000 条截断 | ⬜ **✅生产已验「真 xlsx」**（魔数 `PK\x03\x04`、3997 字节），**仍未用 Excel 打开看内容** |
+| 14 | 导出 4xx | 前端能读到可读错误提示，不是下载一坨二进制 | ⬜（前端做了 blob/json 判断，未实测 4xx 分支） |
+| 15 | 权限 | 无 `product:review:*` 的账号调接口返回 403；有 `*:*:*` 的超管正常 | ✅ **✅生产已验 403「无权访问该功能」**（无权限令牌 vs 超管 `*:*:*`） |
+| 16 | Excel 公式注入 | 内容以 `=` 开头的，导出的单元格不会执行 | ⬜（已实现 `escapeFormula` 前缀 `'`，未实测） |
+| 17 | 买家提交评价 | 流程完全不受影响（`ReviewServiceImpl` 提交逻辑一行没动） | ✅（代码层面确认未改写入路径） |
+| 18 | 前端菜单 | 运营角色登录能看到「订单管理 → 商品评价」，点得进去不被守卫跳走 | ⬜（**✅生产**：菜单 202 + 按钮 230~234 + role 2/3 授权**已入库**、SPA 路由 `www.jiemids.com/orders/review` 200；**登录实机人眼确认待补**） |
+
+### 10.2 C 端
+
+| # | 场景 | 期望 | 状态 |
+|---|---|---|---|
+| 19 | 商品详情页有评价 | 显示评价条数/平均分/好评率/评价列表/商家回复 | ✅ 接口层 + **✅生产已验**（`/api/reviews/product/7` 200）+ ⬜（真机渲染） |
+| 20 | 商品没有评价 | 显示空态「暂无评价」，不报错 | ✅（summary 返回 0 值，不返回 null） |
+| 21 | 后台隐藏一条评价 | C 端刷新后**这条立刻不显示**（visible 闭环验证） | ✅ |
+| 22 | 后台删除一条评价 | C 端不显示 | ✅ |
+| 23 | 虚拟评价在 C 端 | 显示「系统评价」标签、昵称显示「系统」、无头像 | ✅（后端返回 userName=「系统」/avatar=null + isVirtual，前端按 isVirtual 打标签） |
+| 24 | 真实评价在 C 端 | 显示真实昵称 + 头像，**无「系统评价」标签** | ✅ |
+| 25 | 评价里带视频 | 小程序 `<video>` 能播，PC 商城 `<video>` 能播 | ✅ 代码已实现（一条评价最多一个视频，单独一行播放器），两端均已构建并发版；⬜ 本地/生产都**无带视频的数据，真机未播过** |
+| 26 | 评价晒图 | 小程序能预览、PC 商城能点开大图 | ⬜（同上，需带图评价才能验） |
+| 27 | 未登录看商品详情 | 能看到评价（免登录白名单生效） | ✅（免鉴权直调 C 端接口成功）+ **✅生产过网关免登录 200** |
+| 28 | C 端接口**不返回** | 不返回 orderId / orderNo / userId | ✅（VO 字段核对）+ **✅生产响应体核对 PASS** |
+| 29 | 昵称是手机号 | C 端显示脱敏（`138****8000`） | ✅（`maskUserInfo` 正则 `1\d{10}`） |
+| 30 | 评价分页 | 「查看全部评价」后能展开，无重复无遗漏 | ✅（分页 SQL 验证，一次拉 20 条）+ **✅生产 `page=1&pageSize=20` 生效** + ⬜（前端「查看全部」展开交互未实测） |
+| 31 | **详情页三块顺序** | 小程序与 PC 商城都是 **商品评价 → 商品参数 → 图文详情** | ✅（模板已按此顺序插入） |
+| 32 | 评价区默认体量 | 默认只展开前 3 条 + 「查看全部评价」，不是一上来铺 10 条 | ✅（`visibleReviews` slice(0,3)） |
+| 33 | **PC 商城图文详情** | 补上后 body 富文本正常渲染，图片懒加载生效 | ✅（DOM 已补，`v-html` 照 `ArticleDetail.vue` 既有写法） |
+| 34 | 小程序图文详情 | 原有 rich-text 渲染不受影响（评价区是新增的独立 section） | ✅（SFC 编译通过，原 rich-text 未动） |
+
+### 10.3 构建验证（已通过）
+
+| 项 | 结果 |
+|---|---|
+| `mvn -pl order-service -am compile` | ✅ |
+| `mvn -pl product-service -am compile` | ✅ |
+| 后台前端 `npx vite build` | ✅（ReviewList 14.36 kB） |
+| PC 商城 `npx vite build` | ✅ |
+| 小程序 SFC 解析 + 模板编译（`@vue/compiler-sfc`）+ `node --check` | ✅ |
+| 本地 SQL 执行 + 两条校验 SELECT | ✅ |
+| **生产构建/发布**（2026-11-02） | ✅ order-service + gateway 镜像 `20261102-83aa72c-dirty`；后台 `index-87362cae.js`；商城 dist；小程序 HBuilderX 12:55 导出 `unpackage/dist/build/mp-weixin` |
+
+---
+
+## 11. 相邻问题登记（本次发现但不改）
+
+| # | 问题 | 说明 |
+|---|---|---|
+| 1 | ~~PC 商城商品详情页没渲染图文详情 body~~ → **本次已修** | `ProductDetail.vue` 有 `.detail-body` 的 CSS（883/889 行）但模板里**没有对应 DOM**，body 只被用来解析图集（`detail.vue:56-62`）。按「评价 → 参数 → 图文详情」的顺序，本次在加评价区时**一并补上**（写法照 `ArticleDetail.vue:43` 的 `v-html`，CSS 和图片懒加载都现成） |
+| 2 | 虚拟评价**不能**挂到已下架/已删除的商品 | 新增时只校验商品存在，不校验上架状态 —— 建议允许（运营要给下架商品补评价）。**本次维持「只校验存在」** |
+| 3 | 评价不能按用户筛选 | 需求没提；`userId` 参数**本次没有实现**（原方案写「VO 预留」，实际连 VO 字段也没放），前端也没放筛选控件 |
+| 4 | ~~评价不能删除~~ → **本次已实现** | 原始需求没写删除入口，但**附录 A 原文第 2 条明确列了「逻辑删除」**，属于需求范围内 → 已实现：<br>· 后端 `DELETE /api/admin/reviews/{id}`（权限码 `product:review:remove`）<br>· 逻辑删除 `is_deleted=1`，**不物理删**<br>· 菜单按钮 233「评价删除」+ 前端 `Modal.confirm` 二次确认<br>· 已实测：删除后详情 404、C 端不再展示 |
+| 5 | 评价**不能恢复** | 逻辑删除后没有「恢复」接口（需求没提）→ 误删只能从数据库捞。**本次不做**，要做得另加接口 |
+
+---
+
+## 12. 风险
+
+| 风险 | 影响 | 处置 |
+|---|---|---|
+| ~~生产库 ALTER 现状未知~~ → **已确认** | — | 2026-11-02 实测：生产与本地结构一致、从未 ALTER 过；脚本幂等（先查 information_schema），本地+生产各跑一次 |
+| 生产库和本地库 `product_reviews` 结构不一致 | 后台列表少字段 | 加列后跑 `docs/sql/check-local-prod-parity.sql` 核对 |
+| C 端接口未加免登录白名单 | 未登录用户看商品详情报 401 | 加进 `WebMvcConfig.EXCLUDE_AUTH_PATHS` |
+| 网关路由漏加 | 后台 + C 端全 404 | 发布后立刻用 curl 验 `GET /api/reviews/product/1` |
+| 虚拟评价被当成真实好评 | 合规风险（《网络交易监督管理办法》禁止虚构交易/评价） | C 端强制「系统评价」标签 + 后台留痕 + 后台常驻提示 |
+| 小程序评价区加了之后详情页变慢 | 首屏变慢 | 评价区排在最前面，所以**首屏只拉 3 条 + 1 个 summary**；后续再考虑缓存 |
+
+---
+
+## 13. Q5 结论（已确认）
+
+### 生产库 `product_reviews` 现状 —— 2026-11-02 实测
+
+用户提供的生产执行结果（`SHOW COLUMNS FROM e_commerce_db.product_reviews`）：
+
+```
+id, order_id, user_id, product_id, product_name, product_image,
+rating, tag, content, images,
+status, is_deleted, created_at, updated_at
+```
+
+**与本地库结构完全一致**，确认：
+
+| 结论 | 影响 |
+|---|---|
+| 生产库**从未 ALTER 过** | 原始需求第 3 条「已经 ALTER」确认为错误前提；4 列全部要新加 |
+| `status` / `is_deleted` / `updated_at` 生产本地都有且语义一致 | **复用方案在生产库同样成立**，不需要加 `visible` / `del_flag` / `update_time` |
+| 生产是 **MySQL 5.7**（列宽显示 `bigint(20)` / `tinyint(4)`） | 脚本**不能用** `ADD COLUMN IF NOT EXISTS`，必须用 `information_schema` 幂等写法（第 3.1 节已按此写） |
+
+→ **按第 3 节脚本，本地 + 生产各跑一次**，跑完用
+`docs/sql/check-local-prod-parity.sql` 核对两边结构一致。
+
+### 待确认的小尾巴（不影响开工）
+
+生产 `product_reviews` 里**有没有数据**、有几条，本地是 2 条（都是买家真实评价，`status=1`）。
+- 若生产也有数据 → 加列后历史数据的 `is_virtual` 自动为 0、`created_by` 为 NULL，**无需回填**
+- 建议顺手跑一句 `SELECT COUNT(*) FROM e_commerce_db.product_reviews;` 对一下两边条数
+
+---
+
+## 附录 A：原始需求原文
+
+> 1. 小程序评价提交接口已经完成，ReviewServiceImpl 负责买家提交评价，存入ProductReview。
+> 2. ProductReview现有字段：id,orderId,userId,productId,productName,productImage,rating,tag,content,images媒体JSON,createdAt
+> 3. 已经ALTER表新增字段：reply、reply_time、visible、is_virtual、update_time、del_flag逻辑删除。
+>
+> 现在开发【后台商品评价管理模块】，要求：
+> 1. 新建 AdminReviewService，和小程序端ReviewService职责隔离，不要修改原有买家提交评价逻辑。
+> 2. 后台接口：分页列表、新增虚拟评价、编辑评价、回复评价、切换显示状态、逻辑删除、导出Excel。
+> 3. 核心业务约束：is_virtual=0 买家真实评价，禁止编辑评价内容；is_virtual=1虚拟评价允许编辑；所有评价都可以回复、隐藏、删除。
+> 4. 分页查询支持筛选：商品名称、订单号、星级、is_virtual、visible、创建时间区间。

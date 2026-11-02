@@ -375,6 +375,7 @@ ecommerce
   | `upload` 商品主图 | 800×800 | contain + 白底 | 与 python 脚本 `to_square()` 口径一致（历史 136 个商品图同规格） |
   | `body` 正文图 | 最长边 1200 | contain | 富文本满宽展示 |
   | `after-sale` 凭证图 | 最长边 1200 | contain | 列表缩略 88px，但点开预览要看清晰 |
+  | `review` 评价晒图 | 最长边 800 | contain | 详情页缩略图只有 ~100px，点开看大图，800 足够 |
 
 - **两种适配**：`cover` = 填满目标画幅、按较大缩放比裁掉多余部分、裁切居中（画幅正确优先）；`contain` = 等比缩放塞进目标画布、居中留白、不裁不放大（照片类不能裁内容）。
 - **统一输出 webp**（quality 0.82）：同画质比 jpeg 小约 30%，且**保留 PNG 透明通道**（转 jpeg 会把分类图标这类透明图压成黑底）。gif 跳过（webp 不支持动图）。浏览器不支持 webp 编码时 `toBlob` 会按规范静默回落成 `image/png` —— 必须校验 `blob.type`，否则会白传 png。
@@ -383,6 +384,74 @@ ecommerce
 - **后端只做体积兜底**（`UploadServiceImpl`）：图片 5MB / 视频 50MB，防绕过前端直传大图。**后端不做图像处理** —— 压缩全在前端 canvas，后端零图片依赖。
 - **C 端上传不重复造**：小程序 review / feedback / after-sale 走微信原生 `uni.chooseImage({sizeType:['compressed']})`，已经压过了。
 - **实测收益**：用现网那张 1200×1200 banner 编码实测，小程序首页位 58.2KB → 21.7KB，像素 144 万 → 28 万（解码内存 5.76MB → 1.1MB）。方形图裁进宽幅位是设计取舍，画幅正确比清晰度更重要。
+
+### 后台商品评价管理模块（2026-11-02）
+
+> 完整方案见仓库根目录 `review`（v3，已按实际实现回改）。这里只记**约定和坑**。
+
+- **表在 order-service**：`product_reviews` 属于订单域，`ProductReview` 实体 + Mapper + `ReviewService` 都在 order-service，
+  后台模块跟表在一起，不用跨服务调用。所有服务连同一个库 `e_commerce_db`，**join `orders`/`user`/`admin` 都合法**。
+- **复用同义列，别加重复字段**：`status`（1 显示 0 隐藏）就是需求里的 `visible`；
+  `is_deleted` 就是 `del_flag`；`updated_at` 就是 `update_time`。只新增 4 列：
+  `reply` varchar(1000) / `reply_time` datetime / `is_virtual` tinyint / `created_by` bigint。
+- **需求说「已 ALTER 过」是错的**：2026-11-02 核对本地与生产 `SHOW COLUMNS`，两边结构完全一致、从未 ALTER 过。
+  生产是 **MySQL 5.7**，不支持 `ADD COLUMN IF NOT EXISTS` → 脚本必须用 `information_schema` + `PREPARE/EXECUTE` 幂等写法。
+- **C 端路径不能挂 `/api/products/{id}/reviews`**：网关里 product-service 规则**排在 order-service 前面**，
+  会被抢走（评价表在 order-service，走不通）→ 用 `/api/reviews/product/{productId}`，
+  C 端路径**不要**以 `/api/products` 开头。
+- **真实评价「整条只读」**：Q4 拍板的不只是锁内容字段，而是**只能回复/隐藏/删除**，内容/星级/标签/图片一律不能改。
+  理由：事后改动买家原话等于伪造消费者评价，比隐藏更严重。
+  实现上**双保险**：Service 抛 400「买家真实评价不可编辑」 + SQL `WHERE id=# AND is_deleted=0 AND is_virtual=1`。
+  前端只是把按钮禁用，真正的拦截在后端。
+- **虚拟评价不挂真实订单/用户**：`order_id=0`、`user_id=0`、`created_by=admin.id`；
+  商品名与图**后端从 `products` 表快照取，不信任前端传值**。
+  安全前提：买家端防重复提交用 `findByOrderId`（`order_id >= 1`），`order_id=0` **永远不会撞上**。
+- **`created_by` 存的是 admin.id**，跟 C 端 `user.id` 是两套 ID 空间。
+  `UserContext.getUserId()` 在后台请求里就是 admin.id，在 C 端请求里是 user.id —— 同名不同义，别混用。
+- **一条评价只保留一条回复**：再次回复 = 覆盖旧回复 + 刷新 `reply_time`（不做多条回复/追问流）。
+  回复正文最长 1000 字（对应 `reply varchar(1000)`）。
+- **时间戳一律 Java 传参**（`LocalDateTime.now()`），**不要 MySQL `NOW()`** —— 服务器时区是 UTC，差 8 小时。
+  后台列表的日期区间筛选也照 `AdminOrderServiceImpl.parseDateTime()` 解析 `yyyy-MM-dd HH:mm`。
+- **后台列表筛选用 `<if>` 动态拼**：空值不拼条件（不是拼 `AND 1=1`）；`countAdmin` 与 `listAdmin` **必须同筛选条件**，
+  否则分页总数对不上。虚拟评价 `order_id=0` → LEFT JOIN orders 拿不到订单号，前端显示「—」，也筛不出来（符合预期）。
+- **C 端只返回 `status=1 AND is_deleted=0`** → 后台一隐藏/一删除，C 端立刻不显示（这就是「显示/隐藏」功能的闭环）。
+  买家端 `findByOrderId` 已带 `is_deleted=0`，后台删了评价**不影响**买家「该订单已评价」的判断（不能重复评价）—— 这是合理的。
+- **C 端必须脱敏昵称**：`user.name` 若是 11 位纯数字（被填成手机号），后端打码成 `138****8000`；
+  虚拟评价 `userName="系统"`、`userAvatar=null`、前端打「系统评价」标签（《网络交易监督管理办法》要求区分标注系统评价）。
+- **C 端不暴露「有几条是系统评价」**：Summary VO 里刻意**没有** `realCount`/`virtualCount`，
+  星级分布用扁平字段 `fiveStar…oneStar`（前端直接取，不用遍历 map）。
+- **详情页三块顺序（已定）**：**商品评价 → 商品参数 → 图文详情**。评价是社会认同信号、影响跳出率，放最前；
+  参数扫一眼就过；图文详情最费时间，放最后。小程序与 PC 商城一致。
+- **评价区默认只露 3 条**：接口一次拉 20 条（点开「查看全部评价」不用再请求），但展示层只 slice 前 3 条 ——
+  评价区排在详情页最前面，一上来铺 20 条会把图文详情顶没，等于把黄金位置让给评价。
+  不用 `onReachBottom`（商品详情页已有其它滚动逻辑）。
+- **一条评价最多一个视频** → 视频**不进**图片九宫格（`<img>` 播不了 mp4），单独一行 `<video controls>`；
+  后台列表的视频也不进缩略图，只标一个「含视频」标签。
+- **虚拟评价新增/编辑都只允许虚拟评价**：`product:review:add` / `product:review:edit`。
+  上传接口 `/api/admin/upload?type=review` 要给这两个权限（`AdminUploadController` 加 `case "review"`）。
+- **导出 Excel**：order-service 已依赖 `poi-ooxml`，不用加依赖。样板 `ReportServiceImpl.exportOperationReportByTemplate()`。
+  必做两件事：RFC 5987 文件名编码（中文名 + `filename*=UTF-8''`）、**公式注入防护**
+  （单元格以 `= + - @` 开头就加 `'` 前缀）。超过 5000 条截断。
+- **菜单与授权**：`admin_menu` id **202**「商品评价」挂 parent_id=3（订单管理），按钮 230~234；
+  `admin_role_menu` 给 role 2（运营）全授权、role 3（客服）只给菜单 + 回复。
+  **注意 `admin_menu` 表不驱动前端菜单渲染** —— 前端菜单是 `router/index.js` 静态表 + `buildMenu()` 按 `meta.permission` 过滤，
+  **两处都要改**，`path` 和 `perms` 必须一致，否则路由守卫会把页面直接跳走。
+- **免登录白名单**：C 端读接口放 `common/WebMvcConfig.EXCLUDE_AUTH_PATHS`（`/api/reviews`、`/api/reviews/**`）。
+- **踩坑**：Windows 的 mysql 客户端默认 GBK，导 UTF-8 的 SQL 要加 `--default-character-set=utf8mb4`；
+  Git Bash 的 curl 发中文 JSON 会变 GBK 触发「请求参数格式错误」，校验类接口用 Python `urllib`（UTF-8）调。
+  Vue 模板里 `:fallback` 这种**双引号属性里塞 `\"` 转义**会直接编译失败（Unterminated string constant），
+  SVG 占位图要放 script 级 `const` 再用 `:fallback="PLACEHOLDER"`。
+- **生产发布（2026-11-02，已完成）**：备份 `/www/backup/e_commerce_db_2026-11-02_1227.sql`（302K）→
+  两份 SQL 走 **stdin 管道**导入（服务器不落文件）→ `release.sh order-service` + `release.sh gateway`
+  （镜像 `20261102-83aa72c-dirty`）→ `release-web.sh`（`index-87362cae.js`）→ `release-mall.sh`
+  → 小程序 HBuilderX 12:55 导出 `unpackage/dist/build/mp-weixin`。
+- **`release.sh` 的 tag 后缀 `-dirty` 表示构建时工作区有未提交改动**：本次 order-service / gateway 带 `-dirty`
+  （评价模块的新文件还没提交），**product-service 生产镜像是 clean 的 `20261102-83aa72c`（= HEAD）**。
+  后果：`AdminUploadController` 加的 `case "review"` 分支**没上线**，线上走 `default` 分支要求 `product:product:add`
+  —— 运营角色本来就有这个权限，**功能不受影响**，只是权限口径不精确，下次发 product-service 顺带上。
+- **生产验证只做只读**：写操作（回复/隐藏/删除/新增虚拟评价）**故意不跑** —— 生产 `product_reviews` 是真实买家评价，
+  改线上数据不在授权范围；这些路径已在本地全链路实测。验证脚本只输出 HTTP 状态码、条数、**字段名列表**和
+  PASS/FAIL 布尔断言，**不打印客户昵称/订单号等业务数据**（订单号筛选用脚本现查一条真实 `order_no` 再比对）。
 
 ### 后台 RBAC P0（2026-10-30）
 - 表：`admin_role` / `admin_menu` / `admin_user_role` / `admin_role_menu`；`admin` 仍是账号表（没有 `admin_user`）。脚本 `docs/sql/rbac/01-rbac-schema.sql`，本地与生产均已执行（生产备份 `/www/backup/e_commerce_db_before_rbac_2026-10-30_1452.sql`）。

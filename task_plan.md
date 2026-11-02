@@ -425,6 +425,56 @@
 - [ ] **发布后清理旧素材**：现网那 2 张测试 banner（1200×1200）重新按新规格传一遍；旧文件 `upload/image/banner/` 下可删
 - [ ] 后台正式录素材：Banner 图按建议尺寸传（方形图传进宽幅位会被上下裁掉，运营需传宽幅图）
 
+### 阶段 28：后台商品评价管理模块 + C 端评价展示（2026-11-02，代码完成，已发布生产）
+
+> 起因：需求文档要求开发【后台商品评价管理模块】（查/新增虚拟/编辑/回复/隐藏/删除/导出 Excel），
+> 并补 C 端评价展示。方案与决策见仓库根目录 `review`（v3，已按实现回改）。
+> 5 个拍板：Q1 需要补 C 端展示、Q2 采纳合规建议、Q3 挂「订单管理」、Q4 真实评价整条只读、Q5 生产库结构已核对。
+
+- [✓] 需求与现状核查：需求说「已 ALTER 过」的 6 个字段**实际 3 个不存在**（`reply`/`reply_time`/`is_virtual`/`created_by`），
+  另外 3 个（`visible`/`del_flag`/`update_time`）表里**已有同义列**（`status`/`is_deleted`/`updated_at`）→ 只需加 4 列
+- [✓] 生产库核对（用户执行 `SHOW COLUMNS`）：与本地**结构完全一致**、从未 ALTER 过
+- [✓] 数据库：`docs/sql/review/01-admin-review-schema.sql`（加 4 列 + **2 个索引**
+  `idx_review_admin` / `idx_review_product_show`，全部 `information_schema` 幂等写法，MySQL 5.7 兼容）
+- [✓] 数据库：`docs/sql/review/02-admin-review-menu.sql`（菜单 id **202**「商品评价」挂订单管理 parent_id=3，
+  按钮 230~234；角色 2 运营全授权 / 3 客服只给回复）—— **本地 + 生产均已执行并校验通过**
+- [✓] 后端 order-service：`AdminReviewController`（8 个接口）+ `AdminReviewService(Impl)` + `ProductReviewController`（C 端只读 2 个）
+- [✓] 后端：`ReviewService` **只加** `listByProduct` / `summary` 两个读方法，**买家提交评价逻辑一行未动**
+- [✓] 后端：真实评价不可编辑**双保险**（Service 抛 400 + SQL `WHERE is_virtual = 1`）
+- [✓] 后端：虚拟评价 `order_id=0` / `user_id=0` / `created_by=admin.id`，
+  商品名与图**后端从 products 快照取，不信任前端传值**
+- [✓] 后端：导出 Excel（POI，13 列，RFC 5987 文件名，公式注入防护，超过 5000 条截断）
+- [✓] 网关：order-service 路由加 `/api/admin/reviews/**` + `/api/reviews/**`；
+  C 端路径刻意**不用** `/api/products/{id}/reviews`（会被排在前面的 product-service 规则抢走）
+- [✓] C 端免登录白名单：`WebMvcConfig.EXCLUDE_AUTH_PATHS` 加 `/api/reviews/**`
+- [✓] 后台前端：列表页 + 虚拟评价新增/编辑弹窗 + api + 路由 `/orders/review`；
+  `image-spec.js` 补 `review` 档（最长边 800 / contain）
+- [✓] 小程序：商品详情页评价区（评分条 + 评价列表 + 商家回复 + 视频播放器），插在「商品参数」之前
+- [✓] PC 商城：商品详情页评价区（同样插在「商品参数」之前）+ **顺带补上一直没渲染的图文详情 body**
+- [✓] 详情页三块顺序（已定）：**商品评价 → 商品参数 → 图文详情**（小程序与 PC 商城一致）
+- [✓] 本地全链路实测：新增/编辑/回复/隐藏/显示/删除/导出 + 参数校验 + C 端联动全部通过
+  （隐藏后 C 端立刻不显示、恢复后立刻显示、删除后详情 404 且 C 端不显示）
+- [✓] 构建验证：`mvn -pl order-service -am compile`、`mvn -pl product-service -am compile`、
+  后台 `vite build`、PC 商城 `vite build`、小程序 SFC 编译 + `node --check` 全过
+- [✓] **发布生产**（2026-11-02，按序全部完成）：
+  1. 生产执行 `docs/sql/review/01-admin-review-schema.sql` + `02-admin-review-menu.sql`
+     （**先 `./deploy/backup-prod-db.sh` 备份** → `/www/backup/e_commerce_db_2026-11-02_1227.sql`，
+     经 stdin 管道导入，服务器不落文件）—— ✅ 加 4 列 + 2 索引 + 菜单 202/230~234 + role 2/3 授权
+  2. `./deploy/release.sh order-service` —— ✅ 镜像 `20261102-83aa72c-dirty`，容器 running
+  3. `./deploy/release.sh gateway` —— ✅ 同 tag，容器 running
+  4. `./deploy/release-web.sh`（后台前端，与阶段 27 的图片压缩一起发）—— ✅ `index-87362cae.js`
+  5. `./deploy/release-mall.sh`（PC 商城）—— ✅
+  6. 小程序 HBuilderX 重新构建 —— ✅ 12:55 导出 `unpackage/dist/build/mp-weixin`
+     （**微信开发者工具自动拉起失败**，`cli.bat` 不在 PATH，需人工导入上传）
+- [✓] **发布后补验**（全部只读、输出脱敏）：
+  - curl `GET /api/reviews/product/7` 过网关免登录 → ✅ 200；VO 无 `orderId`/`orderNo`/`userId` ✅
+  - 后台列表 / 详情 / 筛选（含 orderNo 精确 1·截断 1·不存在 0）/ 404 → ✅
+  - Excel 导出 → ✅ 200 且魔数 `PK\x03\x04`（真 xlsx）；**仍待人工用 Excel 打开看内容**
+  - 无 `product:review:*` 的账号调接口 → ✅ **403「无权访问该功能」**
+  - 后台 SPA 路由 `www.jiemids.com/orders/review` → ✅ 200；商城 `/product/7` → ✅ 200
+  - ⬜ 运营账号登录后「订单管理 → 商品评价」菜单可见性（库里权限已确认，页面侧需人眼）
+- [ ] **【待人工】小程序上传**：把 `unpackage/dist/build/mp-weixin` 导入微信开发者工具并上传发布
+
 ## 风险与待确认
 
 | # | 风险/待确认 | 影响 | 处置 |

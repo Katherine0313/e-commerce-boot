@@ -1,5 +1,6 @@
 package ecommerce.order.service.impl;
 
+import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
 import ecommerce.order.dto.CreateReviewDTO;
 import ecommerce.order.entity.Order;
@@ -10,6 +11,8 @@ import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductReviewMapper;
 import ecommerce.order.service.ReviewService;
+import ecommerce.order.vo.ReviewDetailVO;
+import ecommerce.order.vo.ReviewSummaryVO;
 import ecommerce.order.vo.ReviewVO;
 import ecommerce.utils.UserContext;
 import org.springframework.http.HttpStatus;
@@ -86,6 +89,48 @@ public class ReviewServiceImpl implements ReviewService {
         productReviewMapper.insert(review);
 
         return toVO(review);
+    }
+
+    @Override
+    public PageVO<ReviewDetailVO> listByProduct(Long productId, int page, int pageSize) {
+        if (productId == null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID 不能为空");
+        }
+        int safePage = Math.max(page, 1);
+        int safeSize = Math.min(Math.max(pageSize, 1), 50);
+        int offset = (safePage - 1) * safeSize;
+        List<ReviewDetailVO> list = productReviewMapper.listByProduct(productId, offset, safeSize);
+        list.forEach(this::maskUserInfo);
+        long total = productReviewMapper.countByProduct(productId);
+        return new PageVO<>(list, total, safePage, safeSize);
+    }
+
+    @Override
+    public ReviewSummaryVO summary(Long productId) {
+        if (productId == null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID 不能为空");
+        }
+        ReviewSummaryVO summary = productReviewMapper.summaryByProduct(productId);
+        return summary == null ? ReviewSummaryVO.builder().build() : summary;
+    }
+
+    /**
+     * C 端昵称处理：
+     * <ul>
+     *   <li>虚拟评价（user_id=0）→ 昵称统一「系统」，前端据此打「系统评价」标签</li>
+     *   <li>手机号格式的昵称打码（138****5678），避免把真实手机号直接暴露在商品页</li>
+     * </ul>
+     */
+    private void maskUserInfo(ReviewDetailVO vo) {
+        if (Integer.valueOf(1).equals(vo.getIsVirtual())) {
+            vo.setUserName("系统");
+            vo.setUserAvatar(null);
+            return;
+        }
+        String name = vo.getUserName();
+        if (name != null && name.matches("1\\d{10}")) {
+            vo.setUserName(name.substring(0, 3) + "****" + name.substring(7));
+        }
     }
 
     // 查订单并校验归属（与 OrderServiceImpl.getOwnedOrder 同款规则，评价模块独立实现）

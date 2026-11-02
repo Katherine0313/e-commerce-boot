@@ -55,6 +55,8 @@ public class AdminUploadController {
             case "article" -> List.of("business:article:add");
             // 正文图：商品详情与文章正文共用 type=body，两边的编辑权限都能传
             case "body" -> List.of("product:product:add", "business:article:add");
+            // 评价晒图：后台评价模块上传的图，只给评价权限的角色
+            case "review" -> List.of("product:review:add", "product:review:edit");
             default -> List.of("product:product:add");
         };
         List<String> permissions = UserContext.getPermissions();

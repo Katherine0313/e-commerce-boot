@@ -20,4 +20,199 @@
         WHERE order_id = #{orderId} AND is_deleted = 0
     </select>
 
+    <!-- ==================== 后台管理 ==================== -->
+
+    <!--
+      后台列表/详情的公共字段集：
+        r.*           评价自身
+        o.order_no    订单号（虚拟评价 order_id=0 → 为 NULL，前端显示「—」）
+        u.name/avatar 评价人（虚拟评价 user_id=0 → 为 NULL）
+        a.name        虚拟评价创建人（后台管理员姓名）
+      user / admin 是保留字，必须加反引号。
+      列名用下划线，靠 application.yml 的 map-underscore-to-camel-case 自动映射成驼峰。
+    -->
+    <sql id="adminColumns">
+        r.id, r.order_id, r.user_id, r.product_id, r.product_name, r.product_image,
+        r.rating, r.tag, r.content, r.images, r.status, r.is_virtual, r.created_by,
+        r.reply, r.reply_time, r.created_at, r.updated_at,
+        o.order_no, u.name AS user_name, u.avatar AS user_avatar, a.name AS created_by_name
+    </sql>
+
+    <sql id="adminJoins">
+        FROM product_reviews r
+        LEFT JOIN orders o ON o.id = r.order_id
+        LEFT JOIN `user` u ON u.id = r.user_id
+        LEFT JOIN `admin` a ON a.id = r.created_by
+    </sql>
+
+    <!-- 后台详情 -->
+    <select id="findAdminById" resultType="ecommerce.order.vo.AdminReviewVO">
+        SELECT <include refid="adminColumns"/>
+        <include refid="adminJoins"/>
+        WHERE r.id = #{id} AND r.is_deleted = 0
+    </select>
+
+    <!-- 后台列表：分页 + 筛选（keyword/orderNo 模糊，rating/isVirtual/status 精确，时间区间含首尾） -->
+    <select id="listAdmin" resultType="ecommerce.order.vo.AdminReviewVO">
+        SELECT <include refid="adminColumns"/>
+        <include refid="adminJoins"/>
+        WHERE r.is_deleted = 0
+        <if test="keyword != null">
+            AND r.product_name LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        <if test="orderNo != null">
+            AND o.order_no LIKE CONCAT('%', #{orderNo}, '%')
+        </if>
+        <if test="rating != null">
+            AND r.rating = #{rating}
+        </if>
+        <if test="isVirtual != null">
+            AND r.is_virtual = #{isVirtual}
+        </if>
+        <if test="status != null">
+            AND r.status = #{status}
+        </if>
+        <if test="start != null">
+            AND r.created_at &gt;= #{start}
+        </if>
+        <if test="end != null">
+            AND r.created_at &lt;= #{end}
+        </if>
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- 后台列表总数（与 listAdmin 同筛选条件） -->
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        <include refid="adminJoins"/>
+        WHERE r.is_deleted = 0
+        <if test="keyword != null">
+            AND r.product_name LIKE CONCAT('%', #{keyword}, '%')
+        </if>
+        <if test="orderNo != null">
+            AND o.order_no LIKE CONCAT('%', #{orderNo}, '%')
+        </if>
+        <if test="rating != null">
+            AND r.rating = #{rating}
+        </if>
+        <if test="isVirtual != null">
+            AND r.is_virtual = #{isVirtual}
+        </if>
+        <if test="status != null">
+            AND r.status = #{status}
+        </if>
+        <if test="start != null">
+            AND r.created_at &gt;= #{start}
+        </if>
+        <if test="end != null">
+            AND r.created_at &lt;= #{end}
+        </if>
+    </select>
+
+    <!--
+      插入虚拟评价：order_id / user_id 固定 0（不挂真实订单和用户），is_virtual=1。
+      真实评价走买家端 insert，两者互不干扰。
+    -->
+    <insert id="insertVirtual" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO product_reviews (order_id, user_id, product_id, product_name, product_image,
+                                     rating, tag, content, images, status, is_deleted,
+                                     is_virtual, created_by, created_at, updated_at)
+        VALUES (0, 0, #{productId}, #{productName}, #{productImage},
+                #{rating}, #{tag}, #{content}, #{images}, 1, 0,
+                1, #{createdBy}, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <!--
+      后台编辑。WHERE 里带 is_virtual = 1 是第二道防线：
+      即使 Service 层的「真实评价不可编辑」判断被绕过，SQL 也碰不到买家真实评价。
+    -->
+    <update id="updateByAdmin">
+        UPDATE product_reviews
+        SET product_id    = #{productId},
+            product_name  = #{productName},
+            product_image = #{productImage},
+            rating        = #{rating},
+            tag           = #{tag},
+            content       = #{content},
+            images        = #{images},
+            updated_at    = #{updatedAt}
+        WHERE id = #{id} AND is_deleted = 0 AND is_virtual = 1
+    </update>
+
+    <!-- 写商家回复：一条评价只保留一条回复，再次回复覆盖 reply 并刷新 reply_time -->
+    <update id="updateReply">
+        UPDATE product_reviews
+        SET reply      = #{reply},
+            reply_time = #{replyTime},
+            updated_at = #{replyTime}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <!-- 切换显示状态：status 1 显示 / 0 隐藏（C 端查询只取 status=1，所以这一改立刻生效） -->
+    <update id="updateStatus">
+        UPDATE product_reviews
+        SET status     = #{status},
+            updated_at = #{updatedAt}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <!-- 逻辑删除：is_deleted = 1，不物理删 -->
+    <update id="softDelete">
+        UPDATE product_reviews
+        SET is_deleted = 1,
+            updated_at = #{updatedAt}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <!-- 取商品快照：建虚拟评价时用，商品名/图不信任前端传的（title 为空时退回 name） -->
+    <select id="findProductSnapshot" resultType="ecommerce.order.vo.ProductSnapshotVO">
+        SELECT id, COALESCE(NULLIF(title, ''), name) AS title, image
+        FROM products
+        WHERE id = #{productId}
+    </select>
+
+    <!-- ==================== C 端 ==================== -->
+
+    <!--
+      C 端评价列表：只返回可见（status=1）且未删除的。
+      刻意不返回 order_id / user_id —— 不泄露订单号，也不暴露用户 id。
+      虚拟评价 user_id=0 → user_name 为 NULL，服务层补成「系统」。
+    -->
+    <select id="listByProduct" resultType="ecommerce.order.vo.ReviewDetailVO">
+        SELECT r.id, r.rating, r.tag, r.content, r.images, r.created_at,
+               r.reply, r.reply_time, r.is_virtual,
+               u.name AS user_name, u.avatar AS user_avatar
+        FROM product_reviews r
+        LEFT JOIN `user` u ON u.id = r.user_id
+        WHERE r.product_id = #{productId} AND r.is_deleted = 0 AND r.status = 1
+        ORDER BY r.created_at DESC, r.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- C 端评价条数 -->
+    <select id="countByProduct" resultType="long">
+        SELECT COUNT(*)
+        FROM product_reviews
+        WHERE product_id = #{productId} AND is_deleted = 0 AND status = 1
+    </select>
+
+    <!--
+      C 端评价统计。SUM() 在 MySQL 里返回 DECIMAL，用 CAST(... AS SIGNED) 转成整型好映射成 Long；
+      goodRate = 4~5 星占比，分母为 0 时靠 NULLIF + COALESCE 兜成 0。
+    -->
+    <select id="summaryByProduct" resultType="ecommerce.order.vo.ReviewSummaryVO">
+        SELECT COUNT(*) AS totalCount,
+               COALESCE(ROUND(AVG(r.rating), 1), 0) AS avgRating,
+               COALESCE(ROUND(SUM(CASE WHEN r.rating &gt;= 4 THEN 1 ELSE 0 END) / NULLIF(COUNT(*), 0), 3), 0) AS goodRate,
+               CAST(COALESCE(SUM(CASE WHEN r.images IS NOT NULL AND r.images &lt;&gt; '' AND r.images &lt;&gt; '[]' THEN 1 ELSE 0 END), 0) AS SIGNED) AS withMediaCount,
+               CAST(COALESCE(SUM(CASE WHEN r.rating = 5 THEN 1 ELSE 0 END), 0) AS SIGNED) AS fiveStar,
+               CAST(COALESCE(SUM(CASE WHEN r.rating = 4 THEN 1 ELSE 0 END), 0) AS SIGNED) AS fourStar,
+               CAST(COALESCE(SUM(CASE WHEN r.rating = 3 THEN 1 ELSE 0 END), 0) AS SIGNED) AS threeStar,
+               CAST(COALESCE(SUM(CASE WHEN r.rating = 2 THEN 1 ELSE 0 END), 0) AS SIGNED) AS twoStar,
+               CAST(COALESCE(SUM(CASE WHEN r.rating = 1 THEN 1 ELSE 0 END), 0) AS SIGNED) AS oneStar
+        FROM product_reviews r
+        WHERE r.product_id = #{productId} AND r.is_deleted = 0 AND r.status = 1
+    </select>
+
 </mapper>
