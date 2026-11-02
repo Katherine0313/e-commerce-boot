@@ -1,4 +1,4 @@
-# 后台商品评价管理模块 · 需求与实施方案（v3 · 已实现并发布上线）
+# 后台商品评价管理模块 · 需求与实施方案（v3.1 · 已实现并发布上线）
 
 > **状态：代码完成 + 本地验证通过 + 生产已发布（2026-11-02）。**
 > v1 提的 5 个问题已拍板：
@@ -8,6 +8,12 @@
 > 本文基于原始需求（附录 A）逐条对照**本仓库真实代码与本地库结构**核查后写成。
 > **v3 已按实际实现回改**：与实现不一致的地方（接口方法、菜单 ID、索引数量、图片规格、删除能力）均已修正，
 > 第 10 节标注了实测结果。**生产发布记录见第 9.3 节**。
+>
+> **v3.1 变更（2026-11-02，产品侧决定）**：后台列表的「操作」列**只保留「回复」和「删除」两个按钮**，
+> **「编辑」和「显示/隐藏」的按钮下线**（后端接口与权限码保留，见 6.1 表注）。
+> 连带影响：虚拟评价创建后不能改、评价不能再隐藏（后台无入口下架），
+> 「显示状态」筛选与 `status` 字段仍然保留（数据层不变，只是没有 UI 入口）。
+> 详见 6.2 / 6.5 / 7.4 节。
 
 
 ---
@@ -232,9 +238,9 @@ Controller：`AdminReviewController`，`@RequestMapping("/api/admin/reviews")`�
 | 1 | GET | `/api/admin/reviews` | `product:review:list` | 分页列表 + 筛选 |
 | 2 | GET | `/api/admin/reviews/{id}` | `product:review:list` | 详情（含回复、订单号、商品图、创建人） |
 | 3 | POST | `/api/admin/reviews` | `product:review:add` | **新增虚拟评价** |
-| 4 | PUT | `/api/admin/reviews/{id}` | `product:review:edit` | 编辑（**仅虚拟评价**） |
+| 4 | PUT | `/api/admin/reviews/{id}` | `product:review:edit` | 编辑（**仅虚拟评价**）｜⚠️ v3.1 起前端无入口 |
 | 5 | **PUT** | `/api/admin/reviews/{id}/reply` | `product:review:reply` | 回复 / 改回复 |
-| 6 | PUT | `/api/admin/reviews/{id}/visible` | `product:review:edit` | 切换显示状态（status 1↔0） |
+| 6 | PUT | `/api/admin/reviews/{id}/visible` | `product:review:edit` | 切换显示状态（status 1↔0）｜⚠️ v3.1 起前端无入口 |
 | 7 | DELETE | `/api/admin/reviews/{id}` | `product:review:remove` | 逻辑删除（`is_deleted=1`） |
 | 8 | GET | `/api/admin/reviews/export` | `product:review:export` | 导出 Excel（**与列表同一套筛选参数**） |
 
@@ -382,15 +388,20 @@ INSERT IGNORE INTO `admin_role_menu` (`role_id`, `menu_id`) VALUES
 
 | 操作 | 真实评价 (is_virtual=0) | 虚拟评价 (is_virtual=1) |
 |---|---|---|
-| 编辑内容 / 星级 / 标签 / 图片 | ❌ **禁止**（后端硬拦，前端也隐藏按钮） | ✅ 允许 |
+| 编辑内容 / 星级 / 标签 / 图片 | ❌ **禁止**（后端硬拦，前端也隐藏按钮） | ✅ 允许（接口层面）｜⚠️ v3.1 起前端无入口 |
 | 回复 | ✅ 允许 | ✅ 允许 |
-| 隐藏 / 显示 | ✅ 允许 | ✅ 允许 |
+| 隐藏 / 显示 | ✅ 允许（接口层面）｜⚠️ v3.1 起前端无入口 | 同左 |
 | 逻辑删除 | ✅ 允许 | ✅ 允许 |
 
 **理由**：真实评价是消费者的原话，事后改动等于伪造消费者评价，比隐藏更严重。
-所以不是「只锁内容字段」，而是**整条真实评价只读**，只能回复 / 隐藏 / 删除。
+所以不是「只锁内容字段」，而是**整条真实评价只读**，只能回复 / 删除。
 后端在 `updateByAdmin` 里判断 `is_virtual == 0` 直接抛 400「买家真实评价不可编辑」，
 **前端隐藏按钮只是体验，真正的拦截在后端**。
+
+> **v3.1**：产品侧认为「编辑」「显示/隐藏」两个按钮多余，**后台列表的操作列只剩「回复」「删除」**。
+> 后端的编辑接口、visible 接口、`product:review:edit` 权限码**全部保留**，
+> 需要时把按钮加回去即可（改一个 `.vue` 文件，不用动后端、不用动数据库）。
+> **副作用**：虚拟评价建好后改不了；后台没法再隐藏评价（下架只能靠删除）。
 
 ### 6.3 新增虚拟评价的校验
 
@@ -415,6 +426,8 @@ INSERT IGNORE INTO `admin_role_menu` (`role_id`, `menu_id`) VALUES
 - 就是 `status` 的 1 ↔ 0 切换
 - 已删除的评价不允许再切状态
 - **本次补了 C 端读取接口后，这个功能立刻有实际效果**（见第 8 节）
+- ⚠️ **v3.1：后台列表页的「显示/隐藏」按钮已下线**，接口与 `status` 字段保留但当前没有 UI 入口；
+  「显示状态」筛选下拉仍保留（数据层照常过滤）。要恢复入口见 6.2 的 v3.1 注。
 
 ### 6.6 逻辑删除
 
@@ -464,8 +477,6 @@ e-commerce/src/pages/orders/review/ReviewEditModal.vue  虚拟评价新增/编�
 
 ```vue
 <a-button v-permission="'product:review:add'" type="primary" @click="openCreate">新增虚拟评价</a-button>
-<a-button v-permission="'product:review:edit'" v-if="record.isVirtual === 1"
-          size="small" @click="openEdit(record)">编辑</a-button>
 <a-popconfirm title="确定删除该评价？" @confirm="handleDelete(record)">
   <a-button v-permission="'product:review:remove'" size="small" danger>删除</a-button>
 </a-popconfirm>
@@ -477,6 +488,11 @@ e-commerce/src/pages/orders/review/ReviewEditModal.vue  虚拟评价新增/编�
 > 保留按钮能让运营一眼看到「这条也能编辑，只是被锁了」，比直接消失更可解释；
 > 点它时前端再 `message.warning('买家真实评价不可编辑')` 兜一道，**最终拦截在后端**（400）。
 > 删除按钮走 `Modal.confirm` 二次确认（项目里 `a-popconfirm` 用得少，`Modal.confirm` 更一致）。
+
+> **v3.1 最终形态**：操作列**只有「回复」和「删除」两个按钮**（`v-permission="product:review:remove"` 仍保留在删除上），
+> 「编辑」「显示/隐藏」按钮**删除**，对应的 `openEdit` / `toggleVisible` 函数与 `updateReviewVisible` 导入也一并清掉。
+> 表格列**不写死宽度、也不写 `:scroll`**（列宽由表头文字决定，24 位订单号不会把列撑爆）——
+> 详见 `e-commerce/findings.md`「a-table 列宽规则」。
 
 ### 7.5 导出按钮
 
@@ -784,15 +800,15 @@ fiveStar, fourStar, threeStar, twoStar, oneStar
 | 2 | 按商品名筛 | 模糊匹配，命中 | ✅ 本地 + **✅生产**（keyword 3→1 条） |
 | 3 | 按订单号筛 | LEFT JOIN orders 生效，虚拟评价订单号显示「—」且筛不出来 | ✅ 本地 + **✅生产**（精确 1 / 截断 1 / 不存在 0） |
 | 4 | 按星级 / is_virtual / visible / 时间区间筛 | 各自生效，区间含首尾 | ✅ 本地 + **✅生产**（四类筛选各自生效） |
-| 5 | 真实评价点编辑 | 前端按钮禁用；**直接调后端 PUT 返回 400「买家真实评价不可编辑」** | ✅ |
-| 6 | 虚拟评价编辑 | 内容/星级/标签/图片都能改，`updated_at` 刷新 | ✅ |
+| 5 | 真实评价点编辑 | 前端按钮禁用；**直接调后端 PUT 返回 400「买家真实评价不可编辑」** | ✅（v3.1 后前端无按钮，接口层仍 400） |
+| 6 | 虚拟评价编辑 | 内容/星级/标签/图片都能改，`updated_at` 刷新 | ✅（v3.1 后前端无按钮，接口层仍可用） |
 | 7 | 新增虚拟评价 | 成功，`is_virtual=1`、`order_id=0`、`created_by`=当前管理员、`product_name/image` 由后端从 products 取 | ✅ |
 | 8 | 新增虚拟评价传不存在的 product_id | 400「商品不存在，无法创建评价」 | ✅ |
 | 8b | 星级越界 / 内容不足 5 字 | 400（「请选择 1~5 星评分」/「评价内容至少 5 个字」） | ✅ |
 | 9 | 回复评价 | `reply` + `reply_time` 写入，`reply_time` 与库里其它时间口径一致（不差 8 小时） | ✅ |
 | 10 | 再次回复 | 覆盖旧回复，刷新 reply_time，不产生第二条 | ✅ |
 | 10b | 空回复 | 400「回复内容不能为空」 | ✅ |
-| 11 | 隐藏 / 显示 | `status` 在 1/0 间切换 | ✅ |
+| 11 | 隐藏 / 显示 | `status` 在 1/0 间切换 | ✅（v3.1 后前端无按钮，接口层仍可用） |
 | 12 | 逻辑删除 | 列表查不到；买家端「该订单已评价」仍生效（不能重复评价） | ✅（删除后详情 404、C 端不显示） |
 | 13 | 导出 | Excel 能打开，列齐全，中文不乱码；筛选条件生效；超 5000 条截断 | ⬜ **✅生产已验「真 xlsx」**（魔数 `PK\x03\x04`、3997 字节），**仍未用 Excel 打开看内容** |
 | 14 | 导出 4xx | 前端能读到可读错误提示，不是下载一坨二进制 | ⬜（前端做了 blob/json 判断，未实测 4xx 分支） |
@@ -902,4 +918,7 @@ status, is_deleted, created_at, updated_at
 > 1. 新建 AdminReviewService，和小程序端ReviewService职责隔离，不要修改原有买家提交评价逻辑。
 > 2. 后台接口：分页列表、新增虚拟评价、编辑评价、回复评价、切换显示状态、逻辑删除、导出Excel。
 > 3. 核心业务约束：is_virtual=0 买家真实评价，禁止编辑评价内容；is_virtual=1虚拟评价允许编辑；所有评价都可以回复、隐藏、删除。
+>
+> **本方案最终落地（v3.1）**：后台列表操作列只剩「回复」「删除」；编辑与显示/隐藏的**接口与权限码保留**，
+> 但**前端没有入口**（详见 6.2 / 6.5 / 7.4 的 v3.1 注）。
 > 4. 分页查询支持筛选：商品名称、订单号、星级、is_virtual、visible、创建时间区间。
