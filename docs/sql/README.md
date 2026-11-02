@@ -65,6 +65,18 @@ mysql -h127.0.0.1 -u<user> -p --default-character-set=utf8mb4 e_commerce_db \
 
 `sandbox-migrate.sql`、`sandbox-visitor-key.sql` 属于已下线的多租户机制，移到 `archive/`，**不要在新建库上执行**。
 
+## 商品图缓存版本号（2026-11-02）
+
+`product-image-cache-version.sql`：给 `products.image` 追加 `?v=20261031`（幂等，只改没有 `?v=` 的行）。
+
+**背景**：2026-10-31 真实照片**原地覆盖**了 136 个商品图文件，文件名没变 → URL 没变；
+而 `/image/**` 的响应头是 `Cache-Control: public, immutable, max-age=31536000`（`WebMvcConfig.java:84`），
+`immutable` 让客户端一年内不再回源 → 10-31 之前下载过的客户端一直显示旧占位图
+（微信小程序缓存按微信账号分区，所以「换个微信号看就是新图」极具迷惑性）。
+
+**已执行**：本地 + 生产同一份（生产备份 `/www/backup/e_commerce_db_2026-11-02_1334.sql`，SQL 走 stdin 管道不落文件）。
+**以后规矩**：任何替换商品图文件的操作，**必须同时改 DB 里的 `image` 加版本号**，只改文件不改 URL = 用户一年看不到新图。
+
 ## 其他历史脚本
 
 `admin.sql`、`product.sql`、`order.sql`、`order-data.sql`、`after-sale-data.sql`、`stock-alert-data.sql` 已按单店口径更新（无 `shop_id`、无 `shops` 表）。库存预警表已从 `stock` 改名为 `stock_alert`（当前库存仍在 `products.stock`）。

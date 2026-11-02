@@ -242,6 +242,19 @@ ecommerce
 
 - 头像/商品图存相对路径，返回时拼完整 URL（换域名不失效）；类型白名单 png/jpeg/gif/webp，上限 2MB / 3MB，超限统一 413。
 - 商品图路径 `/image/upload/N.webp`：`WebMvcConfig` 优先读 `upload/image/opt/`（压缩图），缺失回落原图；分类图同为 webp。
+- **换商品图必须同时换 URL（加 `?v=` 版本号）** —— 这是本项目最贵的一个坑，已踩过一次：
+  - `/image/**` 的响应头是 `Cache-Control: public, immutable, max-age=31536000`
+    （`common/.../WebMvcConfig.java:84` 的 `CacheControl.maxAge(365, DAYS).cachePublic().immutable()`），
+    `immutable` 明确告诉客户端「内容永不变化」，**一年内不再回源校验**。
+  - 2026-10-31 09:03 真实照片**原地覆盖**了 136 个商品图文件（文件名没变 → URL 没变），
+    于是 10-31 之前下载过这些 URL 的客户端就一直显示旧的占位图。
+  - 微信小程序的图片/文件缓存**按微信账号分区**（同一手机换微信号进小程序，数据各自独立），
+    所以「换个微信号看到的是新图」这个现象特别迷惑人 —— 实际上差的不是账号，是**客户端本地缓存**。
+  - 修法：`products.image` 追加 `?v=<换图日期>`（脚本 `docs/sql/product-image-cache-version.sql`，
+    本地 + 生产同一份，已执行）。机械表那批当时已经这么做过（`?v=20261030`），漏的是前 105 个。
+  - **以后任何替换商品图文件的操作，都要顺手改 DB 里的 image 值加版本号**；
+    只改文件不改 URL = 用户一年都看不到新图。`deploy/README.md` 里的「URL 刷新」指的是 EdgeOne 那一层，
+    解决不了客户端自己缓存的那一份。
 - 唯一遗留：头像上传目录仍硬编码 `upload/avatar/`，未抽成配置项（不阻塞）。
 
 ## 技术决策
