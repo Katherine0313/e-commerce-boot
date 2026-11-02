@@ -51,7 +51,6 @@ public class AuthServiceImpl implements AuthService {
     /** 登录失败次数 key：auth:login:fail:{username}:{ip} */
     private static final String LOGIN_FAIL_KEY_PREFIX = "auth:login:fail:";
     /** 验证码有效期（秒） */
-    private static final long CAPTCHA_EXPIRE_SECONDS = 180;
     private static final int CAPTCHA_WIDTH = 120;
     private static final int CAPTCHA_HEIGHT = 40;
     private static final int CAPTCHA_LENGTH = 4;
@@ -125,7 +124,7 @@ public class AuthServiceImpl implements AuthService {
         String captchaId = UUID.randomUUID().toString().replace("-", "");
         try {
             stringRedisTemplate.opsForValue().set(CAPTCHA_KEY_PREFIX + captchaId,
-                    code.toString(), Duration.ofSeconds(CAPTCHA_EXPIRE_SECONDS));
+                    code.toString());
         } catch (RuntimeException e) {
             log.error("图形验证码写入 Redis 失败", e);
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "验证码服务暂不可用，请稍后重试");
@@ -133,7 +132,6 @@ public class AuthServiceImpl implements AuthService {
         return CaptchaVO.builder()
                 .captchaId(captchaId)
                 .image(renderCaptcha(code.toString()))
-                .expireIn(CAPTCHA_EXPIRE_SECONDS)
                 .build();
     }
 
