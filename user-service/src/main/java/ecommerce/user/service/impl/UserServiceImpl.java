@@ -346,11 +346,24 @@ public class UserServiceImpl implements UserService {
             }
         }
 
+        // 累计用户曲线（存量）在这里一次算完，前端只负责画：
+        // 期初存量 = 用户总量 − 本窗口新增（窗口内没有可还原的注销时点，只能这样倒推）
+        long totalUsers = userMapper.countTotalUsers();
+        long windowNew = newUsers.stream().mapToLong(Long::longValue).sum();
+        long acc = Math.max(0L, totalUsers - windowNew);
+        List<Long> cumulativeUsers = new ArrayList<>(newUsers.size());
+        for (Long n : newUsers) {
+            long v = (n == null ? 0L : n);
+            acc += v;
+            cumulativeUsers.add(acc);
+        }
+
         return UserStatisticsVO.builder()
                 .bucketType(bucketType)
                 .buckets(buckets)
                 .newUsers(newUsers)
-                .totalUsers(userMapper.countTotalUsers())
+                .cumulativeUsers(cumulativeUsers)
+                .totalUsers(totalUsers)
                 .build();
     }
 }

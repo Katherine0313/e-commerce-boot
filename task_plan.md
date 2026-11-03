@@ -506,6 +506,49 @@
   - 发布后只读验证：状态字典接口已无 `refund_confirming`/`returned`；两个新日志接口未登录返回 401（路由已注册、鉴权生效）
 - [ ] **【待人工】小程序发版**：HBuilderX 重新构建 → 微信开发者工具上传（**买家侧「处理进度」是新页面，必须重发**）
 
+### 阶段 30：工作台用户统计口径收口（2026-11-03，代码完成，待发版）
+
+- [✓] 排查结论：工作台「用户增长」图**数据来自后端**，不是前端算的
+  （`GET /api/admin/users/statistics` → user-service `UserServiceImpl.getUserStatistics` → 两条同表同过滤的注解 SQL）
+- [✓] 「新增用户比总用户还多」是**双轴视觉误导**，数值上不可能越界（Σ新增 ≤ totalUsers）
+  - 生产只读核对：65 人全未注销、openid 无重复、无未来时间脏数据，近 7 天新增 37 → 累计 28→65
+  - 机制：双轴各自缩放 + 右轴刻度数字被 `UserGrowth.vue` 藏掉 + 两条线量纲不同（存量 vs 单桶增量）
+- [✓] **方案 A（用户拍板）：累计曲线搬回后端**（**保留 `cumulativeUsers` 这一半**）
+  - `UserStatisticsVO` 新增 `cumulativeUsers`；`UserServiceImpl.getUserStatistics` 一次算完
+    （`base = max(0, totalUsers − Σ窗口新增)`，逐桶累加，**末值恒等于 totalUsers**）
+  - 前端 `UserGrowth.vue` 直接用后端值（保留老接口兜底），`useWorkplaceData.js` 解析新字段
+- [✓] **追加（用户拍板）：去掉双轴** —— 两条序列共用一根纵轴（0~65）
+- [✓] **再拍板：折线 + 柱状**
+  - 「用户总量」= 存量累计 → **折线**（连续量，看趋势）
+  - 「每日新增」= 每桶新增 → **柱状**（离散量，柱子高度就是那天的量）
+  - `LineChart` 组件加 `type` 支持：序列可指定 `'line'`（默认）/ `'bar'`（`barMaxWidth: 24`），
+    其余图（营业额、订单统计）不传 `type`，行为不变
+- [✓] **中途废弃的方案（勿再走）**：「两条线都画累计」（累计新增 = `newUsers` 前缀和）——
+  两条累计曲线形状雷同、第二条只是平移，信息量极低，等于重复造轮子；
+  后端 `cumulativeNewUsers` 字段**已删除**（未发版字段，删零风险）
+- [✓] 验证：`mvn -o install -pl user-service -am` 通过、后台 `vite build` 通过、
+  本地临时实例（9008，禁注册 nacos）接口实测：字段只剩 `bucketType/buckets/newUsers/cumulativeUsers/totalUsers`、
+  存量末值 == totalUsers、单调递增、`cumulativeNewUsers` 已不存在
+- [ ] **【待发版】** user-service 镜像 + 后台前端 `release-web.sh`（用户选择「先不发」）
+
+### 阶段 31：后台登录锁定排查 + 工作台图表收尾（2026-11-03，结论已定）
+
+- [✓] **「失败 5 次锁 10 分钟」实测：机制正常，"没锁"是观感错觉**
+  - 直连 9001 与经网关 8080 两条路径、每次换新验证码：第 1~4 次 `401`，Redis 计数 `auth:login:fail:admin:{ip}` 1→4（ttl=600），**第 5 次 `429`**，锁定后正确密码仍 `429`
+  - **对照实验**：验证码错误 → `401 验证码错误或已过期`，**失败计数 key 为空**（校验在密码之前抛异常，走不到 `recordLoginFailure`）
+  - 观感来源：前端失败后刷新验证码图并清空输入框，一旦有一次输错新码，计数永远停在 1
+  - 行为特征：① 锁定后正确密码也进不去；② 计数 key 带 IP（经网关 = 网关地址），换 IP 重新计；③ 账号不存在也计数
+- [✓] **登录加固三条按用户决定暂缓**（`AuthServiceImpl` **代码零改动**）：dummy BCrypt 消除时序侧信道、IP 维度限流、验证码 delete 异常分级
+- [✓] **「前端没显示用户图表」定性**：本地 IDEA 的 user-service（PID 21588 / 9006）是改代码前启动的旧进程，
+  `/api/admin/users/statistics` 返回 **500** → 前端 catch → `userGrowth` 空数组 → `LineChart` 显示「暂无数据」
+  - 证据：同进程其它 DB 接口（`member-levels`/`members`）200，**只有 statistics 500**；最新 jar 临时实例（9008）同库同 SQL 直接 200，两个累计字段都对
+- [✓] **前端补错误态**（唯一的代码改动）
+  - `useWorkplaceData.js`：新增 `userGrowthError`（失败置 `true`，同时保留上一次数据，图表不塌成空白）
+  - `UserGrowth.vue`：新增 `error` prop，报错时显示「用户统计加载失败，请刷新重试」并占满图表高度（400/340/260）
+  - `Workplace.vue`：透传 `:error="userGrowthError"`；`vite build` 通过
+- [ ] **【需人工】在 IDEA 里重启 user-service**（旧进程 9006，重启后本地图表即出图）
+- [ ] **【待发版】** 阶段 30 的 user-service 镜像 + 后台前端 `release-web.sh`（用户选择「先不发」）
+
 ## 风险与待确认
 
 | # | 风险/待确认 | 影响 | 处置 |

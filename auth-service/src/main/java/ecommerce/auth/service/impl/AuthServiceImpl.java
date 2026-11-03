@@ -50,7 +50,7 @@ public class AuthServiceImpl implements AuthService {
     private static final String CAPTCHA_KEY_PREFIX = "auth:captcha:";
     /** 登录失败次数 key：auth:login:fail:{username}:{ip} */
     private static final String LOGIN_FAIL_KEY_PREFIX = "auth:login:fail:";
-    /** 验证码有效期（秒） */
+    /** 验证码尺寸 */
     private static final int CAPTCHA_WIDTH = 120;
     private static final int CAPTCHA_HEIGHT = 40;
     private static final int CAPTCHA_LENGTH = 4;

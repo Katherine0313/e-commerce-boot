@@ -7,6 +7,7 @@ import lombok.Data;
  */
 @Data
 public class AdminLoginDTO {
+
     private String username;
     private String password;
     /** 图形验证码 ID（GET /api/auth/captcha 返回） */
