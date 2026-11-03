@@ -66,7 +66,7 @@
 - [✓] gateway CORS（WebFlux `CorsWebFilter` + 去重 `GlobalFilter`）
 - [✓] 后台管理端登录端到端跑通
 - [✓] RBAC P0（2026-10-30）：`admin_role/admin_menu/admin_user_role/admin_role_menu` + 4 角色 + JWT 权限 + `@RequirePerm` 拦截 + 前端菜单/按钮过滤；详见阶段 18
-- [ ] 操作日志审计（AOP）：切面统一记录「谁 / 时间 / IP / 接口 / 修改前后数据」写入 `operation_log`，后台可检索；优先覆盖改价、库存调整、售后审核、删除等敏感操作（阶段 18 P1）
+- [ ] 操作日志审计（AOP）：切面统一记录「谁 / 时间 / IP / 接口 / 修改前后数据」写入 `operation_log`，后台可检索；优先覆盖改价、库存调整、售后审核、删除等敏感操作（阶段 18 P1）—— **阶段 29 已落地基建**：`common` 的 AOP 基建 + `operation_log` 表 + 售后审核/删除打标（本地 + 生产建表已执行）；**剩下**：后台只读页面（菜单 + 权限码 `system:operation-log:list` + 列表页）、改价/库存调整打标
 - [✓] JWT 鉴权由下游各服务 `JwtInterceptor` 从 token 解析（网关不做过滤器、不传 `X-Shop-Id`）
 - [ ] 网关限流（并入阶段 10）
 - **状态：** in_progress
@@ -474,6 +474,37 @@
   - 后台 SPA 路由 `www.jiemids.com/orders/review` → ✅ 200；商城 `/product/7` → ✅ 200
   - ⬜ 运营账号登录后「订单管理 → 商品评价」菜单可见性（库里权限已确认，页面侧需人眼）
 - [ ] **【待人工】小程序上传**：把 `unpackage/dist/build/mp-weixin` 导入微信开发者工具并上传发布
+
+### 阶段 29：售后审核改造 + 变更流水 + 操作日志审计（2026-11-03，代码完成，已发布生产，小程序待人工上传）
+
+> 方案与决策见仓库根目录 `after-sales`（v3）。3 个拍板：复审 4 项枚举**删掉不做**、商家删除售后单**不记**流水、
+> 生产 `refund_confirming` 订正时 `refunded_at` **取原 `refund_at`**。另按用户意见删掉 `refund_confirming` 状态
+> （「确认退款」是操作不是状态，项目不接真实支付没有「等款到账」时刻）。
+
+- [✓] 删 `refund_confirming` 状态（`AfterSaleStatusEnum` 剩 7 项）；`statusConstants()` 同步删 `refund_confirming` 与 `returned`
+- [✓] `AfterSaleOperateTypeEnum` 重写为 **9 项**（code/tag/desc/logContent 四字段），一次操作 = 一个 operate_type + 一个 after_status
+- [✓] `support/AfterSaleTransitions` —— **状态机唯一真相**：10 条 (类型, 当前状态, 目标状态, operate_type, 按钮文案, 附加条件) 规则
+- [✓] 后端状态流转校验：非法流转报「不允许从「X」变更为「Y」」；拒绝售后时商家备注必填
+- [✓] `after_sale_log` 表 + `AfterSaleLogMapper` + `@AfterSaleLogRecord` 切面（**同步写、同一事务**，与 `operation_log` 的异步写不同）
+- [✓] `operation_log` 表 + `common` 的 `ecommerce/log/` AOP 基建（`@OperationLog` + 切面 + 异步 `JdbcTemplate` 写入）
+- [✓] `UserContext` 加 `CURRENT_TYPE`（admin/user），`JwtInterceptor` 写入；`remove()` 一起清（Tomcat 线程复用会串号）
+- [✓] `JdbcOperationLogRecorder` 用 `ObjectProvider<JdbcTemplate>` —— **file-service 依赖 common 但无 JDBC**，直接注入会启动失败
+- [✓] C 端 `AfterSaleVO` 不再返回 `merchantRemark`（原来 C 端也能拿到商家内部备注）
+- [✓] 后台 3 个 `*Review.vue`：删审核结果下拉，改成**后端下发 `availableActions` → 前端按 kind 渲染主/危险按钮**；
+  修掉 `confirmForm.value = []`（对象被赋成数组）、`returning_exchange`/`exchange_shipping` 死状态、蛇形字段名 `exchange_at`→`exchangeAt`
+- [✓] 后台 3 个 `*Detail.vue` + 小程序 3 个 detail 页 + PC 商城 `AfterSaleDetail.vue`：加「变更记录」时间线
+  （后台用新组件 `src/components/AfterSaleLogTimeline.vue`；小程序用新组件 `components/after-sale-log-list/after-sale-log-list.vue`）
+- [✓] 数据库（**本地 + 生产均已执行并复核**）：
+  - `docs/sql/log/01-operation-log-schema.sql`（建 `operation_log`）
+  - `docs/sql/after-sale/01-after-sale-log-schema.sql`（建 `after_sale_log`，**由杰米手动建好**，脚本核对过结构与 mapper 一致）
+  - `docs/sql/after-sale/02-fix-only-refund-returning.sql`（生产 1 行）
+  - `docs/sql/after-sale/03-fix-refund-confirming.sql`（生产 2 行；**子表先于主表**，否则定位不到）
+  - 生产备份 `/www/backup/e_commerce_db_2026-11-03_1008.sql`（校验通过）
+- [✓] 编译验证：`mvn -o install -DskipTests` 全量通过
+- [x] **已发布生产**（2026-11-03）：镜像 tag `20261103-00c8111-dirty`，6 个容器全部 running，启动日志无 error/exception；
+  后台前端 `release-web.sh` → `index-bc9b658c.js`；PC 商城 `release-mall.sh` → 完成
+  - 发布后只读验证：状态字典接口已无 `refund_confirming`/`returned`；两个新日志接口未登录返回 401（路由已注册、鉴权生效）
+- [ ] **【待人工】小程序发版**：HBuilderX 重新构建 → 微信开发者工具上传（**买家侧「处理进度」是新页面，必须重发**）
 
 ## 风险与待确认
 

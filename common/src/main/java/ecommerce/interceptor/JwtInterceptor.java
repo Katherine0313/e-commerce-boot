@@ -88,6 +88,8 @@ public class JwtInterceptor implements HandlerInterceptor {
         }
         // 存入本次请求的上下文，Controller / Service 里用 UserContext 取
         UserContext.setUserId(userId);
+        // 身份类型：admin / user，操作日志要区分「后台管理员」与「买家」
+        UserContext.setUserType(actualType);
         // 后台令牌里带了 roles/permissions，后续 PermissionInterceptor 直接读上下文
         UserContext.setAuth(readStringList(claims.get("roles")), readStringList(claims.get("permissions")));
         return true;

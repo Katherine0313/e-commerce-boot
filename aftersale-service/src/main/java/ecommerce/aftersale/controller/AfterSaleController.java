@@ -3,6 +3,7 @@ package ecommerce.aftersale.controller;
 import ecommerce.aftersale.dto.CreateAfterSaleDTO;
 import ecommerce.aftersale.dto.SubmitReturnDTO;
 import ecommerce.aftersale.service.AfterSaleService;
+import ecommerce.aftersale.vo.AfterSaleLogVO;
 import ecommerce.aftersale.vo.AfterSaleStatusConstantsVO;
 import ecommerce.aftersale.vo.AfterSaleVO;
 import ecommerce.common.Result;
@@ -72,5 +73,11 @@ public class AfterSaleController {
     @PostMapping("/{id}/submit-return")
     public Result<AfterSaleVO> submitReturn(@PathVariable Long id, @RequestBody SubmitReturnDTO dto) {
         return Result.success(afterSaleService.submitReturn(id, dto));
+    }
+
+    @Operation(summary = "售后变更流水（买家可见，不含商家内部备注）")
+    @GetMapping("/{id}/logs")
+    public Result<List<AfterSaleLogVO>> listLogs(@PathVariable Long id) {
+        return Result.success(afterSaleService.listLogs(id));
     }
 }

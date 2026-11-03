@@ -16,6 +16,11 @@
 			<groupId>ecommerce</groupId>
 			<artifactId>common</artifactId>
 		</dependency>
+		<!-- AOP：售后变更流水切面（@AfterSaleLogRecord） -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-aspectj</artifactId>
+		</dependency>
 		<!-- ORM：售后 Mapper + XML -->
 		<dependency>
 			<groupId>org.mybatis.spring.boot</groupId>

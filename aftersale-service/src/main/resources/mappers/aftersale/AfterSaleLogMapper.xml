@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.aftersale.mapper.AfterSaleLogMapper">
+
+    <!-- 写入变更流水 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO after_sale_log
+          (after_sale_id, user_id, user_type, before_status, after_status, operate_type,
+           content, merchant_remark, is_deleted, created_at, updated_at)
+        VALUES
+          (#{afterSaleId}, #{userId}, #{userType}, #{beforeStatus}, #{afterStatus}, #{operateType},
+           #{content}, #{merchantRemark}, 0, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <!-- 按售后单查流水，时间正序（买家看到的进度顺序） -->
+    <select id="listByAfterSaleId" resultType="ecommerce.aftersale.entity.AfterSaleLog">
+        SELECT id, after_sale_id, user_id, user_type, before_status, after_status, operate_type,
+               content, merchant_remark, is_deleted, created_at, updated_at
+        FROM after_sale_log
+        WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
+        ORDER BY created_at ASC, id ASC
+    </select>
+
+</mapper>

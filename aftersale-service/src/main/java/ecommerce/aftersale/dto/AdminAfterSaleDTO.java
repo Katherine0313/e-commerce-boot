@@ -8,8 +8,8 @@ import lombok.Data;
  */
 @Data
 public class AdminAfterSaleDTO {
-    @Schema(description = "目标售后状态 code（refunding/returning/refund_confirming/refunded/rejected 等）")
+    @Schema(description = "目标售后状态 code（refunding/returning/refunded/exchanging/exchanged/rejected，只能是状态机允许的跃迁）")
     private String status;
-    @Schema(description = "商家内部备注")
+    @Schema(description = "商家内部备注（拒绝售后时必填）")
     private String merchantRemark;
 }

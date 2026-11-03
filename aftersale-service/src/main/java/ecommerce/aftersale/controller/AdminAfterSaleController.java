@@ -2,6 +2,7 @@ package ecommerce.aftersale.controller;
 
 import ecommerce.aftersale.dto.AdminAfterSaleDTO;
 import ecommerce.aftersale.service.AdminAfterSaleService;
+import ecommerce.aftersale.vo.AfterSaleLogVO;
 import ecommerce.aftersale.vo.AfterSaleVO;
 import ecommerce.common.Result;
 import ecommerce.common.annotation.RequirePerm;
@@ -44,10 +45,16 @@ public class AdminAfterSaleController {
         return Result.success(adminAfterSaleService.list(status, search, startDate, endDate, dateField));
     }
 
-    @Operation(summary = "售后详情（含明细 + 子表平铺字段）")
+    @Operation(summary = "售后详情（含明细 + 子表平铺字段 + 可执行动作）")
     @GetMapping("/{id}")
     public Result<AfterSaleVO> getById(@PathVariable Long id) {
         return Result.success(adminAfterSaleService.getById(id));
+    }
+
+    @Operation(summary = "售后变更流水（含商家内部备注）")
+    @GetMapping("/{id}/logs")
+    public Result<List<AfterSaleLogVO>> listLogs(@PathVariable Long id) {
+        return Result.success(adminAfterSaleService.listLogs(id));
     }
 
     @Operation(summary = "审核售后（更新状态 + 子表时间戳 + 商家备注）")

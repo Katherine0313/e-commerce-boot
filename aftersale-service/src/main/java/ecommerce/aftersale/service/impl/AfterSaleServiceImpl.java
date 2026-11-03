@@ -1,5 +1,6 @@
 package ecommerce.aftersale.service.impl;
 
+import ecommerce.aftersale.annotation.AfterSaleLogRecord;
 import ecommerce.aftersale.dto.CreateAfterSaleDTO;
 import ecommerce.aftersale.dto.SubmitReturnDTO;
 import ecommerce.aftersale.entity.AfterSale;
@@ -10,6 +11,7 @@ import ecommerce.aftersale.entity.AfterSaleReturn;
 import ecommerce.aftersale.entity.Order;
 import ecommerce.aftersale.entity.OrderItem;
 import ecommerce.aftersale.enums.AfterSaleGoodsStatusEnum;
+import ecommerce.aftersale.enums.AfterSaleOperateTypeEnum;
 import ecommerce.aftersale.enums.AfterSaleReasonEnum;
 import ecommerce.aftersale.enums.AfterSaleStatusEnum;
 import ecommerce.aftersale.enums.AfterSaleTypeEnum;
@@ -17,12 +19,15 @@ import ecommerce.aftersale.enums.CourierEnum;
 import ecommerce.aftersale.enums.PayTypeEnum;
 import ecommerce.aftersale.mapper.AfterSaleExchangeReturnMapper;
 import ecommerce.aftersale.mapper.AfterSaleItemMapper;
+import ecommerce.aftersale.mapper.AfterSaleLogMapper;
 import ecommerce.aftersale.mapper.AfterSaleMapper;
 import ecommerce.aftersale.mapper.AfterSaleOnlyRefundMapper;
 import ecommerce.aftersale.mapper.AfterSaleReturnMapper;
 import ecommerce.aftersale.mapper.OrderMapper;
 import ecommerce.aftersale.service.AfterSaleService;
+import ecommerce.aftersale.support.AfterSaleLogConverter;
 import ecommerce.aftersale.vo.AfterSaleItemVO;
+import ecommerce.aftersale.vo.AfterSaleLogVO;
 import ecommerce.aftersale.vo.AfterSaleStatusConstantsVO;
 import ecommerce.aftersale.vo.AfterSaleVO;
 import ecommerce.exception.BusinessException;
@@ -64,24 +69,30 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     private final AfterSaleReturnMapper afterSaleReturnMapper;
     private final AfterSaleOnlyRefundMapper afterSaleOnlyRefundMapper;
     private final AfterSaleExchangeReturnMapper afterSaleExchangeReturnMapper;
+    private final AfterSaleLogMapper afterSaleLogMapper;
     private final OrderMapper orderMapper;
     private final ObjectMapper objectMapper;
 
     public AfterSaleServiceImpl(AfterSaleMapper afterSaleMapper, AfterSaleItemMapper afterSaleItemMapper,
                                 AfterSaleReturnMapper afterSaleReturnMapper, AfterSaleOnlyRefundMapper afterSaleOnlyRefundMapper,
-                                AfterSaleExchangeReturnMapper afterSaleExchangeReturnMapper, OrderMapper orderMapper,
+                                AfterSaleExchangeReturnMapper afterSaleExchangeReturnMapper,
+                                AfterSaleLogMapper afterSaleLogMapper,
+                                OrderMapper orderMapper,
                                 ObjectMapper objectMapper) {
         this.afterSaleMapper = afterSaleMapper;
         this.afterSaleItemMapper = afterSaleItemMapper;
         this.afterSaleReturnMapper = afterSaleReturnMapper;
         this.afterSaleOnlyRefundMapper = afterSaleOnlyRefundMapper;
         this.afterSaleExchangeReturnMapper = afterSaleExchangeReturnMapper;
+        this.afterSaleLogMapper = afterSaleLogMapper;
         this.orderMapper = orderMapper;
         this.objectMapper = objectMapper;
     }
 
     @Override
     @Transactional
+    @AfterSaleLogRecord(operateType = AfterSaleOperateTypeEnum.USER_SUBMIT,
+            operator = AfterSaleLogRecord.OperatorType.BUYER)
     public AfterSaleVO create(CreateAfterSaleDTO dto) {
         if (dto.getOrderId() == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "订单 ID 不能为空");
@@ -244,8 +255,22 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         return toVO(afterSale, null, null);
     }
 
+    /**
+     * 售后变更流水（买家可见）。
+     * <p>
+     * 不含 merchantRemark —— 商家内部备注只在后台接口返回。
+     */
+    @Override
+    public List<AfterSaleLogVO> listLogs(Long id) {
+        // 校验归属：只能看自己的售后单
+        getOwnedAfterSale(id);
+        return AfterSaleLogConverter.toVOList(afterSaleLogMapper.listByAfterSaleId(id), false);
+    }
+
     @Override
     @Transactional
+    @AfterSaleLogRecord(operateType = AfterSaleOperateTypeEnum.USER_FILL_LOGISTICS,
+            operator = AfterSaleLogRecord.OperatorType.BUYER)
     public AfterSaleVO submitReturn(Long id, SubmitReturnDTO dto) {
         AfterSale afterSale = getOwnedAfterSale(id);
         // 仅退款不退货，不调本接口
@@ -310,27 +335,24 @@ public class AfterSaleServiceImpl implements AfterSaleService {
 
     @Override
     public AfterSaleStatusConstantsVO statusConstants() {
-        // 状态/颜色照原 Node dict.js（含废弃的 returned，保证前端字段名与取值完全一致）
+        // 状态/颜色与 AfterSaleStatusEnum 对齐。
+        // 已删除：returned（Node 版遗留的死状态）、refund_confirming（「确认退款」是操作不是状态）
         Map<String, String> statusMap = new LinkedHashMap<>();
         statusMap.put("reviewing", "商家审核中");
         statusMap.put("refunding", "退款中");
-        statusMap.put("refund_confirming", "确认退款中");
         statusMap.put("exchanging", "换货中");
         statusMap.put("returning", "退货中");
         statusMap.put("refunded", "已退款");
         statusMap.put("exchanged", "已换货");
-        statusMap.put("returned", "已退货");
         statusMap.put("rejected", "售后拒绝");
 
         Map<String, String> colorMap = new LinkedHashMap<>();
         colorMap.put("reviewing", "processing");
         colorMap.put("refunding", "processing");
-        colorMap.put("refund_confirming", "processing");
         colorMap.put("exchanging", "processing");
         colorMap.put("returning", "processing");
         colorMap.put("refunded", "success");
         colorMap.put("exchanged", "success");
-        colorMap.put("returned", "success");
         colorMap.put("rejected", "error");
 
         Map<String, String> reasonMap = new LinkedHashMap<>();
@@ -489,7 +511,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .goodsStatusDesc(goodsStatus == null ? null : goodsStatus.getDesc())
                 .remark(a.getRemark())
                 .images(parseImages(a.getImages()))
-                .merchantRemark(a.getMerchantRemark())
+                // C 端不返回商家内部备注（后台的 toVO 才填，见 AdminAfterSaleServiceImpl）
                 .createdAt(a.getCreatedAt())
                 .updatedAt(a.getUpdatedAt())
                 .consignee(a.getConsignee())

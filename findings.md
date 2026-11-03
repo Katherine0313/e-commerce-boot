@@ -277,7 +277,7 @@ ecommerce
 - 分页返回 `Result<PageVO<T>>`（list/total/page/pageSize），前端读 `res.data.data.*`。
 - 时间字段 VO 用 `createdAt/updatedAt`，`LocalDateTime` 加 `@JsonFormat("yyyy-MM-dd HH:mm:ss")`。
 - 日期筛选收 `dateField/startDate/endDate`，`dateField` 走白名单（created_at/confirm_at/pay_at/ship_at/finish_at）防注入。
-- 售后审核只改主表 `status/merchant_remark/updated_at`，业务时间戳按状态写子表列（refunding/returning→review_at、rejected→rejected_at、refund_confirming→refund_at、refunded→refunded_at、exchanging→exchange_at、exchanged→exchanged_at）；删除为主表/明细/子表 `is_deleted=1` 软删。
+- 售后审核只改主表 `status/merchant_remark/updated_at`，业务时间戳按状态写子表列（refunding/returning→review_at、rejected→rejected_at、**refunded→refund_at + refunded_at 同刻**、exchanging→exchange_at、exchanged→exchanged_at）；删除为主表/明细/子表 `is_deleted=1` 软删。**`refund_confirming` 已于 2026-11-03 删除**（阶段 29）：项目不接真实支付，没有「等款到账」时刻，「确认退款」是操作不是状态。
 - **表名保持现状，不改成 `sys_user` 系（2026-11-01 决定）**：admin / admin_role / admin_user_role / admin_menu / admin_role_menu 五张表命名自洽、语义准确（admin = 后台账号，与 C 端 `user` 表天然区分）。评估过整套改成若依风格的 `sys_user`/`sys_role`/`sys_menu`，结论是不做：`admin` 在本项目同时承担「后台账号表」和「身份类型 admin（JWT type=admin、`/api/admin/**` 路径分流、Redis 失效标记 key、前端 token 守卫）」两套语义，连带改要动 107 个 Java 文件、956 处标识符、98 处前端请求路径，且 8 个服务 + 后台前端必须一次性发版（改错一环全线 401），收益却只有命名风格。**别再重复提这个改名方案。**
 - **后台 token 改存 sessionStorage（2026-11-01 决定）**：`utils/token.js` 从 localStorage 改为 sessionStorage —— 关掉标签页/浏览器即清空，下次打开必须重新登录（后台管理系统安全要求：离开工位关页面就登出）。同一标签页刷新仍保持登录。**副作用**：sessionStorage 按标签页隔离，新开标签页也要重新登录（预期行为）。后端 JWT 有效期仍是 7 天，但 token 只活在会话里。「记住密码」（utils/remember.js）与之无关，仍用 localStorage 存 30 天。PC 商城与小程序（C 端）保持 localStorage 不变。
 
@@ -293,6 +293,30 @@ ecommerce
 - `/api/home` 一次返回分类 + 猜你喜欢；分类走 Redis 缓存（单父分类一个 key，TTL 30 分钟，故障降级查库）。
 - 热门推荐 `GET /api/products/hot?limit=8&excludeIds=`：优先 `categories.recommend=1`（含父分类推荐）的上架商品，随机排序；不足则随机上架商品补足，并排除已选/当前批次。小程序首屏与下拉刷新共用。
 - 「猜你喜欢」调 Python `/recommend` 不存在（历史从未实现），当前一直走销量兜底；用户已决定近期不实现。
+
+### 售后 / 审核改造与两张日志表（2026-11-03，阶段 29）
+
+- **状态机只有一份真相**：`aftersale-service` 的 `support/AfterSaleTransitions`（10 条规则：类型 + 当前状态 + 目标状态 → operate_type + 按钮文案 + 附加条件）。
+  后端 `review` 用它校验流转合法性、推导 `operate_type`；再用 `AfterSaleVO.availableActions` 把「当前能按哪几个按钮」下发给前端。
+  **前端不再自己维护状态表** —— 原先后台三个 `*Review.vue` 各写一份下拉映射，是漂移的根源。
+- **`operate_type` 与 `after_status` 一一对应**：枚举 `AfterSaleOperateTypeEnum`（9 项，code/tag/desc/logContent 四字段）只描述「做了什么」，
+  「变成什么状态」由状态机给出，两者合起来唯一确定一条流水。
+- **两张日志表用途完全不同，别混**：
+  - `after_sale_log`（售后变更流水，**同步写、同一事务**）：买家和商家都要看，**不能缺条** → 切面必须在事务内层
+    （`@EnableTransactionManagement(order = HIGHEST_PRECEDENCE)` 让事务切面在最外层 + 切面 `LOWEST_PRECEDENCE` 让它在最内层）。
+  - `operation_log`（通用操作审计，**异步写**）：只给管理员看，丢了不影响业务 → 独立线程池，写失败只记 warn。
+- **`content` 与 `merchant_remark` 分两列**：前者是买家可见的公开说明（枚举的 `logContent` 直接给出），
+  后者是商家内部备注原文，**只有后台接口返回**。顺带修掉既有泄露：C 端 `AfterSaleVO` 原来也带 `merchantRemark`，现已不返回。
+- **本项目不用 `@ConditionalOnMissingBean`**：各服务是 `@SpringBootApplication(scanBasePackages = "ecommerce")` **包扫描**装配，
+  common 没有 `META-INF/spring/*.imports`，不是自动配置 jar → 该注解在普通 `@Component` 上求值时机不对，不可靠。
+  要「可替换」语义，只能让业务服务自己声明一个 `OperationLogRecorder` bean 覆盖默认实现。
+- **`JdbcOperationLogRecorder` 必须用 `ObjectProvider<JdbcTemplate>` 注入**：`file-service` 依赖 common 但**没有 JDBC 依赖**，
+  直接注入 `JdbcTemplate` 会让它启动失败；用 `ObjectProvider` + `getIfAvailable()` 取不到就跳过写日志。
+- **Boot 4.1 的 starter 改名**：`spring-boot-starter-aop` → **`spring-boot-starter-aspectj`**（本地 m2 只有后者，原写法会构建失败）。
+- **`UserContext` 加 `CURRENT_TYPE` 必须一起清**：`remove()` 不清 `CURRENT_TYPE`，Tomcat 线程复用会把上一个请求的操作人带到下一个请求（串号）。
+  因此 common 改动后**所有依赖 common 的服务都要重发**。
+- **历史数据订正的顺序**：`refund_confirming` 订正时**子表先于主表** —— 主表一改成 `refunded`，子表语句就定位不到这批单了。
+  `refunded_at` 取原 `refund_at`（与订单取消自动退款 `refund_at = refunded_at` 同刻的口径一致）。
 
 ### 订单 / 库存 / 营收
 - 下单：同一事务内查商品 → 校验并扣库存（`stock >= quantity` 乐观锁）→ 写订单/明细 → 清购物车；Redis 幂等键防重复下单。

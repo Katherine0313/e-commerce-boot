@@ -40,6 +40,16 @@
 			<groupId>org.springdoc</groupId>
 			<artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
 		</dependency>
+		<!-- AOP：操作日志切面（OperationLog 注解 + OperationLogAspect） -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-aspectj</artifactId>
+		</dependency>
+		<!-- JDBC：JdbcOperationLogRecorder 用 JdbcTemplate 直写 operation_log -->
+		<dependency>
+			<groupId>org.springframework</groupId>
+			<artifactId>spring-jdbc</artifactId>
+		</dependency>
 		<!-- JWT：JwtUtil 签发/解析令牌 -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>

@@ -109,4 +109,6 @@ public class AfterSaleVO {
     private LocalDateTime exchangedAt;
     @Schema(description = "售后明细")
     private List<AfterSaleItemVO> items;
+    @Schema(description = "当前状态可执行的动作（仅后台详情接口下发，前端按此渲染审核按钮）")
+    private List<AfterSaleActionVO> availableActions;
 }
