@@ -632,6 +632,11 @@
     （**`updateStatus` 语义不动**）
   - 3 个写入口（ship/resend/update）都有 `@Transactional(rollbackFor = Exception.class)`，包裹 + 订单状态 + 流水同生共死
   - 改包裹时**仅首包裹**同步 `orders.courier/tracking_number`（补发包裹改了不能把订单指过去）
+  - **【运行时实测修正】写包裹必须排在条件更新订单状态之后**：`order_delivery` 有指向 `orders` 的外键，
+    先 `INSERT` 子表会对父行加**共享锁**，与并发 `UPDATE orders` 的**排他锁**形成 InnoDB 锁顺序反转 →
+    并发双击实测 **死锁 → HTTP 500**（`MySQLTransactionRollbackException: Deadlock found`）。
+    改为「先条件更新 orders（拿父行排他锁）→ 再插包裹 → 再写流水」后，
+    6 个订单各跑一次并发双击全部得到 **[200, 409]**、每次只产生 1 个包裹
 - [✓] **P4 收尾**
   - 路由切换：`src/router/index.js` 加 `/delivery` 顶级路由（子路由 `list`/`express`，`meta.permission` = `order:delivery:list`/`order:express:list`），
     **移除** `/orders/ship`；旧 `Ship.vue`/`ShippedTable.vue`/`FinishedTable.vue`/`PendingShipTable.vue` 4 个文件已删
@@ -641,12 +646,23 @@
     行内按钮 `hasPermi` 与 `admin_menu.perms` 一字不差、业务 catch 不重复弹 `message.error`
   - `@OperationLog` 审计：发货/补发/改单/字典增改删 6 处
   - 验证：`mvnw -o compile`（order-service + product-service）通过、前端 `vite build` 通过、本地库 3 表 + 种子 + 菜单已核对
-- [✓] **对方案的 3 处细化**（实施时发现，按项目实际调整）
+  - **运行时冒烟**（临时实例跑在 9104，禁用 Nacos 注册避免污染用户 IDEA 里的 9004 进程）：
+    26 项接口断言全通过 —— 字典列表/启用列表、包裹列表、`/api/admin/orders/couriers` 返回 8 条 `[{value,label}]`、
+    待确认(2)发货 400、空快递公司 400「请选择快递公司」、空单号 400「请填写快递单号」、未在字典的快递公司 400、
+    禁用快递公司后发货 400「快递公司不存在或未启用」且不产生包裹、发货后 `order_status=4` + `ship_at/courier/tracking_number` 有值 +
+    `confirm_at` 不变 + `order_delivery` 1 条 + `order_delivery_log` 1 条（`operator_id` = 当前管理员）、
+    补发后 `orders` 无变化 + `order_delivery` 多 1 条 `delivery_type=2`、改单号只同步首包裹到 `orders`、
+    流水 3 条（发货/改单/补发）、字典增改删、无 `order:delivery:list/ship/resend`、`order:express:list` 权限一律 403
+- [✓] **对方案的 4 处细化**（实施时发现，按项目实际调整）
   1. **warehouse（仓储）角色也授发货相关权限**：该角色原本持 `order:order:ship`，旧页下线后若不授权会失去发货能力，与方案「发货是运营/仓库的事」一致
      → operator 全套；warehouse 给 `order:delivery:list/ship/resend` + `order:express:list`；service 只给 `order:delivery:list`（只读）
   2. **新增 `PUT /api/admin/deliveries/{id}`**（改包裹快递信息）：方案 §3.2 接口表漏了这条，但 §4.2 要求列表有「编辑」按钮 → 补接口，复用 `order:delivery:ship` 权限码，不新增权限码
   3. **RBAC SQL 文件名 `02-delivery-menu.sql` → `04-delivery-menu.sql`**：既有 `docs/sql/rbac/02-drop-admin-role-column.sql` 已占用 02
-- [ ] **【待发版】** 生产库执行同一份 SQL（3 张表 + 种子 + 菜单改造，用户已授权）+ order-service / product-service / gateway 镜像 + 后台前端 `release-web.sh`
+  4. **事务内「条件更新订单状态」排在「写包裹」之前**：见 P3 的死锁修正（外键共享锁与父行排他锁锁顺序反转）
+- [✓] **生产库已同步**（用户授权「我授权给你」）：3 张表 + 8 家种子 + 菜单改造 **同一份 SQL** 执行并核对
+  （菜单 201/833-838、couriers=8、deliveries=0、角色授权 operator 6 / service 1 / warehouse 4）
+- [ ] **【待发版】** order-service / product-service / gateway 镜像 + 后台前端 `release-web.sh`
+  （网关 Path 不加就是 404；发版后后台需重新登录，让新权限码进 token）
 
 ## 风险与待确认
 
