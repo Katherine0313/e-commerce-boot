@@ -57,6 +57,8 @@ public class AdminUploadController {
             case "body" -> List.of("product:product:add", "business:article:add");
             // 评价晒图：后台评价模块上传的图，只给评价权限的角色
             case "review" -> List.of("product:review:add", "product:review:edit");
+            // 快递公司 logo：发货管理的字典维护权限
+            case "express" -> List.of("order:express:save");
             default -> List.of("product:product:add");
         };
         List<String> permissions = UserContext.getPermissions();

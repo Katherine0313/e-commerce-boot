@@ -39,7 +39,8 @@ public class UploadServiceImpl implements UploadService {
             "review", "review",
             "feedback", "feedback",
             "banner", "banner",
-            "article", "article"
+            "article", "article",
+            "express", "express"
     );
 
     /**

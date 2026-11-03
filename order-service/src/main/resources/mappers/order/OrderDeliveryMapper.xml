@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.OrderDeliveryMapper">
+
+    <!-- 新增包裹 -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO order_delivery (order_id, order_no, package_no, express_code, express_name, tracking_number,
+                                    delivery_type, delivery_time, remark, is_deleted, created_at, updated_at)
+        VALUES (#{orderId}, #{orderNo}, #{packageNo}, #{expressCode}, #{expressName}, #{trackingNumber},
+                #{deliveryType}, #{deliveryTime}, #{remark}, 0, #{createdAt}, #{updatedAt})
+    </insert>
+
+    <select id="findById" resultType="ecommerce.order.entity.OrderDelivery">
+        SELECT id, order_id, order_no, package_no, express_code, express_name, tracking_number,
+               delivery_type, delivery_time, remark, is_deleted, created_at, updated_at
+        FROM order_delivery
+        WHERE id = #{id} AND is_deleted = 0
+    </select>
+
+    <select id="findByPackageNo" resultType="ecommerce.order.entity.OrderDelivery">
+        SELECT id, order_id, order_no, package_no, express_code, express_name, tracking_number,
+               delivery_type, delivery_time, remark, is_deleted, created_at, updated_at
+        FROM order_delivery
+        WHERE package_no = #{packageNo} AND is_deleted = 0
+    </select>
+
+    <!-- 某订单的全部包裹（按发货时间正序） -->
+    <select id="listByOrderId" resultType="ecommerce.order.entity.OrderDelivery">
+        SELECT id, order_id, order_no, package_no, express_code, express_name, tracking_number,
+               delivery_type, delivery_time, remark, is_deleted, created_at, updated_at
+        FROM order_delivery
+        WHERE order_id = #{orderId} AND is_deleted = 0
+        ORDER BY delivery_time ASC, id ASC
+    </select>
+
+    <!-- 后台包裹列表：join orders 带出收货信息与订单状态 -->
+    <select id="listAdmin" resultType="ecommerce.order.entity.OrderDelivery">
+        SELECT d.id, d.order_id, d.order_no, d.package_no, d.express_code, d.express_name,
+               d.tracking_number, d.delivery_type, d.delivery_time, d.remark, d.created_at, d.updated_at,
+               o.consignee, o.phone, o.region, o.detail_address,
+               o.remark AS buyer_remark, o.order_status, o.sign_status
+        FROM order_delivery d
+                 JOIN orders o ON o.id = d.order_id AND o.is_deleted = 0
+        WHERE d.is_deleted = 0
+        <if test="orderNo != null and orderNo != ''">
+            AND d.order_no LIKE CONCAT('%', #{orderNo}, '%')
+        </if>
+        <if test="trackingNumber != null and trackingNumber != ''">
+            AND d.tracking_number LIKE CONCAT('%', #{trackingNumber}, '%')
+        </if>
+        <if test="expressCode != null and expressCode != ''">
+            AND d.express_code = #{expressCode}
+        </if>
+        <if test="deliveryType != null">
+            AND d.delivery_type = #{deliveryType}
+        </if>
+        ORDER BY d.created_at DESC, d.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- 后台总数（与 listAdmin 同筛选条件） -->
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM order_delivery d
+                 JOIN orders o ON o.id = d.order_id AND o.is_deleted = 0
+        WHERE d.is_deleted = 0
+        <if test="orderNo != null and orderNo != ''">
+            AND d.order_no LIKE CONCAT('%', #{orderNo}, '%')
+        </if>
+        <if test="trackingNumber != null and trackingNumber != ''">
+            AND d.tracking_number LIKE CONCAT('%', #{trackingNumber}, '%')
+        </if>
+        <if test="expressCode != null and expressCode != ''">
+            AND d.express_code = #{expressCode}
+        </if>
+        <if test="deliveryType != null">
+            AND d.delivery_type = #{deliveryType}
+        </if>
+    </select>
+
+    <!-- 修改包裹的快递信息 -->
+    <update id="update">
+        UPDATE order_delivery
+        SET express_code    = #{expressCode},
+            express_name    = #{expressName},
+            tracking_number = #{trackingNumber},
+            remark          = #{remark},
+            updated_at      = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+</mapper>

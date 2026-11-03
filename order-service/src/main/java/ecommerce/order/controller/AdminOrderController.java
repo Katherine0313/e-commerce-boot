@@ -90,13 +90,6 @@ public class AdminOrderController {
         return Result.success(adminOrderService.shipOrder(id, courier, trackingNumber));
     }
 
-    @Operation(summary = "完成（已发货 → 已完成）")
-    @RequirePerm("order:order:update")
-    @PutMapping("/{id}/finish")
-    public Result<OrderVO> finish(@PathVariable Long id) {
-        return Result.success(adminOrderService.finishOrder(id));
-    }
-
     @Operation(summary = "取消（恢复库存 + 改取消）")
     @RequirePerm("order:order:update")
     @PutMapping("/{id}/cancel")

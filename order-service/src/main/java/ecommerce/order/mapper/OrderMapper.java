@@ -44,6 +44,22 @@ public interface OrderMapper {
                      @Param("courier") String courier, @Param("trackingNumber") String trackingNumber,
                      @Param("now") LocalDateTime now);
 
+    /**
+     * 条件状态流转：只有当前状态 == fromStatus 时才更新（用于发货，防并发双击）。
+     * 返回影响行数，0 表示状态已被别人改过，调用方应抛 409。
+     */
+    int updateStatusIfCurrent(@Param("id") Long id,
+                               @Param("fromStatus") Integer fromStatus,
+                               @Param("status") Integer status,
+                               @Param("courier") String courier,
+                               @Param("trackingNumber") String trackingNumber,
+                               @Param("now") LocalDateTime now);
+
+    // 改包裹时同步订单上的快递信息（只改首包裹时调用，不动订单状态）
+    int updateCourier(@Param("id") Long id, @Param("courier") String courier,
+                      @Param("trackingNumber") String trackingNumber,
+                      @Param("now") LocalDateTime now);
+
     // 软删除（is_deleted=1）
     int delete(@Param("id") Long id, @Param("now") LocalDateTime now);
 

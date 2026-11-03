@@ -88,6 +88,30 @@
         WHERE id = #{id}
     </update>
 
+    <!-- 条件状态流转：WHERE 带上原状态，防并发双击插出两条记录
+         影响行数为 0 说明状态已被别人改过，调用方据此抛 409
+         只用于「待发货(3) → 已发货(4)」这一种流转 -->
+    <update id="updateStatusIfCurrent">
+        UPDATE orders
+        SET order_status = #{status},
+            ship_at = #{now},
+            courier = #{courier},
+            tracking_number = #{trackingNumber},
+            updated_at = #{now}
+        WHERE id = #{id}
+          AND order_status = #{fromStatus}
+          AND is_deleted = 0
+    </update>
+
+    <!-- 改包裹时同步订单上的快递信息（只改首包裹时调用） -->
+    <update id="updateCourier">
+        UPDATE orders
+        SET courier = #{courier},
+            tracking_number = #{trackingNumber},
+            updated_at = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
     <!-- 软删除 -->
     <update id="delete">
         UPDATE orders SET is_deleted = 1, updated_at = #{now}
@@ -124,7 +148,8 @@
         SELECT o.id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.original_amount, o.discount_amount,
                o.coupon_id, o.coupon_name, o.coupon_amount, o.pay_type, o.order_status,
                o.remark, o.consignee, o.phone, o.region, o.detail_address, o.shipping_type, o.courier, o.tracking_number,
-               o.sign_status, o.created_at, o.pay_at, o.ship_at, o.confirm_at, o.finish_at, o.updated_at
+               o.sign_status, o.created_at, o.pay_at, o.ship_at, o.confirm_at, o.finish_at, o.updated_at,
+               EXISTS (SELECT 1 FROM after_sales a WHERE a.order_id = o.id AND a.is_deleted = 0) AS after_sale
         FROM orders o
         WHERE o.is_deleted = 0
         <if test="status != null">

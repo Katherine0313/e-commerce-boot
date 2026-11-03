@@ -556,6 +556,98 @@
 - [ ] **【需人工】在 IDEA 里重启 user-service**（旧进程 9006，重启后本地图表即出图）
 - [ ] **【待发版】** 阶段 30 的 user-service 镜像 + 后台前端 `release-web.sh`（用户选择「先不发」）
 
+### 阶段 32：发货管理模块方案改写（2026-11-03）
+- [✓] **原方案审阅**：仓库根 `express` 文件是「发货管理模块」原始方案（3 张表 DDL + 枚举/实体/Mapper/Service/Controller + 前端两页）
+  - **致命问题**：原方案按 MyBatis-Plus 写（`BaseMapper`/`IService`/`@TableName`/`Wrappers.lambdaQuery`），
+    而 `order-service` 的 pom **只有 `mybatis-spring-boot-starter`，无 MyBatis-Plus** → 原方案的 Java 代码一行都编译不过
+  - 另 29 处与项目约定冲突（`Orders`→`Order`、`deleted`→`is_deleted`、creator/updater 全项目没有、
+    `RuntimeException`→`BusinessException`、`@RequestHeader("username")`→`UserContext.getUserId()`、
+    `Result<List>`→`Result<PageVO<T>>`、无 `@RequirePerm`、定时任务位置、网关 Path 未加 等）
+- [✓] **3 个最隐蔽的坑**（写代码时最容易踩）：
+  - `orders.confirm_at` 实际是**商家确认收款时间**（`updateStatus` 在 status=3 时写），DDL 注释「确认收货时间」是历史遗留错误 → 禁止拿它记签收
+  - `orders.sign_status` 值域是英文 `signed`/`auto`/`unsigned` → 禁止写中文；且本期**不写**它（会与 7 天自动完成抢写）
+  - 订单状态必须走 `orderMapper.updateStatus(...)`（XML 按目标状态自动写 `ship_at`/`courier`/`tracking_number`），手动 set 会漏字段
+- [✓] **方案已改写**：`express` 文件重写为项目版（正文 = 唯一执行依据）
+  - **2026-11-03 二次精简（杰米：「我看得好痛苦，把不需要做的都去掉，留下需要做的，并且核心的」）**：在第一次精简（2161 → 1512 行）基础上再砍一轮 ——
+    删除 **§13 行业通用做法取舍对照表**（整表）、§1 的 19 条「现状分析」压成 15 条「实现约定」、§8.0 的 19 行问题清单压成 7 行「旧页的坑」、
+    §5 的实体类全文 / Mapper 全量方法清单、几段 Java 骨架改为规则描述 —— **全文只剩要执行的内容：1512 行 → 1013 行**
+  - **2026-11-03 三次精简（杰米：「我没接入真实支付的API，不会生成真的物流轨迹，也不可能采用手工录入，我采用自动编的就好了」）**：
+    **物流轨迹整套删除** —— 轨迹表 `order_delivery_trace`、手工录入接口 + 抽屉、`ExpressTraceProvider` + no-op 实现、
+    `syncTraces()` 定时任务、轨迹状态枚举与归一化关键词表、三级降级读取、`order:delivery:trace` 权限码、包裹 `status` 列
+    全部砍掉；**mock 物流 `buildLogistics` 原样保留**（C 端 `logistics.vue` 与 `GET /api/orders/{id}/logistics` 一行不改）。
+    **表从 4 张减为 3 张**（`delivery_express` / `order_delivery` / `order_delivery_log`），权限码 7 → 6 个，前端验收 11 → 9 条 —— **1013 行 → 866 行**
+  - **2026-11-03 四次精简（杰米：「把不需要做的事情和多余的废话都去掉，我只要看该做什么」）**：
+    删掉 §13 行业对照表残留、现状分析、实体类全文、Java 骨架；3 张表 DDL **一字未改**保留；
+    章节重排为「拍板结论 → §0 做什么 → §1 实现约定 → §2 数据表 → §3 后端 → §4 前端 → §5 权限与网关 → §6 落地顺序 → §7 不做」—— **866 行 → 433 行**
+  - **2026-11-03 五次精简（杰米：「你节省到300行以内」）**：
+    菜单 SQL 顺延 UPDATE 合并成一条 CASE、4.4 表改列表、4.2 硬性要求 13 → 11 条、4.5 验收 9 → 7 条、
+    验证点 9 → 8 条、巡检 SQL 与网关 Path 改单行 —— **433 行 → 290 行**
+  - 含：3 张表 DDL、枚举、Mapper 方法清单、Service 接口、Controller 权限码表、前端两页硬性要求、
+    菜单与权限 SQL、网关 Path、落地顺序（P0~P4）、验证点清单、前端验收清单（7 条）、明确不做清单
+  - 后端归 `order-service`（不新建服务），前端归 `e-commerce/src/pages/delivery/`
+- [✓] **补齐原方案漏掉的三块**（杰米追问「行业通用做法看了吗 / 日志怎么处理 / 库存怎么处理 / 轨迹落不落库」后补）：
+  - **发货业务流水表 `order_delivery_log`**（§2.3 / §3.4）——`operation_log` 是异步写且**无查询接口**，后台查不到「谁发的货」；
+    照抄售后域 `after_sale_log`（**同步同事务**、页面能读）补一层，后台包裹页可查时间线
+  - **物流轨迹**（**2026-11-03 拍板后删除**）——原设计要落库 + 三级降级读取；用户澄清「没接真实支付API 不会有真轨迹、也不会手工录入，
+    就用自动编的」→ 整套删除，mock `buildLogistics` 原样保留
+  - **库存边界声明**（§3.4）——本项目**下单时就扣库存**（乐观锁 `deductStock`），超时未付/取消才恢复；
+    **发货阶段不扣、不校验库存**（发货时校验会把订单永久卡在待发货）；售后退款/退货**不回补库存**是既有现状，本模块不动
+  - 行业通用做法里的「安全与合规」4 条也补进 §7 明确不做清单：操作回滚/撤销发货 **不做**（改状态机唯一真相）、二次验证 **不做**、
+    权限分离 **已做**（6 个权限码分开）、合规报告 **不做**
+- [✓] **用户已拍板 3 项**：① 快递公司**建字典表** `delivery_express`（`CourierEnum` 保留作兜底不删）② **不接**外部快递 API（Provider 留 no-op 骨架）③ 旧 `/orders/ship` 发货管理页**下线**
+- [✓] **前端实地核对**（2026-11-03，杰米指出「前端发货管理逻辑是错的，后端当时还是 AI mock，也没有消费者环节」）：
+  - 核对了 `e-commerce/src/pages/orders/shipment/` 4 个文件（`Ship.vue`/`PendingShipTable.vue`/`ShippedTable.vue`/`FinishedTable.vue`）+ 后端 `order-service` 对应实现
+  - **3 个真 bug**：① 已付款订单卡在 status=2 发货页看不到（「确认收款」只在订单列表页）→ 商家看到"待发货 0 单"
+    ② 售后按钮 `has_after_sale` 与后端 `afterSale` 字段名错位 + SQL 没查 + toVO 没赋值 → **永不置灰，同一单可重复提交售后**
+    ③ 发货接口不校验快递公司/单号 → **空单号也能发货**
+  - **6 类语义错**：签收状态恒为「已签收」（没区分 `signed`/`auto`）、商家代确认收货被记成买家签收（**已拍板：删按钮 + 下线 `PUT /api/admin/orders/{id}/finish`，后台对签收只读**）、
+    物流轨迹是 `order.getId()%97` 现算的假数据（且高亮的其实是「已揽件」第一条）、列名「订单确认时间」实为收款确认时间、
+    列名「配送信息及备注」实为买家留言（且**没显示收货地址和手机号**）、已取消/退款中订单在发货页不可见
+  - **通用欠账**：无分页（`pageSize` 硬编码 1000）、错误提示重复弹 10 处、`FinishedTable` 漏 `hasPermi` 判断、
+    发货页塞了取消/删除/批量删除（后台取消会**恢复库存 + 自动生成整单退款单**）、发货弹窗无商品明细
+  - **结论已写入 `express`**（章节号按 2026-11-03 精简后的新结构）：§4.2（页面硬性要求 11 条）、§4.4（需后端配合的前端改动 3 条）、§4.5（前端验收清单 7 条）、§3.3（发货/补发规则）、§3.4（签收/轨迹/流水/审计/库存）、§3.5（事务边界 + 并发安全：3 个写入口用事务、`updateStatus` 无状态条件 → 新增 `updateStatusIfCurrent` 条件更新，防并发双击插出两个包裹）、§3.6（巡检 SQL + 工作台 4 个数字）、§5.1/§5.2/§5.3（菜单 SQL、权限码与角色、网关 Path）、§6（落地顺序 P0~P4）、§7（明确不做清单）；另同步更新 §0（这次要做的事）、§1（实现约定）、§2（3 张表 DDL）
+- [✓] **用户拍板开工**（2026-11-03：「可以动手了」+「我授权给你」→ 生产库变更已授权）→ 按 P0~P4 实施
+- [✓] **P0 基础设施**（本地库已执行并核对）
+  - `docs/sql/shipment/01-shipment-schema.sql`（3 张表：`delivery_express`/`order_delivery`/`order_delivery_log`）
+  - `docs/sql/shipment/02-delivery-express-seed.sql`（8 家快递种子，code 用英文 key，`ON DUPLICATE KEY UPDATE`）
+  - `docs/sql/shipment/03-delivery-inspect.sql`（巡检：已发货超 7 天未完成）
+  - `docs/sql/rbac/04-delivery-menu.sql`（**文件名从方案里的 `02-delivery-menu.sql` 改**：与既有 `02-drop-admin-role-column.sql` 冲突）
+  - 网关 `gateway/src/main/resources/application.yml`：order-service 路由 Path 追加 `/api/admin/deliveries(/**)`、`/api/admin/expresses(/**)`
+  - 本地库核对通过：3 张表已建、8 家快递已种、菜单 201 改顶级 M 型目录（`/delivery`，sort 4）、顶级顺延为 售后5/库存6/经营工具7/个人中心8/系统9、
+    新菜单 833-838（快递发货列表/快递公司 + 4 个按钮权限）
+- [✓] **P1 快递公司字典**
+  - 后端：`DeliveryExpress` 实体/Mapper/XML/Service/VO/DTO + `AdminExpressController`（`/api/admin/expresses`）
+  - `GET /api/admin/orders/couriers` 改读 `delivery_express`（形状不变 `[{value,label}]`，`CourierEnum` 保留作 mock 物流兜底）
+  - 上传改造：`UploadServiceImpl.TYPE_SUBDIR` 加 `express`、`AdminUploadController.assertPermission` 加 `case "express" -> order:express:save`、
+    `image-spec.js` 加 `express: {120×120, contain, #ffffff}`
+  - 前端：`src/api/delivery.js` + `src/pages/delivery/ExpressList.vue`（编码/名称搜索、logo 上传、启用状态、a-popconfirm 删除）
+- [✓] **P2 发货主流程**
+  - 后端：`OrderDelivery`/`OrderDeliveryLog` 实体 + Mapper + XML + DTO + VO + Service + `AdminDeliveryController`
+  - `AdminOrderServiceImpl.shipOrder` 改为委托 `deliveryService.ship(...)`（老接口 `PUT /api/admin/orders/{id}/ship` 路径契约不变）
+  - `order_delivery_log` 同步同事务写流水（发货/补发/改单三处），`operator_id` 取 `UserContext.getUserId()`
+  - `OrderMapper.listAdmin` 补 `after_sale` EXISTS 子查询 + `toVO` 赋 `.afterSale(...)`（售后按钮置灰的前提）
+  - 前端：`src/pages/delivery/DeliveryList.vue`（2 个 Tab：快递发货列表 + 待发货订单；分页；发货弹窗带收货地址+商品明细；二次确认；流水抽屉）
+- [✓] **P3 并发安全与巡检**
+  - `OrderMapper.updateStatusIfCurrent(id, fromStatus, ...)` 条件更新（`WHERE id AND order_status`），影响 0 行 → 409「订单状态已变更，请刷新后重试」
+    （**`updateStatus` 语义不动**）
+  - 3 个写入口（ship/resend/update）都有 `@Transactional(rollbackFor = Exception.class)`，包裹 + 订单状态 + 流水同生共死
+  - 改包裹时**仅首包裹**同步 `orders.courier/tracking_number`（补发包裹改了不能把订单指过去）
+- [✓] **P4 收尾**
+  - 路由切换：`src/router/index.js` 加 `/delivery` 顶级路由（子路由 `list`/`express`，`meta.permission` = `order:delivery:list`/`order:express:list`），
+    **移除** `/orders/ship`；旧 `Ship.vue`/`ShippedTable.vue`/`FinishedTable.vue`/`PendingShipTable.vue` 4 个文件已删
+  - 下线 `PUT /api/admin/orders/{id}/finish`：删 `AdminOrderController.finish` + `AdminOrderServiceImpl.finishOrder` + `AdminOrderService.finishOrder` + 前端 `api/orders.js` 的 `finishOrder`
+  - 旧页遗留收口（随旧页下线 + 新页实现）：签收三态渲染（`signed`/`auto`/`unsigned`）、无「代客确认收货」入口、
+    「订单确认时间」改名「收款确认时间」、补收货地址/手机号/买家备注三列、去掉取消/删除/批量删除、
+    行内按钮 `hasPermi` 与 `admin_menu.perms` 一字不差、业务 catch 不重复弹 `message.error`
+  - `@OperationLog` 审计：发货/补发/改单/字典增改删 6 处
+  - 验证：`mvnw -o compile`（order-service + product-service）通过、前端 `vite build` 通过、本地库 3 表 + 种子 + 菜单已核对
+- [✓] **对方案的 3 处细化**（实施时发现，按项目实际调整）
+  1. **warehouse（仓储）角色也授发货相关权限**：该角色原本持 `order:order:ship`，旧页下线后若不授权会失去发货能力，与方案「发货是运营/仓库的事」一致
+     → operator 全套；warehouse 给 `order:delivery:list/ship/resend` + `order:express:list`；service 只给 `order:delivery:list`（只读）
+  2. **新增 `PUT /api/admin/deliveries/{id}`**（改包裹快递信息）：方案 §3.2 接口表漏了这条，但 §4.2 要求列表有「编辑」按钮 → 补接口，复用 `order:delivery:ship` 权限码，不新增权限码
+  3. **RBAC SQL 文件名 `02-delivery-menu.sql` → `04-delivery-menu.sql`**：既有 `docs/sql/rbac/02-drop-admin-role-column.sql` 已占用 02
+- [ ] **【待发版】** 生产库执行同一份 SQL（3 张表 + 种子 + 菜单改造，用户已授权）+ order-service / product-service / gateway 镜像 + 后台前端 `release-web.sh`
+
 ## 风险与待确认
 
 | # | 风险/待确认 | 影响 | 处置 |

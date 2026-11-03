@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.OrderDeliveryLogMapper">
+
+    <!-- 写入一条发货流水（同步同事务，Service 里直接调） -->
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO order_delivery_log (delivery_id, package_no, order_id, order_no, operate_type,
+                                        content, remark, operator_id, operator_type,
+                                        created_at, updated_at, is_deleted)
+        VALUES (#{deliveryId}, #{packageNo}, #{orderId}, #{orderNo}, #{operateType},
+                #{content}, #{remark}, #{operatorId}, #{operatorType},
+                #{createdAt}, #{updatedAt}, 0)
+    </insert>
+
+    <!-- 某订单的全部发货流水（按时间正序） -->
+    <select id="listByOrderId" resultType="ecommerce.order.entity.OrderDeliveryLog">
+        SELECT id, delivery_id, package_no, order_id, order_no, operate_type,
+               content, remark, operator_id, operator_type, created_at, updated_at, is_deleted
+        FROM order_delivery_log
+        WHERE order_id = #{orderId} AND is_deleted = 0
+        ORDER BY created_at ASC, id ASC
+    </select>
+
+</mapper>

@@ -37,9 +37,6 @@ public interface AdminOrderService {
     /** 发货：待发货 → 已发货 */
     OrderVO shipOrder(Long id, String courier, String trackingNumber);
 
-    /** 完成：已发货 → 已完成 */
-    OrderVO finishOrder(Long id);
-
     /** 取消：恢复库存 + 改取消 */
     OrderVO cancelOrder(Long id);
 

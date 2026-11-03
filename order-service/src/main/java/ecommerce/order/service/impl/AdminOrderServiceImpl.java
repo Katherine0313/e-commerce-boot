@@ -3,6 +3,7 @@ package ecommerce.order.service.impl;
 import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
 import ecommerce.order.dto.AdminOrderDTO;
+import ecommerce.order.dto.DeliveryCreateDTO;
 import ecommerce.order.entity.Order;
 import ecommerce.order.entity.OrderItem;
 import ecommerce.order.entity.Product;
@@ -14,6 +15,8 @@ import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductMapper;
 import ecommerce.order.service.AdminOrderService;
+import ecommerce.order.service.DeliveryExpressService;
+import ecommerce.order.service.OrderDeliveryService;
 import ecommerce.order.vo.LogisticsTraceVO;
 import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderItemVO;
@@ -30,7 +33,6 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 /**
  * 后台订单管理 Service 实现。
@@ -49,13 +51,19 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private final OrderItemMapper orderItemMapper;
     private final ProductMapper productMapper;
     private final AfterSaleRefundMapper afterSaleRefundMapper;
+    private final OrderDeliveryService orderDeliveryService;
+    private final DeliveryExpressService deliveryExpressService;
 
     public AdminOrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
-                                 ProductMapper productMapper, AfterSaleRefundMapper afterSaleRefundMapper) {
+                                 ProductMapper productMapper, AfterSaleRefundMapper afterSaleRefundMapper,
+                                 OrderDeliveryService orderDeliveryService,
+                                 DeliveryExpressService deliveryExpressService) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
         this.afterSaleRefundMapper = afterSaleRefundMapper;
+        this.orderDeliveryService = orderDeliveryService;
+        this.deliveryExpressService = deliveryExpressService;
     }
 
     @Override
@@ -65,8 +73,10 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         LocalDateTime start = parseDateTime(startDate);
         LocalDateTime end = parseDateTime(endDate);
         int offset = (page - 1) * pageSize;
+        // 快递公司字典只查一次，避免列表页逐单查库
+        Map<String, String> courierMap = courierMap();
         List<OrderVO> list = orderMapper.listAdmin(offset, pageSize, status, keyword, start, end, field).stream()
-                .map(this::toVO)
+                .map(o -> toVO(o, courierMap))
                 .toList();
         long total = orderMapper.countAdmin(status, keyword, start, end, field);
         return new PageVO<>(list, total, page, pageSize);
@@ -110,14 +120,8 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
     @Override
     public List<Map<String, String>> getCouriers() {
-        return java.util.Arrays.stream(CourierEnum.values())
-                .map(c -> {
-                    Map<String, String> item = new LinkedHashMap<>();
-                    item.put("value", c.getCode());
-                    item.put("label", c.getDesc());
-                    return item;
-                })
-                .collect(Collectors.toList());
+        // 快递公司改读字典表（delivery_express），形状仍是 [{value,label}]，前端不用改
+        return deliveryExpressService.courierOptions();
     }
 
     @Override
@@ -147,18 +151,12 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     @Override
     @Transactional
     public OrderVO shipOrder(Long id, String courier, String trackingNumber) {
-        Order order = requireOrder(id);
-        checkTransition(order, OrderStatusEnum.SHIPPED);
-        orderMapper.updateStatus(id, OrderStatusEnum.SHIPPED.getCode(), null, courier, trackingNumber, LocalDateTime.now());
-        return getOrder(id);
-    }
-
-    @Override
-    @Transactional
-    public OrderVO finishOrder(Long id) {
-        Order order = requireOrder(id);
-        checkTransition(order, OrderStatusEnum.FINISHED);
-        orderMapper.updateStatus(id, OrderStatusEnum.FINISHED.getCode(), null, null, null, LocalDateTime.now());
+        // 老接口（PUT /api/admin/orders/{id}/ship）保留，逻辑委托给发货服务：
+        // 写包裹 + 条件更新订单状态 + 写发货流水，同一事务
+        DeliveryCreateDTO dto = new DeliveryCreateDTO();
+        dto.setExpressCode(courier);
+        dto.setTrackingNumber(trackingNumber);
+        orderDeliveryService.ship(id, dto);
         return getOrder(id);
     }
 
@@ -197,7 +195,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
     @Override
     public LogisticsVO getLogistics(Long id) {
-        return buildLogistics(requireOrder(id));
+        return buildLogistics(requireOrder(id), courierMap());
     }
 
     // ==================== 内部工具 ====================
@@ -248,7 +246,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     }
 
     /** 生成假物流轨迹（照旧 Node getLogistics）：订单 id 做种子，courier 英文 key 转中文 */
-    private LogisticsVO buildLogistics(Order order) {
+    private LogisticsVO buildLogistics(Order order, Map<String, String> courierMap) {
         int seed = (int) (order.getId() % 97);
         List<String> cities = List.of("杭州", "北京", "上海", "广州", "深圳", "成都", "武汉", "南京", "西安", "重庆");
         List<String> districts = List.of("萧山", "朝阳", "浦东", "天河", "南山", "武侯", "洪山", "江宁", "雁塔", "渝北");
@@ -256,9 +254,10 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         String originDistrict = districts.get((seed + 3) % districts.size());
         String destCity = cities.get((seed + 5) % cities.size());
 
-        CourierEnum courierEnum = CourierEnum.fromCode(order.getCourier());
-        String courierName = courierEnum != null ? courierEnum.getDesc()
-                : List.of("顺丰速运", "中通快递", "圆通速递", "韵达快递", "申通快递", "极兔速递", "京东物流", "德邦快递").get((seed + 7) % 8);
+        String courierName = courierName(order.getCourier(), courierMap);
+        if (courierName == null) {
+            courierName = List.of("顺丰速运", "中通快递", "圆通速递", "韵达快递", "申通快递", "极兔速递", "京东物流", "德邦快递").get((seed + 7) % 8);
+        }
         String courierShort = courierName.replaceAll("速运|快递|速递|物流", "");
         String trackingNumber = order.getTrackingNumber() != null ? order.getTrackingNumber() : ("YT" + System.currentTimeMillis());
 
@@ -304,17 +303,21 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
     /** 组装订单 VO：状态文案用 adminDesc（后台视角），courier 英文 key 转中文 */
     private OrderVO toVO(Order order) {
+        return toVO(order, courierMap());
+    }
+
+    /** 组装订单 VO（快递公司字典已提前查好，避免逐单查库） */
+    private OrderVO toVO(Order order, Map<String, String> courierMap) {
         OrderStatusEnum status = OrderStatusEnum.fromCode(order.getOrderStatus());
         PayTypeEnum payType = PayTypeEnum.fromCode(order.getPayType());
         List<OrderItem> items = orderItemMapper.listByOrderId(order.getId());
-        CourierEnum courierEnum = CourierEnum.fromCode(order.getCourier());
-        String courierDesc = courierEnum != null ? courierEnum.getDesc() : order.getCourier();
+        String courierDesc = courierName(order.getCourier(), courierMap);
         // 已发货/已完成订单附物流摘要，列表卡片直接展示
         String logisticsStatus = null;
         String latestTrace = null;
         if (OrderStatusEnum.SHIPPED.getCode().equals(order.getOrderStatus())
                 || OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())) {
-            List<LogisticsTraceVO> traces = buildLogistics(order).getTraces();
+            List<LogisticsTraceVO> traces = buildLogistics(order, courierMap).getTraces();
             if (!traces.isEmpty()) {
                 LogisticsTraceVO latest = traces.get(traces.size() - 1);
                 logisticsStatus = latest.getStatus();
@@ -346,6 +349,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 .signStatus(order.getSignStatus())
                 .logisticsStatus(logisticsStatus)
                 .latestTrace(latestTrace)
+                .afterSale(order.getAfterSale())
                 .createdAt(order.getCreatedAt())
                 .payAt(order.getPayAt())
                 .shipAt(order.getShipAt())
@@ -353,6 +357,28 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 .finishAt(order.getFinishAt())
                 .items(items.stream().map(this::toItemVO).toList())
                 .build();
+    }
+
+    /** 快递公司字典：code → 中文名 */
+    private Map<String, String> courierMap() {
+        Map<String, String> map = new LinkedHashMap<>();
+        for (Map<String, String> option : deliveryExpressService.courierOptions()) {
+            map.put(option.get("value"), option.get("label"));
+        }
+        return map;
+    }
+
+    /** 快递公司中文名：先查字典表，查不到再退回旧的枚举 */
+    private String courierName(String code, Map<String, String> courierMap) {
+        if (code == null) {
+            return null;
+        }
+        String name = courierMap.get(code);
+        if (name != null) {
+            return name;
+        }
+        CourierEnum courierEnum = CourierEnum.fromCode(code);
+        return courierEnum != null ? courierEnum.getDesc() : code;
     }
 
     private OrderItemVO toItemVO(OrderItem item) {
