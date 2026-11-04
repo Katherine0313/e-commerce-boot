@@ -13,9 +13,6 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-/**
- * JWT 工具类：签发与解析令牌
- */
 @Component
 public class JwtUtil {
 
@@ -37,38 +34,41 @@ public class JwtUtil {
         this.secretKey = Keys.hmacShaKeyFor(
                 jwtProperties.getSecret().getBytes(StandardCharsets.UTF_8));
     }
+
     /**
-     ** 对外暴露生成的方法，给调用方（WxLoginController）调用
+     * 对外暴露生成的方法，给调用方（WxLoginController）调用
      */
     public String generateUserToken(Long userId){
         return buildToken(userId, TYPE_USER, new HashMap<>());
     }
-
-    /**
-     * 签发带 RBAC 权限的后台令牌。
-     * <p>
-     * roles/permissions 放进 payload，各微服务共用 common 的拦截器即可校验，不需要再查库；
-     * 角色调整后需要用户重新登录，令牌里的权限才会更新。
-     * <p>
-     * 注意：不再签发单角色字段 role —— 角色来自 admin_user_role 关联表，
-     * 单角色字段是它的冗余副本，会与 roles 产生「谁是主角色」的不一致。
-     */
     public String generateAdminToken(Long adminId, String username,
-                                     List<String> roles, List<String> permissions) {
+                                     List<String> roles, List<String> permissions){
+        // 创建哈希表
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("id", adminId);
         extraClaims.put("username", username);
         extraClaims.put("roles", roles == null ? List.of() : roles);
         extraClaims.put("permissions", permissions == null ? List.of() : permissions);
         return buildToken(adminId, TYPE_ADMIN, extraClaims);
-    }
 
+    }
     private String buildToken(Long id, String type, Map<String, Object> extraClaims) {
         return buildToken(id, type, extraClaims, jwtProperties.getExpire());
     }
 
     /**
-     **真正组装、签名、生成 JWT 字符串的核心方法**。
+     * 校验签名与有效期并解析出载荷；签名不符 / 已过期 / 格式非法都会抛 JwtException
+     */
+    public Claims parseToken(String token) {
+        return Jwts.parser()
+                .verifyWith(secretKey)
+                .build()
+                .parseSignedClaims(token)
+                .getPayload();
+    }
+
+    /**
+     * 真正组装、签名、生成 JWT 字符串的核心方法
      */
     private String buildToken(Long id, String type, Map<String, Object> extraClaims,
                               long expireSeconds) {
@@ -83,17 +83,5 @@ public class JwtUtil {
                 // 不指定算法，jjwt按密钥长度自动选
                 .signWith(secretKey)
                 .compact();
-
-    }
-
-    /**
-     * 解析并校验令牌（签名不对、已过期、格式错误都会抛 JwtException）
-     */
-    public Claims parseToken(String token) {
-        return Jwts.parser()
-                .verifyWith(secretKey)
-                .build()
-                .parseSignedClaims(token)
-                .getPayload();
     }
 }
