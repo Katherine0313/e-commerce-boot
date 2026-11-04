@@ -8,8 +8,8 @@ spring:
       discovery:
         # Nacos 3.x：客户端通信仍是 8848（gRPC 9848/9849），控制台另走 8080 端口
         server-addr: ${NACOS_ADDR:127.0.0.1:8848}
-        username: ${NACOS_USERNAME:nacos}
-        password: ${NACOS_PASSWORD:nacos}
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
   datasource:
     # 连接凭据不写进版本库：本地值在 application-dev.yml（已被 gitignore），
     # 生产由环境变量提供。用户名/密码故意不给默认值，缺失就启动失败。
