@@ -46,6 +46,13 @@ public class AdminStockServiceImpl implements AdminStockService {
     public void create(AdminStockDTO dto) {
         validate(dto);
         StockAlert existing = stockAlertMapper.findByProductId(dto.getProductId());
+        // 关闭预警 = 删除配置：stock_alert 的 id 就是列表里的编号，留着会让未开启预警的商品也占用编号
+        if (!Integer.valueOf(1).equals(dto.getAlertEnabled())) {
+            if (existing != null) {
+                stockAlertMapper.deleteByProductId(dto.getProductId());
+            }
+            return;
+        }
         LocalDateTime now = LocalDateTime.now();
         if (existing != null) {
             // product_id 重复 → 更新（动态 set，null 字段保留原值）

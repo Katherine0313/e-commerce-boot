@@ -1,257 +1,366 @@
 # RBAC 操作日志 / 登录日志 实施方案
 
-> 生成日期：2026-11-04
-> 依据：当前代码（common / auth-service / order-service / aftersale-service）、本地数据库表结构，以及根目录 `findings.md`、`progress.md`、`task_plan.md` 的现状记录。
+> 生成日期：2026-11-04（v3，按本项目实际代码与库表定制）
+> 参考了 `docs/芋道（yudao）日志体系完整梳理.docx`，只借鉴它的**做法**（DIFF、脱敏、导出、保留策略），不引入它的框架和表名。
+
+---
+
+## 零、本方案到底写哪些日志（先看这里）
+
+**只做两大类，都是「后台管理员」的审计日志；不做 C 端、不做接口访问日志。**
+
+### 第 1 类：操作日志（表 `operation_log`）
+
+记录管理员「改了什么东西」，写操作才记，查询不记。
+
+| 范围 | 具体动作 | 现状 |
+|---|---|---|
+| 售后 | 审核通过/拒绝、删除售后单 | 已打点 2 处 |
+| 发货 | 发货、补发、修改物流、快递公司新增/编辑/删除 | 已打点 6 处 |
+| RBAC | 管理员账号增/改/删/重置密码；角色增/改/删/分配菜单；菜单增/改/删 | **待补** |
+| 商品 | 编辑、上下架、改价、库存调整 | **待补** |
+| 订单 | 取消、关闭、修改备注 | **待补** |
+| 营销 | Banner、优惠券、文章的新增/编辑/删除 | **待补** |
+
+### 第 2 类：登录日志（表 `admin_login_log`）
+
+记录管理员「登录/登出」本身，不记录登录后的业务操作。
+
+| 记录内容 | 取值 |
+|---|---|
+| 事件 | `LOGIN` / `LOGOUT` |
+| 结果 | `SUCCESS` / `BAD_CREDENTIALS` / `USER_DISABLED` / `CAPTCHA_ERROR` / `LOCKED` / `PARAM_MISSING` |
+| 附带信息 | 账号、IP、User-Agent、失败原因文本、时间 |
+
+### 明确不做的
+
+| 不做的日志 | 原因 |
+|---|---|
+| API 访问日志（每次请求入参出参耗时） | 全量落库会把表撑大，现有网关日志 + `docs/troubleshooting.md` 够用 |
+| API 错误日志（异常堆栈表） | 本期不做，列为下一期可选项 |
+| C 端用户操作日志 | 按你的决定，只审计后台登录用户 |
+| 控制台请求打印 | 生产环境日志量太大 |
+
+> 一句话：**后台管理员「做了什么业务变更」→ 操作日志；「怎么登录进来的」→ 登录日志。就这两类。**
 
 ---
 
 ## 一、结论先行
 
-操作日志的**基建已经做了一半**：`operation_log` 表、`@OperationLog` 注解、切面、异步写入器都在，也已经在售后审核、快递模板、发货等 8 个方法上打点。真正缺的是「可查、可看、可追溯」的闭环：
+操作日志的基建已经存在：`operation_log` 表有 14 个字段（本地已累计约 60 条），`@OperationLog` + `OperationLogAspect` + `JdbcOperationLogRecorder` 都在工作，售后审核、售后删除、发货、补发、改物流、快递公司增删改共 8 处已打点。
 
-1. 没有查询接口，后台也没有页面 —— 日志只能直接翻数据库。
-2. 没有登录日志 —— 登录成功/失败/锁定/停用都查不到，账号爆破和误锁定无法审计。
-3. 日志只存 `user_id`，没有 `username` 快照 —— 账号被删除或改名后无法识别操作人。
-4. `params` 原样落库 —— 重置密码、手机号等敏感参数有泄露风险。
-5. IP 提取口径不统一 —— 登录接口已改用 `EO-Connecting-IP`，日志采集器还在用 `X-Forwarded-For`。
-6. 建表 SQL 没有入库 —— 当前 `docs/sql/` 下找不到 `operation_log` 的 DDL，新环境无法复现。
-7. 打点覆盖窄 —— RBAC 自身（账号/角色/菜单）的增删改完全没有审计。
-8. 没有保留策略 —— 表会无限增长。
+真正缺的是「能查、能看到改了什么、能交付审计报表」：
 
-建议分三期：**P0 查询闭环 + 登录日志 → P1 扩大打点覆盖 → P2 归档/导出/保留策略**。
+1. 后台菜单里已经有「操作日志」这一项（`admin_menu` id=803，路径 `/system/logs`，权限码 `system:log:list`），但**没有后端接口、没有前端页面**，点进去是空的 —— 这是个已经占位、尚未实现的菜单。
+2. 没有登录日志表，也没有任何登录/登出记录，账号爆破、误锁定、账号停用都查不到。
+3. `operation_log` 只存 `user_id`，没有 `username` 快照，账号删除或改名后无法识别操作人。
+4. `params` 原样落库，重置密码、手机号等敏感参数有泄露风险。
+5. 采集器 `OperationLogCollector.clientIp()` 只认 `X-Forwarded-For`，与登录接口已经改用的 `EO-Connecting-IP` 口径不一致。
+6. 建表 SQL 不在仓库里（`docs/sql/` 下没有 `operation_log` 的 DDL），新环境会漏建表，写入失败只打 warn。
+7. 8 处打点都只写了动作，没有「改前→改后」；并且 RBAC、商品改价、订单状态变更完全没有打点。
+8. 没有保留策略，`operation_log` 会一直增长。
 
----
-
-## 二、现状盘点
-
-### 2.1 已具备的能力
-
-| 能力 | 位置 | 说明 |
-|---|---|---|
-| `operation_log` 表 | 本地/生产 `e_commerce_db` | 14 个字段，已有 `user_id`、`module`、`created_at` 三个索引；本地仅 3 行 |
-| `@OperationLog` 注解 | `common/src/main/java/ecommerce/log/OperationLog.java` | 属性：`module`、`action`、`bizId`(SpEL)、`detail`(SpEL)、`recordParams` |
-| 采集切面 | `common/.../log/OperationLogAspect.java` | `@Order(LOWEST_PRECEDENCE)`，`finally` 中提交，失败只 warn |
-| 采集工具 | `common/.../log/OperationLogCollector.java` | 取 `UserContext` 的 userId/userType、IP、参数 JSON（截断 2000 字符） |
-| 异步写入 | `common/.../log/JdbcOperationLogRecorder.java` | `JdbcTemplate` + 专用线程池；无 `JdbcTemplate` 的服务（file-service）自动跳过 |
-| 已有打点 | 8 处 | 售后审核/删除 2 处；快递模板增改删 3 处；发货/重发/改物流 3 处 |
-
-### 2.2 缺口与影响
-
-| 缺口 | 影响 | 优先级 |
-|---|---|---|
-| 无查询接口、无后台页面 | 日志不可用，出了事只能连库查 | P0 |
-| 无登录日志表 | 爆破、锁定、停用无法追溯 | P0 |
-| 无 `username` 快照 | 账号删除/改名后日志变成匿名 | P0 |
-| `params` 未脱敏 | 密码、手机号等敏感信息落库 | P0 |
-| IP 口径不一致 | 代理后记录的是内网/代理 IP | P0 |
-| DDL 未入库 | 新环境漏建表，日志静默丢失（只 warn） | P0 |
-| RBAC 自身无打点 | 「谁改了谁的权限」查不到 | P1 |
-| 无保留策略 | 表无限增长，查询变慢 | P2 |
-
-### 2.3 关键代码事实
-
-- `UserContext` 只有 `userId`、`userType`、`roles`、`permissions`，**没有 username**；但管理员 JWT 已经带了 username claim（`JwtUtil.generateAdminToken(id, username, roles, perms)`），补一个 ThreadLocal 字段即可。
-- `OperationLogCollector.clientIp()` 只认 `X-Forwarded-For` / `X-Real-IP` / `remoteAddr`，与 `AuthController.resolveClientIp()` 的 `EO-Connecting-IP` 优先级不一致。
-- `AuthService.login()` 的失败分支有五类：参数为空、已被锁定、验证码错误、用户名或密码错误、账号停用；成功分支在 `buildLoginResult()`。登录日志需要覆盖这些分支。
-- `AuthController.logout()` 当前是无状态 JWT，直接返回成功，没有任何记录。
+实施顺序：**P0 补字段/脱敏 → P0 登录日志 → P0 查询接口与两个页面 → P1 打点覆盖 + 变更内容 → P2 导出/清理**。
 
 ---
 
-## 三、数据模型设计
+## 二、与本项目对齐的现状
 
-### 3.1 `operation_log` 调整
+### 2.1 `operation_log` 实际结构（本地与生产一致）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| `id` | bigint | 自增主键 |
+| `user_id` / `user_type` | bigint / varchar(16) | 操作人 ID 与类型（admin / user） |
+| `module` / `action` | varchar(64) | 模块与动作，现有值如 `aftersales/REVIEW`、`delivery/SHIP` |
+| `biz_id` | bigint | 业务对象 ID |
+| `detail` | varchar(255) | 补充说明，支持 SpEL；**目前 8 处打点都没有用到** |
+| `method` / `uri` / `ip` / `params` | — | 请求方法、路径、IP、参数 JSON（2000 字符截断） |
+| `success` / `error_msg` / `cost_ms` | — | 结果、失败原因、耗时 |
+| `created_at` | datetime | 由 Java 传入 |
+
+索引：`idx_operation_log_module`、`idx_operation_log_user`、`idx_operation_log_created`。
+
+### 2.2 现有打点（8 处）
+
+| 文件 | 方法 | module / action |
+|---|---|---|
+| `aftersale-service/.../AdminAfterSaleServiceImpl.java:309` | `review` | aftersales / REVIEW |
+| `AdminAfterSaleServiceImpl.java:349` | `delete` | aftersales / DELETE |
+| `order-service/.../OrderDeliveryServiceImpl.java:63` | `ship` | delivery / SHIP |
+| `OrderDeliveryServiceImpl.java:103` | `resend` | delivery / RESEND |
+| `OrderDeliveryServiceImpl.java:125` | `updateDelivery` | delivery / UPDATE_DELIVERY |
+| `order-service/.../DeliveryExpressServiceImpl.java:42` | `save` | delivery / EXPRESS_SAVE |
+| `DeliveryExpressServiceImpl.java:71` | `update` | delivery / EXPRESS_SAVE |
+| `DeliveryExpressServiceImpl.java:95` | `remove` | delivery / EXPRESS_REMOVE |
+
+### 2.3 现有菜单（`admin_menu` 实际数据）
+
+| id | 名称 | 路径 | 权限码 |
+|---|---|---|---|
+| 8 | 系统管理 | — | — |
+| 803 | 操作日志 | `/system/logs` | `system:log:list`（**有菜单无实现**） |
+| 800 / 801 / 802 | 管理员账号 / 角色管理 / 菜单管理 | `/system/users` 等 | `system:user:list` 等 |
+
+权限码约定是「小写模块:对象:动作」（`system:user:add`），后端 `action` 约定是全大写（`REVIEW`、`SHIP`）。方案沿用这两套约定，不改成芋道的 `bizType/subType` 命名。
+
+### 2.4 关键代码事实
+
+- `UserContext` 只有 `userId/userType/roles/permissions`，没有 username；但管理员 JWT 已带 username claim（`JwtUtil.generateAdminToken(id, username, roles, perms)`）。
+- `AuthService.login()`（`auth-service/.../AuthServiceImpl.java:81-116`）有 5 个失败分支：参数为空、已锁定、验证码错误、账密错误、账号停用；成功在 `buildLoginResult()`。
+- `AuthController.logout()` 是无状态 JWT，直接返回成功，没有记录。
+- `AuthServiceApplication` 只有 `@MapperScan("ecommerce.auth.mapper")`，没有 `@EnableScheduling`，P2 定时清理需要补。
+- 前端已有 `v-permission` 指令（`src/directives/permission.js`，在 `main.js` 注册）、`src/utils/mask.js` 手机号脱敏工具、`src/api/system.js` 系统管理接口文件。
+- 父 pom 已统一管理 `poi-ooxml` 6.0.0，`order-service` 已在使用；auth-service 直接引依赖即可，不新增版本。
+
+---
+
+## 三、为什么不照搬芋道
+
+| 芋道做法 | 本项目怎么处理 | 原因 |
+|---|---|---|
+| `mzt-biz-log` + `@LogRecord` + `@DiffLogField` + `#_DIFF` | **不引依赖**，沿用现有 `@OperationLog`，另加一个 `LogDetail` ThreadLocal 和 `LogDiff` 小工具 | 换框架要重写 8 处打点并加第三方 starter；我们只缺「新旧值对比」这一小块 |
+| Security 登录流程自动记录登录日志 | 在 `AuthServiceImpl.login()` / `AuthController.logout()` 里显式调用记录器 | 本项目是自研 JWT，没有 Spring Security 登录链路 |
+| `LoginLogTypeEnum` 6 种登录方式、`system_login_log` | `admin_login_log`，`login_type` 只保留 `LOGIN` / `LOGOUT` | 目前只有账号密码登录，没有社交/短信/Mock 登录，不预留不存在的枚举 |
+| `infra_api_access_log` 全量访问日志 | **不做** | 每次请求都落库会把表撑大；网关日志 + `docs/troubleshooting.md` 的排查流程已够用 |
+| `infra_api_error_log` 异常日志 | **本期不做**，列为下一期可选项 | 各服务 `docker logs` + 全局异常处理已能定位；要做也应单独建表，不混进操作日志 |
+| `bizType / subType / bizNo` 三段式 | 继续用现有 `module / action / biz_id` | 表结构和 8 处打点已经按这套设计，改字段会牵连数据迁移 |
+| `system_operate_log` 表名 | 继续用 `operation_log` | 生产已有数据 |
+
+---
+
+## 四、数据模型改造
+
+### 4.1 `operation_log`（增量，不动存量）
 
 ```sql
--- 1) 操作人快照：账号删除/改名后仍可识别
+-- 1) 操作人快照
 ALTER TABLE operation_log
   ADD COLUMN username VARCHAR(64) NULL COMMENT '操作人账号快照' AFTER user_id;
 
--- 2) 查询索引（现有 user_id / module / created_at 单列索引可保留）
+-- 2) DIFF 文案比 255 长，扩到 1024
 ALTER TABLE operation_log
-  ADD INDEX idx_oplog_created (created_at),
-  ADD INDEX idx_oplog_module_action (module, action, created_at),
-  ADD INDEX idx_oplog_username (username, created_at);
+  MODIFY COLUMN detail VARCHAR(1024) NULL COMMENT '补充说明/变更详情';
+
+-- 3) 复合索引（现有单列索引保留）
+ALTER TABLE operation_log
+  ADD INDEX idx_operation_log_module_action (module, action, created_at),
+  ADD INDEX idx_operation_log_username (username, created_at);
 ```
 
-> `detail` 仍是 `varchar(255)`。P1 若要做「改价前后值」快照，建议在 `detail` 里写短文本（如 `price 199→179`），不要把完整对象塞进去。
-
-### 3.2 新建 `admin_login_log`
+### 4.2 新建 `admin_login_log`（与现有 `admin_*` 表命名一致）
 
 ```sql
 CREATE TABLE admin_login_log (
   id          BIGINT       NOT NULL AUTO_INCREMENT COMMENT '主键',
-  admin_id    BIGINT       NULL COMMENT '管理员 ID，账号不存在时为 NULL',
+  admin_id    BIGINT       NULL COMMENT '管理员 ID，账号不存在时为空',
   username    VARCHAR(64)  NOT NULL COMMENT '登录名（原样保留，便于排查爆破）',
-  event       VARCHAR(16)  NOT NULL COMMENT 'LOGIN / LOGOUT',
-  success     TINYINT      NOT NULL DEFAULT 0 COMMENT '1 成功 0 失败',
-  reason      VARCHAR(128) NULL COMMENT '失败原因：验证码错误/密码错误/账号停用/锁定中/参数为空',
+  login_type  VARCHAR(16)  NOT NULL COMMENT 'LOGIN / LOGOUT',
+  result_code VARCHAR(24)  NOT NULL COMMENT 'SUCCESS / BAD_CREDENTIALS / USER_DISABLED / CAPTCHA_ERROR / LOCKED / PARAM_MISSING',
+  reason      VARCHAR(128) NULL COMMENT '失败原因文本',
   ip          VARCHAR(64)  NULL COMMENT '客户端 IP',
   user_agent  VARCHAR(255) NULL COMMENT 'User-Agent',
   created_at  DATETIME     NOT NULL COMMENT '发生时间',
   PRIMARY KEY (id),
-  KEY idx_loginlog_username (username, created_at),
-  KEY idx_loginlog_created (created_at),
-  KEY idx_loginlog_ip (ip, created_at)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='后台登录/登出日志';
+  KEY idx_login_log_username (username, created_at),
+  KEY idx_login_log_created (created_at),
+  KEY idx_login_log_ip (ip, created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='后台登录/登出日志';
 ```
 
-### 3.3 容量估算
+### 4.3 建表脚本入库
 
-后台账号约 5 个、日均登录几十次，登录日志一年不到 10 万行。操作日志量取决于 P1 打点范围，按每天 2 千条估算，一年约 70 万行，单表可控；保留 180 天后清理即可。
+新增 `docs/sql/log/01-operation-log-schema.sql`（按 2.1 的真实 DDL 回写）、`02-operation-log-add-username.sql`、`03-admin-login-log.sql`、`04-log-menu-seed.sql`。以后新环境按编号顺序执行。
 
 ---
 
-## 四、后端改造
+## 五、后端改造
 
-### 4.1 common 公共层
+### 5.1 common 公共层
 
 | 改动 | 文件 | 内容 |
 |---|---|---|
-| 增加 username 上下文 | `common/.../utils/UserContext.java` | 新增 `CURRENT_USERNAME` ThreadLocal、`setUsername/getUsername`，`remove()` 一并清理 |
-| 令牌解析带 username | `common/.../interceptor/JwtInterceptor.java` | 从 claims 读取 `username` 写入 `UserContext` |
-| 采集器取 username | `common/.../log/OperationLogCollector.java` | 新增 `currentUsername()` |
-| IP 口径统一 | 同上 `clientIp()` | 顺序改为 `EO-Connecting-IP` → `X-Forwarded-For` 首段 → `X-Real-IP` → `remoteAddr` |
-| 参数脱敏 | 同上 `paramsJson()` | 序列化后正则替换：`password/pwd/token/secret` 值 → `***`；11 位手机号 → `138****5678`；再截断 |
-| 条目加字段 | `common/.../log/OperationLogEntry.java` | 增加 `username` |
-| 写入加字段 | `common/.../log/JdbcOperationLogRecorder.java` | INSERT 增加 `username`（与 3.1 的列顺序一致） |
+| username 上下文 | `common/.../utils/UserContext.java` | 新增 `CURRENT_USERNAME` ThreadLocal、`setUsername/getUsername`，`remove()` 清理 |
+| 解析 claim | `common/.../interceptor/JwtInterceptor.java` | 读取 `claims.get("username")` 写入 `UserContext` |
+| 采集器 | `common/.../log/OperationLogCollector.java` | `currentUsername()`；`clientIp()` 改为 `EO-Connecting-IP` → `X-Forwarded-For` 首段 → `X-Real-IP` → `remoteAddr` |
+| 参数脱敏 | 同上 `paramsJson()` | `password/pwd/token/secret` 值 → `***`；11 位手机号 → `138****5678`；仍截断 2000 字符 |
+| 条目/写入 | `OperationLogEntry.java`、`JdbcOperationLogRecorder.java` | 增加 `username` 字段与 INSERT 列 |
+| 变更内容 | 新增 `common/.../log/LogDetail.java`、`LogDiff.java` | 见 5.2 |
 
-### 4.2 auth-service 登录日志
+### 5.2 变更内容（替代芋道的 `#_DIFF`，不引入注解扫描）
+
+`LogDetail`：ThreadLocal 累加器，Service 里把变更文案放进去；`OperationLogAspect` 在 `detail` SpEL 为空时回退取 `LogDetail.join()`，并在 `finally` 清理。
+
+`LogDiff`：只提供两个方法，不做反射扫描：
+
+```java
+LogDiff.of("销售价", 199, 179);                       // 【销售价】从【199】修改为【179】
+LogDiff.of("售后状态", 1, 2, AfterSaleStatusText::of); // 用解析函数翻译成中文
+```
+
+用法（以现有打点为例）：
+
+```java
+// AdminAfterSaleServiceImpl#review（原第 309 行注解保持不变）
+Integer oldStatus = afterSale.getStatus();
+// ... 审核逻辑
+LogDetail.add(LogDiff.of("售后状态", oldStatus, newStatus, this::statusText));
+```
+
+约束：
+
+- 只对能拿到旧值的方法使用；拿不到旧值就写纯文本，不硬凑 DIFF。
+- 全大写 `action`、`module` 沿用现有风格，`LogDetail` 不改变注解签名。
+- 密码、手机号、身份证字段不进入 DIFF 文案。
+
+### 5.3 登录日志（auth-service）
 
 新增：
 
-- `entity/AdminLoginLog.java`
-- `mapper/AdminLoginLogMapper.java` + `resources/mappers/auth/AdminLoginLogMapper.xml`（`insert`、分页查询、`count`）
-- `service/LoginLogService.java`（`record(username, adminId, event, success, reason, ip, userAgent)`，内部 try/catch，**写失败只 warn，绝不影响登录**）
+- `auth-service/.../entity/AdminLoginLog.java`
+- `auth-service/.../mapper/AdminLoginLogMapper.java` + `resources/mappers/auth/AdminLoginLogMapper.xml`
+- `auth-service/.../service/LoginLogService.java`（内部 try/catch，失败只 warn）
+- `auth-service/.../enums/LoginType.java`、`LoginResult.java`（值见 4.2 注释，不做 6 种登录方式）
 
-打点位置：
+打点位置（对齐 `AuthServiceImpl` 的真实分支）：
 
-| 位置 | event | success | reason |
+| 位置 | login_type | result_code | reason |
 |---|---|---|---|
-| `login()` 参数为空 | LOGIN | 0 | 用户名和密码不能为空 |
-| `assertNotLocked()` 抛锁定 | LOGIN | 0 | 登录失败次数过多，已锁定 |
-| `validateCaptcha()` 抛错 | LOGIN | 0 | 验证码错误/已过期 |
-| 账密不匹配 | LOGIN | 0 | 用户名或密码错误 |
-| 账号停用 | LOGIN | 0 | 账号已停用 |
-| `buildLoginResult()` 成功后 | LOGIN | 1 | NULL |
-| `AuthController.logout()` | LOGOUT | 1 | NULL（能取到 `UserContext` 时记录 adminId/username） |
+| `login()` 参数为空 | LOGIN | PARAM_MISSING | 用户名和密码不能为空 |
+| `assertNotLocked()` 抛锁 | LOGIN | LOCKED | 登录失败次数过多，已锁定 |
+| `validateCaptcha()` 抛错 | LOGIN | CAPTCHA_ERROR | 验证码错误或已过期 |
+| `adminMapper.findByUsername()` 为空 / 密码不匹配 | LOGIN | BAD_CREDENTIALS | 用户名或密码错误 |
+| 账号停用 | LOGIN | USER_DISABLED | 账号已停用 |
+| `buildLoginResult()` 成功 | LOGIN | SUCCESS | — |
+| `AuthController.logout()` | LOGOUT | SUCCESS | — |
 
-> 实现方式：登录日志量小，直接在方法内显式调用 `LoginLogService`（同步 insert），不用 AOP，原因是失败原因分散在多个异常分支，AOP 拿不到业务语义。
+实现方式：显式调用 `LoginLogService.record(...)`，同步 insert（登录量小），不用 AOP；失败原因分散在多个分支，AOP 拿不到语义。
 
-### 4.3 查询接口（auth-service）
-
-放在 auth-service 的原因：系统管理（账号/角色/菜单）已经在这里，且所有服务共用同一个 `e_commerce_db`，不需要新建服务或跨服务调用。
+### 5.4 查询接口（auth-service，复用 803 菜单）
 
 | 接口 | 权限码 | 说明 |
 |---|---|---|
-| `GET /api/admin/system/logs/operation` | `system:log:operation:list` | 操作日志分页 |
-| `GET /api/admin/system/logs/login` | `system:log:login:list` | 登录日志分页 |
+| `GET /api/admin/system/logs` | `system:log:list`（**复用 803 已有权限码**） | 操作日志分页 |
+| `GET /api/admin/system/login-logs` | `system:log:login:list` | 登录日志分页 |
+| `GET /api/admin/system/logs/export?format=csv\|xlsx` | `system:log:export` | 操作日志导出（≤5 万行） |
+| `GET /api/admin/system/login-logs/export?format=csv\|xlsx` | `system:log:login:export` | 登录日志导出（≤5 万行） |
 
-操作日志查询参数：
+新增 `AdminOperationLogMapper` + XML（读 `operation_log`，与日志写入方共用同一个库，不新建服务）。
 
-| 参数 | 类型 | 说明 |
-|---|---|---|
-| `page` / `pageSize` | int | 默认 1 / 20，`pageSize` 上限 100 |
-| `module` | string | 精确匹配 |
-| `action` | string | 精确匹配 |
-| `username` | string | 模糊匹配 |
-| `success` | 0/1 | 成功/失败 |
-| `startTime` / `endTime` | datetime | 不传默认近 7 天，避免全表扫描 |
-| `keyword` | string | 匹配 `detail` / `uri` / `biz_id` |
+操作日志查询参数：`page/pageSize/module/action/username/success/startTime/endTime/keyword`；默认近 7 天，`pageSize ≤ 100`，SQL 用 `LIMIT #{offset}, #{pageSize}`（生产 MySQL 5.7）。返回 `id, username, userType, module, action, bizId, detail, method, uri, ip, params, success, errorMsg, costMs, createdAt`。
 
-返回字段：`id, username, userType, module, action, bizId, detail, method, uri, ip, params, success, errorMsg, costMs, createdAt`。
+登录日志查询参数：`page/pageSize/username/loginType/resultCode/ip/startTime/endTime`；返回 `id, username, adminId, loginType, resultCode, success, reason, ip, userAgent, createdAt`。
 
-登录日志查询参数：`page/pageSize/username/event/success/ip/startTime/endTime`；返回 `id, username, adminId, event, success, reason, ip, userAgent, createdAt`。
-
-实现约定：MyBatis Mapper + `LIMIT #{offset}, #{pageSize}`（生产 MySQL 5.7）；`params` 在 VO 里保持 JSON 字符串，前端详情弹窗做格式化展示。
-
-### 4.4 权限与菜单种子数据
+### 5.5 菜单与权限种子（基于现有 803，不重复插入）
 
 ```sql
--- 父菜单：系统管理（按实际 id 取，下面用变量占位）
-SET @parent_id = (SELECT id FROM admin_menu WHERE menu_name = '系统管理' AND parent_id = 0 LIMIT 1);
+-- 804 登录日志（803 操作日志已存在，直接复用）
+INSERT INTO admin_menu (id, parent_id, menu_name, menu_type, path, perms, icon, sort_order, status)
+VALUES (804, 8, '登录日志', 'C', '/system/logs/login', 'system:log:login:list', 'icon-login', 5, 1);
 
-INSERT INTO admin_menu (parent_id, menu_name, menu_type, path, perms, icon, sort_order, status)
-VALUES
-  (@parent_id, '操作日志', 'C', '/system/logs/operation', 'system:log:operation:list', 'icon-file-text', 90, 1),
-  (@parent_id, '登录日志', 'C', '/system/logs/login',     'system:log:login:list',     'icon-login',     91, 1);
+-- 两个导出按钮（839/840 当前未被占用）
+INSERT INTO admin_menu (id, parent_id, menu_name, menu_type, perms, sort_order, status) VALUES
+(839, 803, '日志导出', 'F', 'system:log:export', 1, 1),
+(840, 804, '日志导出', 'F', 'system:log:login:export', 1, 1);
 
--- 只授权给超管角色
+-- 超管授权（role_key='admin'）
 INSERT INTO admin_role_menu (role_id, menu_id)
-SELECT r.id, m.id FROM admin_role r, admin_menu m
-WHERE r.role_key = 'admin' AND m.perms IN ('system:log:operation:list','system:log:login:list');
+SELECT r.id, m.id FROM admin_role r
+JOIN admin_menu m ON m.id IN (804, 839, 840)
+WHERE r.role_key = 'admin';
 ```
 
-### 4.5 P1：扩大打点覆盖
+### 5.6 P1 打点覆盖（按本项目现有 Controller/Service）
 
-| 模块 | 目标方法 | module / action | 备注 |
+| 模块 | 目标类/方法 | module / action | 变更内容 |
 |---|---|---|---|
-| RBAC 账号 | 新增/编辑/删除/重置密码 | `system` / `USER_ADD` `USER_EDIT` `USER_REMOVE` `RESET_PWD` | 重置密码 `recordParams = false` |
-| RBAC 角色 | 新增/编辑/删除/分配菜单 | `system` / `ROLE_ADD` `ROLE_EDIT` `ROLE_REMOVE` `ROLE_ASSIGN` | detail 记录角色名 |
-| RBAC 菜单 | 新增/编辑/删除 | `system` / `MENU_ADD` `MENU_EDIT` `MENU_REMOVE` | detail 记录菜单名 |
-| 商品 | 新增/编辑/上下架/改价/库存调整 | `product` / `PRODUCT_ADD` `PRODUCT_EDIT` `SHELF` `PRICE_CHANGE` `STOCK_ADJUST` | 改价 detail 写「原价→新价」 |
-| 订单 | 取消/关闭/改备注 | `order` / `CANCEL` `CLOSE` `REMARK` | 退款走售后日志，不重复 |
-| 营销 | Banner/优惠券/文章 增删改 | `promotion` / `BANNER_*` `COUPON_*` `ARTICLE_*` | — |
+| 管理员账号 | `AdminSystemUserServiceImpl` 增/改/删/重置密码 | `system` / `USER_ADD` `USER_EDIT` `USER_REMOVE` `RESET_PWD` | 昵称、手机号（脱敏）；重置密码 `recordParams = false` |
+| 角色 | `AdminSystemRoleServiceImpl` 增/改/删/分配菜单 | `system` / `ROLE_ADD` `ROLE_EDIT` `ROLE_REMOVE` `ROLE_ASSIGN` | 角色名、菜单数量 |
+| 菜单 | `AdminSystemMenuServiceImpl` 增/改/删 | `system` / `MENU_ADD` `MENU_EDIT` `MENU_REMOVE` | 菜单名、路径、权限码 |
+| 商品 | `AdminProductServiceImpl` 编辑/上下架/改价/库存 | `product` / `PRODUCT_EDIT` `SHELF` `PRICE_CHANGE` `STOCK_ADJUST` | 改价「销售价 199→179」 |
+| 订单 | `AdminOrderServiceImpl` 取消/关闭/备注 | `order` / `CANCEL` `CLOSE` `REMARK` | 状态、备注 |
+| 营销 | Banner/优惠券/文章 Service 的增改删 | `promotion` / `BANNER_*` `COUPON_*` `ARTICLE_*` | 名称、状态、数量 |
 
-原则：只对「会改变业务状态或权限」的写操作打点；查询类不打点，避免日志洪水。
+原则：只打「改变业务状态或权限」的写操作；查询、列表、导出以外的读接口不打点。商品 `specs` JSON 变更只记「规格项数量/名称」，不落整段 JSON。
 
-### 4.6 P2：治理
+### 5.7 P2 导出与清理
 
-- 保留策略：auth-service 增加每日 03:00 定时任务，分批删除 `created_at < NOW() - INTERVAL 180 DAY`（每批 1000 行，避免长事务锁表）。
-- 导出：查询接口增加 `export=true` 时流式输出 CSV（上限 5 万行），只允许超管。
-- 告警（可选）：同一 IP 5 分钟内 ≥10 次不同用户名登录失败 → warn 日志 + webhook（与 `healthcheck.env` 的告警通道复用）。
+- CSV：`HttpServletResponse` 直接写流，`text/csv;charset=UTF-8` + `Content-Disposition`。
+- Excel：`SXSSFWorkbook`（流式，窗口 100 行），auth-service `pom.xml` 引 `poi-ooxml`（版本由父 pom 管理）；超过 5 万行返回 400，提示缩小时间范围。
+- 导出动作本身记一条 `system / LOG_EXPORT`。
+- 清理：`AuthServiceApplication` 补 `@EnableScheduling`，新增每日 03:00 任务，每批 1000 行删除 `created_at < NOW() - INTERVAL 180 DAY`，并记 `system / LOG_CLEAN`。
 
 ---
 
-## 五、前端改造（e-commerce 后台）
+## 六、前端改造（e-commerce 后台）
 
 | 改动 | 文件 | 内容 |
 |---|---|---|
-| API | `src/api/system.js` | `getOperationLogs(params)`、`getLoginLogs(params)` |
-| 操作日志页 | `src/pages/system/logs/OperationLogList.vue` | 筛选（模块/动作/账号/结果/时间范围）、分页表格、详情抽屉（params 格式化 JSON）、无编辑/删除 |
-| 登录日志页 | `src/pages/system/logs/LoginLogList.vue` | 筛选（账号/事件/结果/IP/时间）、分页表格；失败原因标红 |
-| 路由 | `src/router/index.js`（系统管理分组，约 317 行处） | 增加 `/system/logs/operation`、`/system/logs/login`，`meta.permission` 对应 4.4 权限码 |
-| 按钮权限 | 现有 `v-permission` 指令 | 页面只读，不需要操作按钮；如做导出，用 `system:log:operation:export` |
+| API | `src/api/system.js` | `getOperationLogs`、`getLoginLogs`、两个 blob 导出方法 |
+| 操作日志页 | 新建 `src/pages/system/logs/OperationLogList.vue` | 筛选（模块/动作/账号/结果/时间）、表格、详情抽屉（`params` 格式化 JSON、`detail` 原样显示） |
+| 登录日志页 | 新建 `src/pages/system/logs/LoginLogList.vue` | 筛选（账号/类型/结果码/IP/时间）、失败结果标红 |
+| 路由 | `src/router/index.js`（系统管理分组） | `/system/logs`（操作日志，权限 `system:log:list`）、`/system/logs/login`（`system:log:login:list`） |
+| 导出 | 两个页面 | `v-permission="'system:log:export'"` / `'system:log:login:export'`；`responseType: 'blob'`，文件名带时间范围 |
+| 脱敏 | 复用 `src/utils/mask.js` | 列表里的手机号（如 `params` 明文意外存在时）兜底展示为 `138****5678` |
 
-交互要求：
-
-- 默认时间范围「近 7 天」，避免首屏全表扫描。
-- `module`/`action` 用下拉（从字典/接口 distinct 返回），不要手输。
-- 详情抽屉展示请求参数与错误信息，`params` 为空显示「—」。
-- 列表不提供删除按钮（审计日志只读，清理交给定时任务）。
+交互：默认近 7 天；`module/action` 下拉来自常量，不手输；详情抽屉空值显示「—」；不提供删除按钮。
 
 ---
 
-## 六、实施顺序与验收
+## 七、实施顺序与验收
 
 | 阶段 | 内容 | 验收标准 |
 |---|---|---|
-| P0-1 数据 | 3.1 ALTER + 3.2 建表 + 4.4 菜单种子，DDL 入库 `docs/sql/log/` | 本地/生产表结构一致；`SHOW COLUMNS` 有 `username`；菜单可见 |
-| P0-2 common | UserContext/JwtInterceptor/Collector/Entry/Recorder | 新日志写入带 username；重置密码后查库无明文密码 |
-| P0-3 登录日志 | LoginLogService + 5 个失败分支 + logout | 正确密码 1 条 success=1；错误密码 1 条 success=0 且 reason 正确 |
-| P0-4 查询接口 | 两个 GET 接口 + 权限码 | 超管 200；operator 403；无 token 401 |
-| P0-5 前端 | 两个只读页面 + 路由 | 筛选/分页/详情可用；夜间模式样式正常 |
-| P1 打点 | 4.5 清单 | 每个动作操作后能在页面查到对应记录 |
-| P2 治理 | 定时清理 + 导出 + 告警 | 清理任务 dry-run 日志正确；导出有上限 |
+| P0-1 数据 | 4.1、4.2、5.5，DDL 入库 `docs/sql/log/` | 本地/生产 `SHOW COLUMNS` 一致；804/839/840 菜单出现 |
+| P0-2 common | UserContext / JwtInterceptor / Collector / Entry / Recorder | 新日志有 username；重置密码查库无明文；手机号 `138****5678` |
+| P0-3 登录日志 | LoginLogService + 5 个失败分支 + logout | 正确密码 SUCCESS；错误密码 BAD_CREDENTIALS；锁定 LOCKED 各 1 条 |
+| P0-4 查询接口 | 4 个接口 + 权限码 | 超管 200；operator 403；无 token 401 |
+| P0-5 前端 | 两个页面 + 路由（复用 803 菜单） | 点「操作日志」能看到数据；夜间模式样式正常 |
+| P1-1 变更内容 | `LogDetail` + `LogDiff` + 2~3 处改造 | 售后审核 detail 显示「售后状态 待审核→审核通过」 |
+| P1-2 打点 | 5.6 清单 | 每个动作操作后能查到记录且带变更内容 |
+| P2 导出/清理 | CSV + Excel + 定时清理 | 两种格式行数一致；超 5 万行返回 400；清理 dry-run 正确 |
 
-**发布顺序**：先执行 DDL（新增列可空、新表独立）→ 发 `auth-service`（新接口/登录日志）→ 发相关业务服务（P1 打点）→ 最后发后台前端（`release-web.sh`）。
-**回滚**：前端移除路由即可；后端日志写入全部 try-catch，不阻塞业务；新表可 `RENAME TABLE` 留档后再删。
-
----
-
-## 七、风险与注意事项
-
-1. **异步写入可能丢日志**：线程池队列满或服务优雅停机时，队列里的条目会丢。当前定位是「丢了不影响业务」，可以接受；若审计要求强一致，需要改成同步写或落本地文件。
-2. **参数脱敏不能覆盖所有结构**：脱敏是字符串级正则，嵌套对象/数组里的敏感字段可能漏。最稳妥的是对重置密码、改密码等接口直接 `recordParams = false`。
-3. **大表查询**：接口强制默认 7 天 + `pageSize ≤ 100`，否则 MySQL 5.7 上会扫全表。
-4. **file-service 无 JdbcTemplate**：当前文件上传不会产生操作日志。若需要审计上传行为，得给 file-service 单独接数据源或加专用记录器。
-5. **多服务写同一张表**：依赖「所有服务共用 `e_commerce_db`」这一现状；若未来按服务拆库，需要改成日志服务统一收集。
-6. **时间口径**：日志时间由 Java `LocalDateTime.now()` 生成，与数据库 `NOW()` 可能有时区差；查询接口统一用应用时间，不混用。
+发布顺序：DDL → `auth-service`（接口/登录日志/导出）→ common + 业务服务（P1 打点）→ 后台前端。
+回滚：前端移除路由；日志写入全部 try-catch，不阻塞业务；新表可 `RENAME` 留档。
 
 ---
 
-## 八、附录：三份文档中的其他未完成项（与本次方案无关，供排期参考）
+## 八、风险与注意事项
 
-> 状态可能已被后续发布覆盖，落地前需逐条复核。
+1. **异步写入可能丢日志**：线程池满或停机时队列里的条目会丢；当前定位是「丢了不影响业务」。若审计要求强一致，再改同步写。
+2. **`LogDetail` 是 ThreadLocal**：必须在业务方法内 `add`，切面 `finally` 清理；跨线程（异步任务）里不会继承，不要在里面用。
+3. **敏感字段**：`params` 只做字符串级脱敏，嵌套结构可能漏；重置密码等接口直接 `recordParams = false`。
+4. **大表查询**：默认 7 天 + `pageSize ≤ 100`，否则 MySQL 5.7 会扫全表。
+5. **导出内存**：Excel 必须 `SXSSFWorkbook`，CSV 直接写流；禁止 5 万行先入 List。
+6. **file-service 无 JdbcTemplate**：文件上传不会产生操作日志；若需要，单独接数据源。
+7. **多服务共用 `e_commerce_db`**：日志读写都依赖这一点；将来拆库要改成独立日志服务。
+8. **时间口径**：日志时间由 Java 生成，查询接口统一用应用时间，不与数据库 `NOW()` 混用。
+
+---
+
+## 九、已确认的决策
+
+| 问题 | 决策 |
+|---|---|
+| 保留期限 | 180 天，定时清理 |
+| 页面可见范围 | 仅「店铺管理员（超管）」角色 |
+| 导出格式 | CSV + Excel 都要，独立导出权限码 |
+| C 端操作 | 不记录，只记录后台登录用户 |
+| `params` 手机号 | 脱敏为 `138****5678` |
+
+---
+
+## 十、仍建议确认的点
+
+1. API 错误日志（异常接口 + stackTrace）本期不做，是否排到下一期？
+2. 日志页是否支持按 `bizId` 跳到售后单/订单详情？要做的话需要各模块提供详情路由。
+3. 导出是否需要包含已删除账号的历史记录？当前用 `username` 快照，可以保留。
+
+---
+
+## 十一、附录：三份文档中的其他未完成项（与本次方案无关，供排期参考）
+
+> 状态可能已被后续发布覆盖，落地前逐条复核。
 
 **安全 / 审计**
 - 网关限流、分接口差异化限流、IP 黑名单（`task_plan.md` 164-168 行）
@@ -270,17 +379,6 @@ WHERE r.role_key = 'admin' AND m.perms IN ('system:log:operation:list','system:l
 - AI Function Calling / 商品卡片 / RAG（`task_plan.md` 154-157 行）
 
 **运维**
-- EdgeOne 缓存规则（本次商城 404 的根因）、WebSocket 加速、证书续签、告警 webhook（`task_plan.md` 290、323-326 行）
+- EdgeOne 缓存规则（商城 404 的根因）、WebSocket 加速、证书续签、告警 webhook（`task_plan.md` 290、323-326 行）
 - 静态资源迁 CDN、WAF/高防（`task_plan.md` 171-172 行）
 - RabbitMQ 跨实例广播、未支付延迟队列（`task_plan.md` 180-181、218-220 行）
-
----
-
-## 九、需要你拍板的点
-
-1. 操作日志、登录日志保留多久？建议 180 天。按180天
-2. 日志页面是否只给「店铺管理员」角色？建议是。是的
-3. 是否需要 CSV 导出？如果需要，导出权限单独开一个权限码。需要，外加excel导出
-4. 是否要记录 C 端用户（小程序/商城）的敏感操作？当前 `operation_log` 的 `user_type` 已能区分，但 C 端量大会显著增加日志量，建议先不做。不做，主要记录后台管理系统的登录用户的操作情况。
-5. `params` 里的手机号是否也要脱敏？建议按 `138****5678` 处理。是的
-

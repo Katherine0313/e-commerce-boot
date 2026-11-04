@@ -48,4 +48,8 @@
         </set>
         WHERE id = #{id}
     </update>
+
+    <delete id="deleteByProductId">
+        DELETE FROM stock_alert WHERE product_id = #{productId}
+    </delete>
 </mapper>

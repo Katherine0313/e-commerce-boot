@@ -21,4 +21,7 @@ public interface StockAlertMapper {
 
     // 更新预警配置（动态 set，只更新非 null 字段）
     int update(StockAlert stockAlert);
+
+    // 关闭预警时删除配置，释放编号（编号只属于开启中的预警）
+    int deleteByProductId(@Param("productId") Long productId);
 }
