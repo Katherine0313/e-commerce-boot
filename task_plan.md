@@ -284,7 +284,7 @@
 - [ ] 操作日志 + 登录日志：表 + AOP 注解 + 异步写入 + 后台只读页面
 - [✓] 角色/菜单变更后强制下线或刷新 token：Redis `auth:admin:invalid-before:{id}` + JwtInterceptor 校验（2026-10-30，已发布）
 - [✓] 管理员姓名语义修正：`admin.name` 由「角色名」改为真实姓名（2026-11-01，本地+生产均已执行；脚本 `docs/sql/rbac/03-fix-admin-name.sql`）
-- [✓] 主键号段压平：沙箱段 8 位 id（>=100000）改回连续小号，级联改 17 个引用列 + 归位 AUTO_INCREMENT（2026-11-01，本地+生产均已执行；脚本 `docs/sql/normalize-sandbox-ids.sql`）
+- [✓] 主键号段压平：沙箱段 8 位 id（>=100000）改回连续小号，级联改 17 个引用列 + 归位 AUTO_INCREMENT（2026-11-01，本地+生产均已执行；脚本 `docs/sql/normalize-sandbox-ids.sql（该脚本已从 docs/sql 删除，见 git 历史）`）
 - [✓] 商品价格校正：按品类真实价重定 98 个商品售价（划线价 ×1.10、成本价 ×0.72），并统一全表口径（2026-11-01，本地+生产均已执行；脚本 `docs/sql/fix-product-pricing.sql`，只读预览 `fix-product-pricing-preview.sql`）
 - [✓] 本地↔生产库一致性审计与补同步（2026-11-01）：字段 329/329、索引补齐（生产加 `user.uk_user_username`）、运营配置以生产为准反向对齐本地（recommend / tags / 标签绑定 / 客服2 账号）；核对工具 `docs/sql/check-local-prod-parity.sql`，同步脚本 `sync-local-to-prod.sql` / `sync-prod-to-local.sql`
 - [ ] EdgeOne 给 `www.jiemids.com` 开 WebSocket 加速（用户侧控制台操作；当前靠 nginx 写死 `Upgrade websocket` 兜底）
@@ -497,8 +497,8 @@
 - [✓] 数据库（**本地 + 生产均已执行并复核**）：
   - `docs/sql/log/01-operation-log-schema.sql`（建 `operation_log`）
   - `docs/sql/after-sale/01-after-sale-log-schema.sql`（建 `after_sale_log`，**由杰米手动建好**，脚本核对过结构与 mapper 一致）
-  - `docs/sql/after-sale/02-fix-only-refund-returning.sql`（生产 1 行）
-  - `docs/sql/after-sale/03-fix-refund-confirming.sql`（生产 2 行；**子表先于主表**，否则定位不到）
+  - `docs/sql/after-sale/02-fix-only-refund-returning.sql（该脚本已从 docs/sql 删除，见 git 历史）`（生产 1 行）
+  - `docs/sql/after-sale/03-fix-refund-confirming.sql（该脚本已从 docs/sql 删除，见 git 历史）`（生产 2 行；**子表先于主表**，否则定位不到）
   - 生产备份 `/www/backup/e_commerce_db_2026-11-03_1008.sql`（校验通过）
 - [✓] 编译验证：`mvn -o install -DskipTests` 全量通过
 - [x] **已发布生产**（2026-11-03）：镜像 tag `20261103-00c8111-dirty`，6 个容器全部 running，启动日志无 error/exception；
@@ -564,7 +564,7 @@
     `RuntimeException`→`BusinessException`、`@RequestHeader("username")`→`UserContext.getUserId()`、
     `Result<List>`→`Result<PageVO<T>>`、无 `@RequirePerm`、定时任务位置、网关 Path 未加 等）
 - [✓] **3 个最隐蔽的坑**（写代码时最容易踩）：
-  - ~~`orders.confirm_at` 实际是**商家确认收款时间**（`updateStatus` 在 status=3 时写），DDL 注释「确认收货时间」是历史遗留错误 → 禁止拿它记签收~~（2026-11-04：该列已随「取消商家确认环节」删列，见 `docs/sql/drop-confirm-at.sql`）
+  - ~~`orders.confirm_at` 实际是**商家确认收款时间**（`updateStatus` 在 status=3 时写），DDL 注释「确认收货时间」是历史遗留错误 → 禁止拿它记签收~~（2026-11-04：该列已随「取消商家确认环节」删列，见 `docs/sql/drop-confirm-at.sql（该脚本已从 docs/sql 删除，见 git 历史）`）
   - `orders.sign_status` 值域是英文 `signed`/`auto`/`unsigned` → 禁止写中文；且本期**不写**它（会与 7 天自动完成抢写）
   - 订单状态必须走 `orderMapper.updateStatus(...)`（XML 按目标状态自动写 `ship_at`/`courier`/`tracking_number`），手动 set 会漏字段
 - [✓] **方案已改写**：`express` 文件重写为项目版（正文 = 唯一执行依据）
@@ -682,7 +682,7 @@
 - [✓] **小程序**：订单列表 Tab「待发货」改 `statuses:[3]`、订单详情跳转/售后可申请状态去掉 2
 - [✓] **PC 商城**：删 `confirmOrder` API；**「确认收货」原先误调 `/confirm`（那是确认收款接口）→ 改调 `/finish`**
       （原来在 status=4 点「确认收货」会报 400「不允许从「已发货」变更为「待发货」」）；售后可申请状态去掉 2
-- [✓] **数据库**：本地库 + 生产库执行同一份 `docs/sql/order-status-merge-pending-confirm.sql`
+- [✓] **数据库**：本地库 + 生产库执行同一份 `docs/sql/order-status-merge-pending-confirm.sql（该脚本已从 docs/sql 删除，见 git 历史）`
       （存量 2→3、`confirm_at` 用 `pay_at` 回填、字段注释同步）；生产执行前已备份
       （`/www/backup/e_commerce_db_2026-11-04_0929.sql`）
 - [✓] **`orders.confirm_at` 删列**（2026-11-04，用户自行在本地库 + 生产库执行 `docs/sql/drop-confirm-at.sql`）：
@@ -691,6 +691,24 @@
   后台日期筛选白名单去掉 `confirm_at`（`pay_at` 已在白名单）、快递发货列表「收款确认时间」列改「支付时间」`payAt`、
   PC 商城订单详情删掉错位的「确认收货」行。
   **执行顺序提醒**：必须先发新代码再删列 —— 旧代码的 mapper 还 SELECT `confirm_at`，列先删会 500。
+- [✓] **小程序「用户协议」「隐私政策」内容**（2026-11-04）：两个入口（`pages/my/about-us.vue` → `/pages/article/detail?title=用户协议`
+  / `?title=隐私政策`）此前指向空库（`promotion_article` 0 篇），点进去只显示「内容不存在或已下架」。
+  正文写在 `docs/legal/user-agreement.html`、`docs/legal/privacy-policy.html`（富文本 HTML），
+  `docs/sql/seed-legal-articles.sql` 灌进文章表（新建分类「协议与公告」+ 两篇文章，status=1 上架）。
+  后端按**标题精确匹配**取文（`ArticleMapper.findEnabledByTitle`：title 精确 + status=1 + is_deleted=0），
+  所以标题必须严格是「用户协议」「隐私政策」，改标题会取不到。
+  待办：正文里的【运营主体全称】【联系电话】【联系邮箱】需运营方填真实信息；
+  微信后台「用户隐私保护指引」已配置（收集手机号、收货地址、openid 等）、主体名称已与营业执照对齐。
+- [✓] **修「文章不存在或已下架」**（2026-11-04）：小程序取文章的请求是**双重编码** ——
+  关于页跳转时 `encodeURIComponent` 过一次，微信**不会自动解码 onLoad 的 query**，
+  `pages/article/detail.vue` 拿到编码态后又交给 `api/article.js` 再编码一次 → net 上成了
+  `%25E9%259A%2590...`，后端按标题精确匹配必然查不到。
+  修法：`detail.vue` 的 `onLoad` 里先 `decodeURIComponent` 一次（加 try/catch 兜底），api 层再编码一次 → 单次编码。
+- [✓] **小程序补「注销账号」入口**：后端 `POST /api/user/deactivate` 早就实现了，但小程序没有入口，
+  而协议里承诺了「我的 - 个人资料 - 注销账号」—— 不能承诺不存在的功能。
+  已在 `api/login.js` 加 `deactivateAccount()`、`pages/my/personal-info.vue` 加「注销账号」卡片
+  （二次确认 + 调接口 + 清登录态 + switchTab 回「我的」）；协议里的路径描述同步改成「我的 - 个人资料 - 注销账号」。
+  后端已处理注销后再登录：查 openid 命中且 `is_deleted=1` → 403「账号已注销」。
 - [ ] **【待发版】** order-service / aftersale-service 镜像 + 后台前端 `release-web.sh` + PC 商城 `release-mall.sh` + 小程序重新上传
 
 ## 后台「查看物流轨迹」入口（2026-11-04）
