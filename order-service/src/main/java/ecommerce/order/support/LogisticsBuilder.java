@@ -11,7 +11,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,8 +20,7 @@ import java.util.List;
  * 后台管理端、小程序、PC 商城三端看的都是这一份，保证轨迹完全同步 ——
  * 不会出现「商家这边已送达、顾客那边还在派送中」。
  * <p>
- * 轨迹是【滚动时间轴】：所有节点时间都相对「当前时间」生成，每次查看都是最新状态。
- * 早先的写法是「发货时间 + 固定小时数」，发完一段时间后节点就不再更新，顾客看到的还是两天前的状态。
+ * 轨迹以订单实际发货时间为起点，按真实时效生成，且只展示已经发生的节点。
  */
 @Component
 public class LogisticsBuilder {
@@ -44,16 +42,22 @@ public class LogisticsBuilder {
         this.deliveryExpressMapper = deliveryExpressMapper;
     }
 
+    /** 轨迹节点相对【发货时间】的小时偏移：揽件 → 分拣 → 发出 → 到达 → 派送 */
+    private static final int[] OFFSETS = {0, 2, 5, 12, 20};
+
     /**
      * 生成物流轨迹。
+     * <p>
+     * 时间以订单实际发货时间 {@code shipAt} 为起点向后推，只展示「已经发生」的节点，
+     * 因此不会出现揽件时间早于发货时间；目的地取收货地址 {@code region}，不再随机。
      *
-     * @param order 订单（取状态、发货时间、快递公司、单号）
+     * @param order 订单（取状态、发货时间、快递公司、单号、收货地区）
      */
     public LogisticsVO build(Order order) {
         int seed = (int) (order.getId() % 97);
         String originCity = CITIES.get(seed % CITIES.size());
         String originDistrict = DISTRICTS.get((seed + 3) % DISTRICTS.size());
-        String destCity = CITIES.get((seed + 5) % CITIES.size());
+        String destCity = resolveDestination(order.getRegion(), seed);
 
         // 快递公司：字典表优先（商家可自定义名称），订单上没有就兜底随机
         String courierName = courierName(order.getCourier());
@@ -61,27 +65,42 @@ public class LogisticsBuilder {
             courierName = COURIERS.get((seed + 7) % COURIERS.size());
         }
         String courierShort = courierName.replaceAll("速运|快递|速递|物流", "");
-        String trackingNumber = order.getTrackingNumber() != null ? order.getTrackingNumber() : ("YT" + System.currentTimeMillis());
+        String trackingNumber = order.getTrackingNumber() != null && !order.getTrackingNumber().isBlank()
+                ? order.getTrackingNumber()
+                : String.format("MOCK%08d", order.getId());
 
-        // 时间基准取整点：同一小时内所有请求返回完全相同的轨迹，后台 / 小程序 / PC 商城
-        // 三端看到的轨迹逐字一致（否则两次请求跨一秒时间戳就差一秒）；跨整点自动推进一次，
-        // 不会像「发货时间 + 固定小时数」那样发完就停在某个节点不再更新。
-        LocalDateTime now = LocalDateTime.now().truncatedTo(ChronoUnit.HOURS);
-        List<LogisticsTraceVO> traces = new ArrayList<>();
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime base = order.getShipAt() != null ? order.getShipAt()
+                : order.getCreatedAt() != null ? order.getCreatedAt() : now;
+        if (base.isAfter(now)) {
+            base = now;
+        }
 
         boolean shipped = OrderStatusEnum.SHIPPED.getCode().equals(order.getOrderStatus());
         boolean finished = OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus());
 
+        // 已完成订单以签收时间为终点，进行中订单以当前时间为终点；终点不能超过现在
+        LocalDateTime end = finished
+                ? (order.getFinishAt() != null ? order.getFinishAt() : now)
+                : now;
+        if (end.isAfter(now)) {
+            end = now;
+        }
+        if (end.isBefore(base)) {
+            end = base;
+        }
+
+        List<LogisticsTraceVO> traces = new ArrayList<>();
         if (shipped || finished) {
-            add(traces, now.minusHours(6), "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
-            add(traces, now.minusHours(6), "运输中", "【" + originCity + originDistrict + "分拣中心】快件已完成分拣，准备发往" + destCity);
-            add(traces, now.minusHours(6), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity);
-            add(traces, now.minusHours(4), "运输中", "快件已到达" + destCity + "中转中心");
+            add(traces, base.plusHours(OFFSETS[0]), "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
+            addIfReached(traces, base.plusHours(OFFSETS[1]), end, "运输中", "【" + originCity + originDistrict + "分拣中心】快件已完成分拣，准备发往" + destCity);
+            addIfReached(traces, base.plusHours(OFFSETS[2]), end, "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity);
+            addIfReached(traces, base.plusHours(OFFSETS[3]), end, "运输中", "快件已到达" + destCity + "中转中心");
+            addIfReached(traces, base.plusHours(OFFSETS[4]), end, "派送中", "【" + destCity + "】" + courierShort + "快递员"
+                    + COURIER_STAFF[seed % COURIER_STAFF.length] + "正在为您派送，请保持电话畅通");
         }
         if (finished) {
-            add(traces, now.minusHours(2), "派送中", "【" + destCity + "】" + courierShort + "快递员"
-                    + COURIER_STAFF[seed % COURIER_STAFF.length] + "正在为您派送，请保持电话畅通");
-            add(traces, order.getFinishAt() != null ? order.getFinishAt() : now, "已签收", "快件已由本人签收，感谢使用");
+            add(traces, end, "已签收", "快件已由本人签收，感谢使用");
         }
 
         return LogisticsVO.builder()
@@ -89,6 +108,29 @@ public class LogisticsBuilder {
                 .trackingNumber(trackingNumber)
                 .traces(traces)
                 .build();
+    }
+
+    /** 目的地城市：优先从收货地址解析，解析不到再按订单 id 兜底 */
+    private String resolveDestination(String region, int seed) {
+        if (region != null && !region.isBlank()) {
+            String s = region.replace("特别行政区", "|").replace("自治区", "|").replace("省", "|");
+            int bar = s.lastIndexOf('|');
+            if (bar >= 0) {
+                s = s.substring(bar + 1);
+            }
+            int idx = s.indexOf('市');
+            if (idx > 0) {
+                return s.substring(0, idx);
+            }
+        }
+        return CITIES.get((seed + 5) % CITIES.size());
+    }
+
+    /** 仅当节点时间已到（不晚于终点）才追加，避免展示未来轨迹 */
+    private void addIfReached(List<LogisticsTraceVO> traces, LocalDateTime time, LocalDateTime end, String status, String desc) {
+        if (!time.isAfter(end)) {
+            add(traces, time, status, desc);
+        }
     }
 
     /**

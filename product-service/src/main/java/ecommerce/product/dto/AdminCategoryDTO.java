@@ -22,6 +22,6 @@ public class AdminCategoryDTO {
     private Integer recommend;
     @Schema(description = "分类图片路径")
     private String image;
-    @Schema(description = "规格模板字段名列表，商品表单按顺序自动生成规格参数；null 表示不修改，[] 表示清空")
-    private List<String> specTemplate;
+    @Schema(description = "规格模板项（参数名/类型/默认值/可选值），商品表单按顺序自动生成规格参数并填入默认值；null 表示不修改，[] 表示清空")
+    private List<SpecTemplateItem> specTemplate;
 }

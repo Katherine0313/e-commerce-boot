@@ -1,5 +1,6 @@
 package ecommerce.product.vo;
 
+import ecommerce.product.dto.SpecTemplateItem;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -33,8 +34,8 @@ public class CategoryTreeVO {
     private Integer recommend;
     @Schema(description = "分类图片路径")
     private String image;
-    @Schema(description = "规格模板字段名列表")
-    private List<String> specTemplate;
+    @Schema(description = "规格模板项列表（参数名/类型/默认值/可选值）")
+    private List<SpecTemplateItem> specTemplate;
     @Schema(description = "该分类下直接挂靠的商品数")
     private Integer productCount;
     @Schema(description = "子分类列表")
