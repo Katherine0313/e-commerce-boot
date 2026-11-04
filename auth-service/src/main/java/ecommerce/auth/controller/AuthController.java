@@ -33,11 +33,11 @@ public class AuthController {
         return Result.success(authService.login(dto, resolveClientIp(request)));
     }
 
-    /** 取客户端 IP：Cloudflare 的 CF-Connecting-IP 最可信，其次 X-Forwarded-For / X-Real-IP */
+    /** 取客户端 IP：EdgeOne 回源时注入的 EO-Connecting-IP 最可信，其次 X-Forwarded-For / X-Real-IP */
     private String resolveClientIp(HttpServletRequest request) {
-        String cfIp = request.getHeader("CF-Connecting-IP");
-        if (cfIp != null && !cfIp.isBlank()) {
-            return cfIp.trim();
+        String eoIp = request.getHeader("EO-Connecting-IP");
+        if (eoIp != null && !eoIp.isBlank()) {
+            return eoIp.trim();
         }
         String forwarded = request.getHeader("X-Forwarded-For");
         if (forwarded != null && !forwarded.isBlank()) {

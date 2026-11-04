@@ -4,6 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import ecommerce.user.vo.UserProfileVO;
 import ecommerce.user.vo.UserStatisticsVO;
+import ecommerce.utils.JwtUtil;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import ecommerce.exception.BusinessException;

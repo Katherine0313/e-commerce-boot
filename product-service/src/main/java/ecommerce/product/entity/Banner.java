@@ -10,7 +10,8 @@ import java.time.LocalDateTime;
 /**
  * Banner 广告位实体。
  * <p>
- * 一条记录只服务一个展示位置，终端由 position 决定，所以只存一张图（image）。
+ * 一条记录服务一个展示位置，最多配置 4 张图：images 存 JSON 数组（完整列表），
+ * image 存首图，兼容只认单图的旧客户端。
  */
 @Data
 @Builder
@@ -20,8 +21,10 @@ public class Banner {
     private Long id;
     /** 标题 */
     private String title;
-    /** 图片地址（相对路径，如 /image/banner/xxx.webp） */
+    /** 首图地址（相对路径，如 /image/banner/xxx.webp） */
     private String image;
+    /** 图片地址 JSON 数组（最多 4 张，首张与 image 相同） */
+    private String images;
     /** 广告位置：1 小程序首页 / 2 小程序分类页 / 11 PC商城首页 */
     private Integer position;
     /** 跳转类型：0 不跳转 / 1 商品 / 2 文章 / 3 外部链接 */

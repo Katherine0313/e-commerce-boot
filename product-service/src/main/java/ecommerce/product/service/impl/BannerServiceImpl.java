@@ -4,6 +4,7 @@ import ecommerce.product.constants.BannerConstants;
 import ecommerce.product.entity.Banner;
 import ecommerce.product.mapper.BannerMapper;
 import ecommerce.product.service.BannerService;
+import ecommerce.product.support.BannerImagesCodec;
 import ecommerce.product.vo.BannerVO;
 import org.springframework.stereotype.Service;
 
@@ -16,9 +17,11 @@ import java.util.List;
 public class BannerServiceImpl implements BannerService {
 
     private final BannerMapper bannerMapper;
+    private final BannerImagesCodec bannerImagesCodec;
 
-    public BannerServiceImpl(BannerMapper bannerMapper) {
+    public BannerServiceImpl(BannerMapper bannerMapper, BannerImagesCodec bannerImagesCodec) {
         this.bannerMapper = bannerMapper;
+        this.bannerImagesCodec = bannerImagesCodec;
     }
 
     @Override
@@ -37,6 +40,7 @@ public class BannerServiceImpl implements BannerService {
                 .id(b.getId())
                 .title(b.getTitle())
                 .image(b.getImage())
+                .images(bannerImagesCodec.decode(b.getImages(), b.getImage()))
                 .position(b.getPosition())
                 .positionDesc(positionDesc(b.getPosition()))
                 .linkType(b.getLinkType())

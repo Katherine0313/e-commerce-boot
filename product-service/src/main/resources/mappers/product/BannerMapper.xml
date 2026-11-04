@@ -19,7 +19,7 @@
     </sql>
 
     <select id="listAdmin" resultType="ecommerce.product.entity.Banner">
-        SELECT id, title, image, position, link_type, link_value, sort_order, status,
+        SELECT id, title, image, images, position, link_type, link_value, sort_order, status,
                browse_count, is_deleted, create_time, update_time
         FROM promotion_banner
         WHERE <include refid="adminWhere"/>
@@ -34,7 +34,7 @@
     </select>
 
     <select id="findById" resultType="ecommerce.product.entity.Banner">
-        SELECT id, title, image, position, link_type, link_value, sort_order, status,
+        SELECT id, title, image, images, position, link_type, link_value, sort_order, status,
                browse_count, is_deleted, create_time, update_time
         FROM promotion_banner
         WHERE id = #{id} AND is_deleted = 0
@@ -42,7 +42,7 @@
 
     <!-- ==================== C 端：某个位置上启用的 Banner ==================== -->
     <select id="listEnabled" resultType="ecommerce.product.entity.Banner">
-        SELECT id, title, image, position, link_type, link_value, sort_order, status,
+        SELECT id, title, image, images, position, link_type, link_value, sort_order, status,
                browse_count, create_time
         FROM promotion_banner
         WHERE is_deleted = 0
@@ -55,9 +55,9 @@
 
     <!-- ==================== 后台：写操作 ==================== -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO promotion_banner (title, image, position, link_type, link_value,
+        INSERT INTO promotion_banner (title, image, images, position, link_type, link_value,
                                       sort_order, status, browse_count, is_deleted, create_time)
-        VALUES (#{title}, #{image}, #{position}, #{linkType}, #{linkValue},
+        VALUES (#{title}, #{image}, #{images}, #{position}, #{linkType}, #{linkValue},
                 #{sortOrder}, #{status}, 0, 0, #{createTime})
     </insert>
 
@@ -66,6 +66,7 @@
         <set>
             <if test="title != null">title = #{title},</if>
             <if test="image != null">image = #{image},</if>
+            <if test="images != null">images = #{images},</if>
             <if test="position != null">position = #{position},</if>
             <if test="linkType != null">link_type = #{linkType},</if>
             <if test="linkValue != null">link_value = #{linkValue},</if>

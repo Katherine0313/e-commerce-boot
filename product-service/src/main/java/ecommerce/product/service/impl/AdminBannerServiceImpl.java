@@ -7,6 +7,7 @@ import ecommerce.product.dto.AdminBannerDTO;
 import ecommerce.product.entity.Banner;
 import ecommerce.product.mapper.BannerMapper;
 import ecommerce.product.service.AdminBannerService;
+import ecommerce.product.support.BannerImagesCodec;
 import ecommerce.product.vo.BannerVO;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -22,9 +23,11 @@ import java.util.List;
 public class AdminBannerServiceImpl implements AdminBannerService {
 
     private final BannerMapper bannerMapper;
+    private final BannerImagesCodec bannerImagesCodec;
 
-    public AdminBannerServiceImpl(BannerMapper bannerMapper) {
+    public AdminBannerServiceImpl(BannerMapper bannerMapper, BannerImagesCodec bannerImagesCodec) {
         this.bannerMapper = bannerMapper;
+        this.bannerImagesCodec = bannerImagesCodec;
     }
 
     @Override
@@ -49,9 +52,12 @@ public class AdminBannerServiceImpl implements AdminBannerService {
     @Transactional
     public Long create(AdminBannerDTO dto) {
         validate(dto, null);
+        String imagesJson = bannerImagesCodec.encode(dto.getImages());
+        List<String> images = bannerImagesCodec.decode(imagesJson, null);
         Banner banner = Banner.builder()
                 .title(dto.getTitle().trim())
-                .image(dto.getImage().trim())
+                .image(images.get(0))
+                .images(imagesJson)
                 .position(dto.getPosition())
                 .linkType(dto.getLinkType())
                 .linkValue(dto.getLinkValue() == null ? "" : dto.getLinkValue().trim())
@@ -69,9 +75,12 @@ public class AdminBannerServiceImpl implements AdminBannerService {
     public void update(Long id, AdminBannerDTO dto) {
         Banner banner = requireBanner(id);
         validate(dto, id);
+        String imagesJson = bannerImagesCodec.encode(dto.getImages());
+        List<String> images = bannerImagesCodec.decode(imagesJson, null);
         banner.setId(id);
         banner.setTitle(dto.getTitle().trim());
-        banner.setImage(dto.getImage().trim());
+        banner.setImage(images.get(0));
+        banner.setImages(imagesJson);
         banner.setPosition(dto.getPosition());
         banner.setLinkType(dto.getLinkType());
         banner.setLinkValue(dto.getLinkValue() == null ? "" : dto.getLinkValue().trim());
@@ -118,9 +127,6 @@ public class AdminBannerServiceImpl implements AdminBannerService {
         if (dto.getTitle().trim().length() > 64) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "标题不能超过 64 个字符");
         }
-        if (dto.getImage() == null || dto.getImage().isBlank()) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "请上传图片");
-        }
         Integer position = dto.getPosition();
         if (position == null
                 || (position != BannerConstants.POSITION_MINI_HOME
@@ -152,6 +158,7 @@ public class AdminBannerServiceImpl implements AdminBannerService {
                 .id(b.getId())
                 .title(b.getTitle())
                 .image(b.getImage())
+                .images(bannerImagesCodec.decode(b.getImages(), b.getImage()))
                 .position(b.getPosition())
                 .positionDesc(positionDesc(b.getPosition()))
                 .linkType(b.getLinkType())

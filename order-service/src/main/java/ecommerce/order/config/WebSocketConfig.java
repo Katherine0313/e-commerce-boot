@@ -2,6 +2,7 @@ package ecommerce.order.config;
 
 import ecommerce.order.ws.AuthHandshakeInterceptor;
 import ecommerce.order.ws.OrderWebSocketHandler;
+import ecommerce.utils.JwtUtil;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;

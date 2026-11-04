@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * Banner VO（后台列表 / 详情 / C 端轮播共用）。
@@ -21,8 +22,10 @@ public class BannerVO {
     private Long id;
     @Schema(description = "标题")
     private String title;
-    @Schema(description = "图片地址（相对路径）")
+    @Schema(description = "首图地址（相对路径）")
     private String image;
+    @Schema(description = "图片地址列表（最多 4 张，首张与 image 相同）")
+    private List<String> images;
     @Schema(description = "广告位置：1 小程序首页 2 小程序分类页 11 PC商城首页")
     private Integer position;
     @Schema(description = "广告位置中文")

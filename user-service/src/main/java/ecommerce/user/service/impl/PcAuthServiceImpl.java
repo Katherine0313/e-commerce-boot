@@ -11,6 +11,7 @@ import ecommerce.user.service.PcAuthService;
 import ecommerce.user.support.PasswordUtil;
 import ecommerce.user.vo.PcLoginVO;
 import ecommerce.user.vo.PcSendCodeVO;
+import ecommerce.utils.JwtUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
