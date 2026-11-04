@@ -25,8 +25,8 @@ import java.util.Map;
 /**
  * 订单接口（需登录）。
  * <p>
- * 状态流转照原 Node 后端：下单(待付款) → 支付(待确认) → 确认收款(待发货) → 发货(已发货) → 完成(已完成)，
- * 待付款/待确认/待发货可取消。confirm/ship 本质是商家操作，后续拆 /api/admin/orders 时再收紧权限。
+ * 状态流转：下单(待付款) → 支付(待发货) → 发货(已发货) → 完成(已完成)，
+ * 待付款/待发货可取消。ship 本质是商家操作，后续拆 /api/admin/orders 时再收紧权限。
  */
 @Tag(name = "订单", description = "订单接口（需登录）")
 @RestController
@@ -69,17 +69,11 @@ public class OrderController {
         return Result.success(orderService.getLogistics(id));
     }
 
-    @Operation(summary = "支付（待付款 → 待确认）")
+    @Operation(summary = "支付（待付款 → 待发货）")
     @PutMapping("/{id}/pay")
     public Result<OrderVO> payOrder(@PathVariable Long id, @RequestBody(required = false) Map<String, Object> body) {
         String payType = body == null ? null : (String) body.get("payType");
         return Result.success(orderService.payOrder(id, payType));
-    }
-
-    @Operation(summary = "确认收款（待确认 → 待发货）")
-    @PutMapping("/{id}/confirm")
-    public Result<OrderVO> confirmOrder(@PathVariable Long id) {
-        return Result.success(orderService.confirmOrder(id));
     }
 
     @Operation(summary = "发货（待发货 → 已发货）")

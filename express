@@ -9,7 +9,7 @@
 3. 旧 `/orders/ship` 发货页**下线**，发货入口迁到新「快递发货列表」页。
 4. 后台「代客确认收货」**去掉**，`PUT /api/admin/orders/{id}/finish` **一并下线**；订单完成只来自买家确认收货或发货满 7 天自动完成；`sign_status` 维持 `signed`/`auto`/`unsigned` 三态，**不增补 `manual`**。
 5. 签收以**订单**为单位，不做包裹级签收聚合；后台对签收只读。
-6. 发货页**不加**「待确认收款」Tab（订单管理页已有），改空态提示 + 跳转。
+6. 发货页**不加**「待确认收款」Tab（该状态已于 2026-11-04 整体退役），只留空态提示。
 7. 发货阶段**不扣不校验库存**（下单时已扣）。
 
 ## 0. 这次要做的事
@@ -26,8 +26,8 @@
 
 - `order-service` **无 MyBatis-Plus**：手写 Mapper 接口 + XML（`mappers/order/`，复数）。
 - 订单状态必须走 `orderMapper.updateStatus(...)`（XML 按目标状态自动写 `ship_at`/`courier`/`tracking_number`/`finish_at`/`sign_status`）。
-- `OrderStatusEnum.canTransitionTo()` 是唯一真相；**code=2 后台叫「待确认」C 端叫「待发货」**，别硬编码 `==3`。
-- `orders.confirm_at` = **商家确认收款时间**（status=3 时写），**禁止写**；`orders.sign_status` 值域是英文三态。
+- `OrderStatusEnum.canTransitionTo()` 是唯一真相；**code=2 待确认收款已于 2026-11-04 退役**（支付成功直接进 3待发货），别硬编码 `==3`，也别再依赖 code=2。
+- `orders.confirm_at` = **进入待发货的时间**（status=3 时写，与 `pay_at` 同值），**禁止写**；`orders.sign_status` 值域是英文三态。
 - 软删列 `is_deleted`；**全项目无 creator/updater**；订单域时间列 `created_at/updated_at`，字典域 `create_time/update_time`。
 - 异常一律 `BusinessException(HttpStatus.X, "中文")`；操作人取 `UserContext.getUserId()`（**无 username header**）。
 - 分页 `Result<PageVO<T>>`，Mapper 手写 `LIMIT` + `countXxx`；后台接口一律 `@RequirePerm`；JSON **驼峰**；时间 `@JsonFormat("yyyy-MM-dd HH:mm:ss")`；时间筛选字段是后端白名单 `created_at/confirm_at/pay_at/ship_at/finish_at`。
@@ -139,7 +139,7 @@ Service 方法：`ship(orderId,dto)` 发货、`resend(orderId,dto)` 补发、`li
 
 **3.3 发货 / 补发规则**（`@Transactional(rollbackFor = Exception.class)`）
 
-发货 `ship()`：① `orderMapper.findById` 取订单，不存在 → 404「订单不存在」；② 状态机校验 `checkTransition(order, SHIPPED)`，不通过 → 400「不允许从「待确认」变更为「已发货」」；③ 快递公司必须存在且启用 → 否则 400「快递公司不存在或未启用」；④ 写包裹（`packageNo="PKG"+yyyyMMddHHmmss+4位随机`、`deliveryType=1`、`deliveryTime/createdAt` Java 传参）；⑤ `orderMapper.updateStatusIfCurrent(id, fromStatus=3, toStatus=4, courier, trackingNumber, now)`（条件更新，见 3.5）；⑥ 写流水 `CREATE`（同事务）。
+发货 `ship()`：① `orderMapper.findById` 取订单，不存在 → 404「订单不存在」；② 状态机校验 `checkTransition(order, SHIPPED)`，不通过 → 400「不允许从「待发货」变更为「已发货」」；③ 快递公司必须存在且启用 → 否则 400「快递公司不存在或未启用」；④ 写包裹（`packageNo="PKG"+yyyyMMddHHmmss+4位随机`、`deliveryType=1`、`deliveryTime/createdAt` Java 传参）；⑤ `orderMapper.updateStatusIfCurrent(id, fromStatus=3, toStatus=4, courier, trackingNumber, now)`（条件更新，见 3.5）；⑥ 写流水 `CREATE`（同事务）。
 
 补发 `resend()`：订单状态必须**等于** `SHIPPED(4)`，否则 400「只有已发货的订单才能补发」（已发货→已发货不在状态机允许集里，直接比对当前状态）；写包裹 `deliveryType=2`；**不动 `orders`**（`courier`/`tracking_number` 仍指首包裹）；写流水 `RESEND`。
 
@@ -189,7 +189,7 @@ Service 方法：`ship(orderId,dto)` 发货、`resend(orderId,dto)` 补发、`li
 7. **不提供「代客确认收货」入口**；**不出现「取消订单」「删除订单」「批量删除」**。
 8. 行内按钮补齐 `hasPermi` 判断，与 `admin_menu.perms` 一字不差。
 9. loading / 空态 / 错误提示三件套；业务 catch **不重复弹** `message.error`（`request.js` 拦截器已弹）。
-10. **只做 2 个 Tab**（快递发货列表 + 待发货订单）；「待发货订单」为空时提示「有 N 单待确认收款」+ 跳转订单管理（N 取 `GET /api/admin/orders?status=2&page=1&pageSize=1` 的 `total`，**零后端改动**）。
+10. **只做 2 个 Tab**（快递发货列表 + 待发货订单）；「待发货订单」为空时只显示空态提示（原先提示「有 N 单待确认收款」，该状态 2 已于 2026-11-04 退役）。
 11. 快递公司下拉模块加载时拉一次 `/api/admin/expresses/enabled` **复用**（页面级内存缓存，不落 Redis）；发货时后端仍校验启用，被停用提示「该快递公司已停用，请刷新后重试」。
 
 **快递公司 `ExpressList.vue`**：搜索（编码、名称）；列（编码、名称、logo、排序、启用状态、创建时间、操作）；弹窗表单（编码、名称、logo 上传、排序、启用状态、备注）；删除用 a-popconfirm 二次确认。
@@ -216,7 +216,7 @@ logo 上传地址 `/api/admin/upload?type=express`；后端配套：`product-ser
 - [ ] 发货后订单 3→4，包裹列表出现该包裹，流水抽屉能看到「创建发货」和操作人；补发后订单状态不变、包裹多一条标「补发」。
 - [ ] 同一订单有售后单时售后按钮置灰；一次失败只弹一条错误提示。
 - [ ] 后台无「代客确认收货」入口；`PUT /api/admin/orders/{id}/finish` 已下线。
-- [ ] 页面没有取消/删除/批量删除按钮；发货页只有 2 个 Tab，「待发货订单」为空时提示 N 单待确认收款并能跳转。
+- [ ] 页面没有取消/删除/批量删除按钮；发货页只有 2 个 Tab，「待发货订单」为空时显示空态提示。
 
 ---
 
@@ -276,7 +276,7 @@ INSERT INTO `admin_menu` (`id`,`parent_id`,`menu_name`,`menu_type`,`path`,`perms
 
 - 发货后：`orders.order_status=4`、`ship_at`/`courier`/`tracking_number` 有值、`order_delivery` 有 1 条；`orders.confirm_at` **不变**。
 - 补发后：`orders` 无任何变化，`order_delivery` 多 1 条 `delivery_type=2`。
-- 订单在「待确认(2)」时调发货 → 400「不允许从「待确认」变更为「已发货」」，且不产生包裹。
+- 订单在「待付款(1)」时调发货 → 400「不允许从「待付款」变更为「已发货」」，且不产生包裹。（原用例是「待确认(2)」，该状态已退役）
 - 并发：同一订单双击发货两次 → 只产生 1 个包裹，第二次 409「订单状态已变更」。
 - 快递公司禁用后发货 → 400「快递公司不存在或未启用」；空单号 → 400。
 - 发货/补发/改单后 `order_delivery_log` 各一条记录，`operator_id` 是当前管理员。

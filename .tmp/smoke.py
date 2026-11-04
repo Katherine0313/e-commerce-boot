@@ -73,16 +73,17 @@ section('2 包裹列表')
 call('GET', '/api/admin/deliveries?page=1&pageSize=10', 200, label='包裹列表(空)')
 call('GET', '/api/admin/orders/couriers', 200, label='订单页快递公司(旧接口改读字典)')
 
-# ---------- 3. 异常路径：状态 2（待确认）时发货 ----------
-section('3 异常路径（状态2）')
+# ---------- 3. 异常路径：状态 1（待付款）时发货 ----------
+# 注：原先这里测的是「待确认(2)」，该状态已于 2026-11-04 退役并入 3
+section('3 异常路径（状态1）')
 call('POST', '/api/admin/deliveries?orderId=%d' % ORDER, 400,
-     body={'expressCode': 'shunfeng', 'trackingNumber': 'SF123456789'}, label='待确认(2)发货应400')
+     body={'expressCode': 'shunfeng', 'trackingNumber': 'SF123456789'}, label='待付款(1)发货应400')
 call('POST', '/api/admin/deliveries?orderId=999999', 404,
      body={'expressCode': 'shunfeng', 'trackingNumber': 'SF123456789'}, label='订单不存在应404')
 
-# ---------- 4. 确认收款 → 待发货(3) ----------
-section('4 确认收款 2→3')
-call('PUT', '/api/admin/orders/%d/confirm' % ORDER, 200, label='确认收款')
+# ---------- 4. 进入待发货(3) ----------
+# 原先是「确认收款 2→3」，确认收款环节已取消；现在支付成功直接进 3（PUT /api/orders/{id}/pay 是 C 端接口，
+# 冒烟脚本用 admin token 调不了），这里改为脚本外用 SQL 把订单预置成 status=3。
 
 # ---------- 5. 参数校验 ----------
 section('5 参数校验（状态3）')

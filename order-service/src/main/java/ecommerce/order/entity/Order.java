@@ -11,7 +11,7 @@ import java.time.LocalDateTime;
 /**
  * 订单实体（对应 orders 表）。
  * <p>
- * order_status 存数字（见 OrderStatusEnum），pay_at/confirm_at/ship_at/finish_at 由状态流转自动记录。
+ * order_status 存数字（见 OrderStatusEnum），pay_at/ship_at/finish_at 由状态流转自动记录。
  */
 @Data
 @Builder
@@ -50,7 +50,6 @@ public class Order {
     private LocalDateTime createdAt;
     private LocalDateTime payAt;
     private LocalDateTime shipAt;
-    private LocalDateTime confirmAt;
     private LocalDateTime finishAt;
     private LocalDateTime updatedAt;
     // 是否已申请售后（查询时 EXISTS after_sales 带出，非本表列）

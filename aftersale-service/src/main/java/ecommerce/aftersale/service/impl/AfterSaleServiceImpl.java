@@ -58,8 +58,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
 
     /** 售后单号格式：AS + 年月日时分秒（照原 Node） */
     private static final DateTimeFormatter AFTER_SALE_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
-    /** 订单状态数字 code（对齐 order-service 的 OrderStatusEnum）：2/3=未发货 4=已发货 5=已完成 */
-    private static final int ORDER_STATUS_PENDING_CONFIRM = 2;
+    /** 订单状态数字 code（对齐 order-service 的 OrderStatusEnum）：3=未发货 4=已发货 5=已完成 */
     private static final int ORDER_STATUS_PENDING_SHIP = 3;
     private static final int ORDER_STATUS_SHIPPED = 4;
     private static final int ORDER_STATUS_FINISHED = 5;
@@ -129,12 +128,11 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         if (!order.getUserId().equals(userId)) {
             throw new BusinessException(HttpStatus.FORBIDDEN, "无权操作该订单");
         }
-        // 状态校验：仅退款允许未发货(2/3)/已发货(4)；退货退款/换货要求已发货(4)/已完成(5)
+        // 状态校验：仅退款允许未发货(3)/已发货(4)；退货退款/换货要求已发货(4)/已完成(5)
         int orderStatus = order.getOrderStatus() == null ? -1 : order.getOrderStatus();
         boolean onlyRefund = AfterSaleTypeEnum.ONLY_REFUND.getCode().equals(type);
         boolean statusOk = onlyRefund
-                ? (orderStatus == ORDER_STATUS_PENDING_CONFIRM || orderStatus == ORDER_STATUS_PENDING_SHIP
-                    || orderStatus == ORDER_STATUS_SHIPPED)
+                ? (orderStatus == ORDER_STATUS_PENDING_SHIP || orderStatus == ORDER_STATUS_SHIPPED)
                 : (orderStatus == ORDER_STATUS_SHIPPED || orderStatus == ORDER_STATUS_FINISHED);
         if (!statusOk) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "当前订单状态不支持该售后类型");

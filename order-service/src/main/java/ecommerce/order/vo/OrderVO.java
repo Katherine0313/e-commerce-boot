@@ -78,9 +78,6 @@ public class OrderVO {
     @Schema(description = "发货时间")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime shipAt;
-    @Schema(description = "确认收款时间")
-    @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
-    private LocalDateTime confirmAt;
     @Schema(description = "完成时间")
     @JsonFormat(pattern = "yyyy-MM-dd HH:mm:ss")
     private LocalDateTime finishAt;

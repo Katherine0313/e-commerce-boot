@@ -7,18 +7,17 @@ import java.util.Map;
 /**
  * 订单状态枚举（数字 code，对应 orders.order_status TINYINT）。
  * <p>
- * desc 是 C 端（顾客）展示文案，adminDesc 是后台（商家）展示文案——同一状态两端文案可能不同，
- * 例如「待确认」（商家确认收款）对顾客展示为「待发货」，后台才叫「待确认」。
+ * desc 是 C 端（顾客）展示文案，adminDesc 是后台（商家）展示文案。
  * <p>
- * 状态机流转规则照原 Node 后端 orderStatus.js：
- * pending_pay → pending_confirm → pending_ship → shipped → finished，
- * pending_pay / pending_confirm / pending_ship 都可取消（cancel）。
+ * 状态机流转：pending_pay → pending_ship → shipped → finished，
+ * pending_pay / pending_ship 都可取消（cancel）。
+ * <p>
+ * code=2（待确认收款）已退役：那是原 Node 后端真实支付场景下的「商家人工确认到账」，
+ * 本项目支付是 mock 的（点一下直接成功），不存在到账延迟/对账，人工这一环纯属卡点，
+ * 已并入待发货(3)。code 2 空出来不再使用，历史订单已迁移为 3。
  */
 public enum OrderStatusEnum {
     PENDING_PAY(1, "待付款", "待付款", "gold"),
-    // 待确认（商家确认收款）对 C 端展示为「待发货」：确认收款是商家后台操作，
-    // 若照旧显示「待确认」，用户会误以为要自己去确认
-    PENDING_CONFIRM(2, "待发货", "待确认", "blue"),
     // 待发货：C 端与后台统一叫「待发货」（原 C 端「处理中」与后台「待发货」两端文案不一致，统一掉）
     PENDING_SHIP(3, "待发货", "待发货", "cyan"),
     SHIPPED(4, "已发货", "已发货", "purple"),
@@ -61,8 +60,7 @@ public enum OrderStatusEnum {
 
     /** 每个状态允许流转到的下一个状态集合（终态为 empty） */
     private static final Map<OrderStatusEnum, EnumSet<OrderStatusEnum>> TRANSITIONS = Map.of(
-            PENDING_PAY, EnumSet.of(PENDING_CONFIRM, CANCEL),
-            PENDING_CONFIRM, EnumSet.of(PENDING_SHIP, CANCEL),
+            PENDING_PAY, EnumSet.of(PENDING_SHIP, CANCEL),
             PENDING_SHIP, EnumSet.of(SHIPPED, CANCEL),
             SHIPPED, EnumSet.of(FINISHED),
             FINISHED, EnumSet.noneOf(OrderStatusEnum.class),

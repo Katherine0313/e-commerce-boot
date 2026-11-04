@@ -17,6 +17,7 @@ import ecommerce.order.mapper.ProductMapper;
 import ecommerce.order.service.AdminOrderService;
 import ecommerce.order.service.DeliveryExpressService;
 import ecommerce.order.service.OrderDeliveryService;
+import ecommerce.order.support.LogisticsBuilder;
 import ecommerce.order.vo.LogisticsTraceVO;
 import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderItemVO;
@@ -38,12 +39,11 @@ import java.util.Set;
  * 后台订单管理 Service 实现。
  * <p>
  * 商家视角：查所有订单（不限用户）；
- * 状态文案用 OrderStatusEnum 的 adminDesc（「待确认」而非顾客视角「待发货」）。
+ * 状态文案用 OrderStatusEnum 的 adminDesc。
  */
 @Service
 public class AdminOrderServiceImpl implements AdminOrderService {
 
-    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     /** 售后单号格式：AS + 年月日时分秒（照 aftersale-service 的 generateAfterSaleNo） */
     private static final DateTimeFormatter AFTER_SALE_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
 
@@ -53,17 +53,20 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private final AfterSaleRefundMapper afterSaleRefundMapper;
     private final OrderDeliveryService orderDeliveryService;
     private final DeliveryExpressService deliveryExpressService;
+    private final LogisticsBuilder logisticsBuilder;
 
     public AdminOrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                                  ProductMapper productMapper, AfterSaleRefundMapper afterSaleRefundMapper,
                                  OrderDeliveryService orderDeliveryService,
-                                 DeliveryExpressService deliveryExpressService) {
+                                 DeliveryExpressService deliveryExpressService,
+                                 LogisticsBuilder logisticsBuilder) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
         this.afterSaleRefundMapper = afterSaleRefundMapper;
         this.orderDeliveryService = orderDeliveryService;
         this.deliveryExpressService = deliveryExpressService;
+        this.logisticsBuilder = logisticsBuilder;
     }
 
     @Override
@@ -87,7 +90,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         if (field == null || field.isBlank()) {
             return "created_at";
         }
-        if (!Set.of("created_at", "confirm_at", "pay_at", "ship_at", "finish_at").contains(field)) {
+        if (!Set.of("created_at", "pay_at", "ship_at", "finish_at").contains(field)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "非法的日期字段");
         }
         return field;
@@ -141,15 +144,6 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
     @Override
     @Transactional
-    public OrderVO confirmOrder(Long id) {
-        Order order = requireOrder(id);
-        checkTransition(order, OrderStatusEnum.PENDING_SHIP);
-        orderMapper.updateStatus(id, OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null, LocalDateTime.now());
-        return getOrder(id);
-    }
-
-    @Override
-    @Transactional
     public OrderVO shipOrder(Long id, String courier, String trackingNumber) {
         // 老接口（PUT /api/admin/orders/{id}/ship）保留，逻辑委托给发货服务：
         // 写包裹 + 条件更新订单状态 + 写发货流水，同一事务
@@ -166,9 +160,8 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         Order order = requireOrder(id);
         checkTransition(order, OrderStatusEnum.CANCEL);
         restoreStock(order.getId());
-        // 已支付未发货（status 2/3）取消 → 自动生成退款售后单（整单退）
-        if (OrderStatusEnum.PENDING_CONFIRM.getCode().equals(order.getOrderStatus())
-                || OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getOrderStatus())) {
+        // 已支付未发货（status 3）取消 → 自动生成退款售后单（整单退）
+        if (OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getOrderStatus())) {
             autoRefundOnCancel(order);
         }
         orderMapper.updateStatus(id, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
@@ -195,7 +188,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
     @Override
     public LogisticsVO getLogistics(Long id) {
-        return buildLogistics(requireOrder(id), courierMap());
+        return buildLogistics(requireOrder(id));
     }
 
     // ==================== 内部工具 ====================
@@ -245,60 +238,12 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         afterSaleRefundMapper.insertOnlyRefund(afterSaleId, now);
     }
 
-    /** 生成假物流轨迹（照旧 Node getLogistics）：订单 id 做种子，courier 英文 key 转中文 */
-    private LogisticsVO buildLogistics(Order order, Map<String, String> courierMap) {
-        int seed = (int) (order.getId() % 97);
-        List<String> cities = List.of("杭州", "北京", "上海", "广州", "深圳", "成都", "武汉", "南京", "西安", "重庆");
-        List<String> districts = List.of("萧山", "朝阳", "浦东", "天河", "南山", "武侯", "洪山", "江宁", "雁塔", "渝北");
-        String originCity = cities.get(seed % cities.size());
-        String originDistrict = districts.get((seed + 3) % districts.size());
-        String destCity = cities.get((seed + 5) % cities.size());
-
-        String courierName = courierName(order.getCourier(), courierMap);
-        if (courierName == null) {
-            courierName = List.of("顺丰速运", "中通快递", "圆通速递", "韵达快递", "申通快递", "极兔速递", "京东物流", "德邦快递").get((seed + 7) % 8);
-        }
-        String courierShort = courierName.replaceAll("速运|快递|速递|物流", "");
-        String trackingNumber = order.getTrackingNumber() != null ? order.getTrackingNumber() : ("YT" + System.currentTimeMillis());
-
-        List<LogisticsTraceVO> traces = new ArrayList<>();
-        LocalDateTime shipTime = order.getShipAt();
-        LocalDateTime finishTime = order.getFinishAt();
-        String[] courierStaff = {"张伟", "李强", "王磊", "刘洋", "陈明"};
-
-        if (OrderStatusEnum.SHIPPED.getCode().equals(order.getOrderStatus())) {
-            traces.add(trace(shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心"));
-            traces.add(trace(plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity));
-            traces.add(trace(plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity));
-            traces.add(trace(plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心"));
-            traces.add(trace(null, "运输中", "【" + destCity + "分拣中心】快件正在分拣，即将安排派送"));
-        } else if (OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())) {
-            traces.add(trace(shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心"));
-            traces.add(trace(plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity));
-            traces.add(trace(plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity));
-            traces.add(trace(plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心"));
-            traces.add(trace(plusHours(shipTime, 22, seed), "运输中", "【" + destCity + "分拣中心】快件正在分拣，即将安排派送"));
-            traces.add(trace(plusHours(shipTime, 24, seed), "派送中", "【" + destCity + "】" + courierShort + "快递员" + courierStaff[seed % courierStaff.length] + "正在为您派送，请保持电话畅通"));
-            traces.add(trace(finishTime, "已签收", "快件已由本人签收，感谢使用"));
-        }
-
-        return LogisticsVO.builder()
-                .courier(courierName)
-                .trackingNumber(trackingNumber)
-                .traces(traces)
-                .build();
-    }
-
-    private LogisticsTraceVO trace(LocalDateTime time, String status, String desc) {
-        return LogisticsTraceVO.builder()
-                .time(time == null ? "" : time.format(DATE_FMT))
-                .status(status)
-                .desc(desc)
-                .build();
-    }
-
-    private LocalDateTime plusHours(LocalDateTime base, long hours, int seed) {
-        return base == null ? null : base.plusHours(hours + seed % 7);
+    /**
+     * 生成假物流轨迹：轨迹逻辑见 {@link LogisticsBuilder}（C 端与后台共用一份，避免两边跑偏）。
+     * 快递公司：后台优先读字典表（商家可自定义名称），读不到退回枚举，最后由 LogisticsBuilder 兜底随机。
+     */
+    private LogisticsVO buildLogistics(Order order) {
+        return logisticsBuilder.build(order);
     }
 
     /** 组装订单 VO：状态文案用 adminDesc（后台视角），courier 英文 key 转中文 */
@@ -317,7 +262,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         String latestTrace = null;
         if (OrderStatusEnum.SHIPPED.getCode().equals(order.getOrderStatus())
                 || OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())) {
-            List<LogisticsTraceVO> traces = buildLogistics(order, courierMap).getTraces();
+            List<LogisticsTraceVO> traces = buildLogistics(order).getTraces();
             if (!traces.isEmpty()) {
                 LogisticsTraceVO latest = traces.get(traces.size() - 1);
                 logisticsStatus = latest.getStatus();
@@ -353,7 +298,6 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 .createdAt(order.getCreatedAt())
                 .payAt(order.getPayAt())
                 .shipAt(order.getShipAt())
-                .confirmAt(order.getConfirmAt())
                 .finishAt(order.getFinishAt())
                 .items(items.stream().map(this::toItemVO).toList())
                 .build();

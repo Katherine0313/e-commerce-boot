@@ -28,11 +28,8 @@ public interface OrderService {
     /** 当前用户订单列表（keyword 为空查全部，非空按订单号/收货人/商品名模糊搜索） */
     List<OrderVO> listOrders(String keyword);
 
-    /** 支付：待付款 → 待确认 */
+    /** 支付：待付款 → 待发货（支付成功即进入待发货，无人工确认收款环节） */
     OrderVO payOrder(Long id, String payType);
-
-    /** 确认收款：待确认 → 待发货 */
-    OrderVO confirmOrder(Long id);
 
     /** 发货：待发货 → 已发货 */
     OrderVO shipOrder(Long id, String courier, String trackingNumber);

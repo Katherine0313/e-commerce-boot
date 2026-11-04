@@ -31,9 +31,6 @@ public interface AdminOrderService {
     /** 更新订单信息（收货人/电话/地址/备注） */
     OrderVO updateOrder(Long id, AdminOrderDTO dto);
 
-    /** 确认收款：待确认 → 待发货 */
-    OrderVO confirmOrder(Long id);
-
     /** 发货：待发货 → 已发货 */
     OrderVO shipOrder(Long id, String courier, String trackingNumber);
 

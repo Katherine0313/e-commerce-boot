@@ -63,7 +63,7 @@ public class OrderDeliveryServiceImpl implements OrderDeliveryService {
     @OperationLog(module = "delivery", action = "SHIP", bizId = "#orderId")
     public OrderDeliveryVO ship(Long orderId, DeliveryCreateDTO dto) {
         Order order = requireOrder(orderId);
-        // 状态机校验：只有「待发货(3)」能到「已发货(4)」；「待确认(2)」会被拦下
+        // 状态机校验：只有「待发货(3)」能到「已发货(4)」；未支付(1)会被拦下
         OrderStatusEnum current = OrderStatusEnum.fromCode(order.getOrderStatus());
         if (current == null || !current.canTransitionTo(OrderStatusEnum.SHIPPED)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST,

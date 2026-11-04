@@ -276,7 +276,7 @@ ecommerce
 - 字段以驼峰为主，**商品模块例外**：`AdminProductVO/AdminProductDTO` 用 `@JsonNaming(SnakeCase)` 返回蛇形；订单/库存/用户统计为驼峰。
 - 分页返回 `Result<PageVO<T>>`（list/total/page/pageSize），前端读 `res.data.data.*`。
 - 时间字段 VO 用 `createdAt/updatedAt`，`LocalDateTime` 加 `@JsonFormat("yyyy-MM-dd HH:mm:ss")`。
-- 日期筛选收 `dateField/startDate/endDate`，`dateField` 走白名单（created_at/confirm_at/pay_at/ship_at/finish_at）防注入。
+- 日期筛选收 `dateField/startDate/endDate`，`dateField` 走白名单（created_at/pay_at/ship_at/finish_at）防注入。
 - 售后审核只改主表 `status/merchant_remark/updated_at`，业务时间戳按状态写子表列（refunding/returning→review_at、rejected→rejected_at、**refunded→refund_at + refunded_at 同刻**、exchanging→exchange_at、exchanged→exchanged_at）；删除为主表/明细/子表 `is_deleted=1` 软删。**`refund_confirming` 已于 2026-11-03 删除**（阶段 29）：项目不接真实支付，没有「等款到账」时刻，「确认退款」是操作不是状态。
 - **表名保持现状，不改成 `sys_user` 系（2026-11-01 决定）**：admin / admin_role / admin_user_role / admin_menu / admin_role_menu 五张表命名自洽、语义准确（admin = 后台账号，与 C 端 `user` 表天然区分）。评估过整套改成若依风格的 `sys_user`/`sys_role`/`sys_menu`，结论是不做：`admin` 在本项目同时承担「后台账号表」和「身份类型 admin（JWT type=admin、`/api/admin/**` 路径分流、Redis 失效标记 key、前端 token 守卫）」两套语义，连带改要动 107 个 Java 文件、956 处标识符、98 处前端请求路径，且 8 个服务 + 后台前端必须一次性发版（改错一环全线 401），收益却只有命名风格。**别再重复提这个改名方案。**
 - **后台 token 改存 sessionStorage（2026-11-01 决定）**：`utils/token.js` 从 localStorage 改为 sessionStorage —— 关掉标签页/浏览器即清空，下次打开必须重新登录（后台管理系统安全要求：离开工位关页面就登出）。同一标签页刷新仍保持登录。**副作用**：sessionStorage 按标签页隔离，新开标签页也要重新登录（预期行为）。后端 JWT 有效期仍是 7 天，但 token 只活在会话里。「记住密码」（utils/remember.js）与之无关，仍用 localStorage 存 30 天。PC 商城与小程序（C 端）保持 localStorage 不变。
@@ -320,11 +320,24 @@ ecommerce
 
 ### 订单 / 库存 / 营收
 - 下单：同一事务内查商品 → 校验并扣库存（`stock >= quantity` 乐观锁）→ 写订单/明细 → 清购物车；Redis 幂等键防重复下单。
-- 状态机：1 待付款 → 2 待确认 → 3 待发货 → 4 已发货 → 5 已完成，6 已取消；取消/超时恢复库存，已支付未发货取消自动生成整单退款售后单。
+- 状态机：1 待付款 → 3 待发货 → 4 已发货 → 5 已完成，6 已取消；取消/超时恢复库存，已支付未发货取消自动生成整单退款售后单。
+  - **2 待确认收款已退役**（2026-11-04）：那是原 Node 真实支付场景的「商家人工确认到账」，本项目支付是 mock 的，点一下即成功，不存在到账延迟，这一环纯属人工卡点——生产库曾积压 63 单卡在 2，商家不逐单点「确认通过」订单就永远进不了发货。现改为**支付成功直接进 3**，code 位保留不动（2 号空出来不用），存量已迁移，见 `docs/sql/order-status-merge-pending-confirm.sql`。
+  - 副作用：`orders.pay_at` 原先只在 status=2 写入，合并后改到 status=3 写入——漏改会让营业额统计归零。
+  - **`orders.confirm_at` 已删列**（2026-11-04，`docs/sql/drop-confirm-at.sql`，本地 + 生产均已执行）：它原本是「商家确认收款时间」，状态 2 退役后失去语义；合并时曾临时复用它表示「进入待发货的时间」，现直接删掉，不留残影。
+  - 副作用：PC 商城「确认收货」原先误调 `/orders/{id}/confirm`（那是确认收款接口，已删），已改调 `/orders/{id}/finish`。
 - 定时任务：每分钟扫超时待付款订单取消并恢复库存；发货满 7 天自动完成。
 - 营业额口径：实收（`pay_at` 区间 `pay_amount` 合计）− 退款（refunded 售后 `refund_amount`）；退款跟原订单 `pay_at` 归属；实收/退款都含取消订单。工作台今日/昨日按日期入参。
 - 按天统计必须 `GROUP BY DATE_FORMAT(pay_at, '%Y-%m-%d')`，不能直接 `GROUP BY pay_at`；条件带 `is_deleted=0`。
 - 未支付提醒：下单时用户授权 → 第 20 分钟一次性订阅消息 → 点击跳 `pending-pay?orderNo`；access_token 走 Redis 共享缓存。
+- 物流轨迹是**假数据**（不接真实物流 API，与「支付也是 mock」同理）：快递公司 + 单号是发货时写入 `orders` 的真实值，
+  轨迹节点按订单 id 当种子编。轨迹生成只有一份：`order-service/support/LogisticsBuilder`（Spring Bean）。
+  - **三端同一份**：后台管理端 / 小程序 / PC 商城都走这一个实现，轨迹内容与时间戳逐字一致 ——
+    不会出现「商家这边已送达、顾客那边还在派送中」。快递公司名也统一读字典表 `delivery_express`
+    （`LogisticsBuilder.courierName`），商家在后台改名三端同步生效。
+  - **滚动时间轴 + 整点基准**（2026-11-04 改）：节点时间 = `now(整点) - 6h/6h/6h/4h`（已完成再加 派送中 -2h、已签收 finishAt）。
+    「整点」是必须的：同一小时内所有请求返回完全相同的时间戳，两次请求跨一秒就会差一秒、三端就对不上了；
+    跨整点自动推进一次。早先的「固定偏移（shipTime + 2h/6h/18h）」会在发完一段时间后卡住不再更新。
+  - 后台入口在订单详情弹窗 + 快递发货列表（`LogisticsDrawer.vue`），**「发货流水」是操作流水（order_delivery_log），不是轨迹**。
 
 ### 售后 / 收藏 / 反馈
 - 售后主表无 `user_id`，C 端归属靠 `LEFT JOIN orders` 的 `o.user_id`；子表按 `after_sale_id` 关联。

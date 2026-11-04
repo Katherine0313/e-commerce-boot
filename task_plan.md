@@ -101,7 +101,7 @@
 - [✓] 商品评价、取消订单自动生成退款售后单
 - [✓] 报表：`/dashboard`、`/turnover`、`/turnover-report`、`/sales-ranking`（2026-10-24）
 - [✓] 订单未支付一次性订阅消息（2026-10-25）：提交订单时授权 → 下单写入 `is_subscribe_unpaid` → 第 20 分钟推送 → 点击跳 `pending-pay?orderNo`；access_token 改为 Redis 全局共享
-- [✓] 物流轨迹过滤未来时间（2026-10-26）：`buildLogistics` 只返回当前时间之前已发生的轨迹（`addTraceIfPast`）
+- [✓] 物流轨迹过滤未来时间（2026-10-26）：`buildLogistics` 只返回当前时间之前已发生的轨迹（`addTraceIfPast`）—— **已被 2026-11-04 的滚动时间轴取代**（当时只修了 C 端，后台那份漏了；现已抽成 `support/LogisticsBuilder` 共用）
 - [✓] 工作台累计销售额/订单量改后端聚合（`/api/admin/report/headline`），新增本月运营数据报表 Excel 导出（`/api/admin/report/export`，2026-10-26，2026-10-27 由近 30 天改为本月）
 - [ ] 运营数据导出验证（**代码/部署完成，待验证**）：order-service 与后台 `dist` 均已发布；待实际下载一次 xlsx
 - [ ] 订阅消息上线（**代码/库/部署完成，待验证**）：生产库 `orders` 两列 + `idx_orders_unpaid_notify` 已确认存在，order/user 已随 TCR 部署；待小程序发行后验证推送
@@ -564,7 +564,7 @@
     `RuntimeException`→`BusinessException`、`@RequestHeader("username")`→`UserContext.getUserId()`、
     `Result<List>`→`Result<PageVO<T>>`、无 `@RequirePerm`、定时任务位置、网关 Path 未加 等）
 - [✓] **3 个最隐蔽的坑**（写代码时最容易踩）：
-  - `orders.confirm_at` 实际是**商家确认收款时间**（`updateStatus` 在 status=3 时写），DDL 注释「确认收货时间」是历史遗留错误 → 禁止拿它记签收
+  - ~~`orders.confirm_at` 实际是**商家确认收款时间**（`updateStatus` 在 status=3 时写），DDL 注释「确认收货时间」是历史遗留错误 → 禁止拿它记签收~~（2026-11-04：该列已随「取消商家确认环节」删列，见 `docs/sql/drop-confirm-at.sql`）
   - `orders.sign_status` 值域是英文 `signed`/`auto`/`unsigned` → 禁止写中文；且本期**不写**它（会与 7 天自动完成抢写）
   - 订单状态必须走 `orderMapper.updateStatus(...)`（XML 按目标状态自动写 `ship_at`/`courier`/`tracking_number`），手动 set 会漏字段
 - [✓] **方案已改写**：`express` 文件重写为项目版（正文 = 唯一执行依据）
@@ -663,6 +663,66 @@
   （菜单 201/833-838、couriers=8、deliveries=0、角色授权 operator 6 / service 1 / warehouse 4）
 - [ ] **【待发版】** order-service / product-service / gateway 镜像 + 后台前端 `release-web.sh`
   （网关 Path 不加就是 404；发版后后台需重新登录，让新权限码进 token）
+
+## 订单状态合并：退役「待确认收款(2)」（2026-11-04）
+
+- [✓] **判断**：code=2 是原 Node 真实支付场景的「商家人工确认到账」。本项目支付是 mock 的，点一下即成功，
+      不存在到账延迟/对账，这一环纯属人工卡点——**生产库积压 63 单**卡在 2，商家不逐单点「确认通过」
+      订单就永远进不了发货。（注：库存是**下单那一刻**扣的，与支付无关，「付了钱所以库存够」不是该状态的由来。）
+- [✓] **状态码保留不动**：1待付款 / 3待发货 / 4已发货 / 5已完成 / 6已取消，**2 号空出来不再使用**
+      （不动 4/5/6，报表 SQL `order_status <> 6` 不受影响）
+- [✓] **后端**：`OrderStatusEnum` 删 `PENDING_CONFIRM`，状态机改 `PENDING_PAY → PENDING_SHIP → SHIPPED → FINISHED`；
+      `payOrder` 直接置 3；删 `PUT /api/orders/{id}/confirm` 与 `PUT /api/admin/orders/{id}/confirm`；
+      取消订单的「已支付未发货」判断去掉 2；`AfterSaleServiceImpl` 仅退款可申请状态改 3/4
+- [✓] **关键坑**：`orders.pay_at` 原先只在 status=2 写入，合并后改到 **status=3** 写入
+      ——漏改会让营业额统计（按 `pay_at`）归零
+- [✓] **后台前端**：订单管理页 Tab 补齐为 全部/待付款(1)/待发货(3)/已发货(4)/已完成(5)/已取消(6)；
+      新增 `PendingShipOrders.vue`（去掉「确认通过/驳回」审核弹窗，改 查看/取消/删除）；
+      发货页「N 单待确认收款」提示删除；工作台「待确认订单」待办删除、`PAID_STATUS` 改 `[3,4,5]`
+- [✓] **小程序**：订单列表 Tab「待发货」改 `statuses:[3]`、订单详情跳转/售后可申请状态去掉 2
+- [✓] **PC 商城**：删 `confirmOrder` API；**「确认收货」原先误调 `/confirm`（那是确认收款接口）→ 改调 `/finish`**
+      （原来在 status=4 点「确认收货」会报 400「不允许从「已发货」变更为「待发货」」）；售后可申请状态去掉 2
+- [✓] **数据库**：本地库 + 生产库执行同一份 `docs/sql/order-status-merge-pending-confirm.sql`
+      （存量 2→3、`confirm_at` 用 `pay_at` 回填、字段注释同步）；生产执行前已备份
+      （`/www/backup/e_commerce_db_2026-11-04_0929.sql`）
+- [✓] **`orders.confirm_at` 删列**（2026-11-04，用户自行在本地库 + 生产库执行 `docs/sql/drop-confirm-at.sql`）：
+  该列原是「商家确认收款时间」，状态 2 退役后失去语义，合并时曾临时复用为「进入待发货的时间」，现直接删掉。
+  代码侧同步清理完毕：`Order` 实体 / `OrderVO` 删字段、`OrderMapper.xml` 5 处 SELECT 与 `updateStatus`、
+  后台日期筛选白名单去掉 `confirm_at`（`pay_at` 已在白名单）、快递发货列表「收款确认时间」列改「支付时间」`payAt`、
+  PC 商城订单详情删掉错位的「确认收货」行。
+  **执行顺序提醒**：必须先发新代码再删列 —— 旧代码的 mapper 还 SELECT `confirm_at`，列先删会 500。
+- [ ] **【待发版】** order-service / aftersale-service 镜像 + 后台前端 `release-web.sh` + PC 商城 `release-mall.sh` + 小程序重新上传
+
+## 后台「查看物流轨迹」入口（2026-11-04）
+
+- [✓] **背景**：后台一直没地方看物流轨迹——`GET /api/admin/orders/{id}/logistics` 接口和前端 `api/orders.js` 的
+      `getLogistics` 都在，但**全项目没有任何页面调用**，是个死接口；「查看流水」看的是 `order_delivery_log`
+      （发货操作流水：发货/补发/改单号 + 操作人 + 时间），**不是物流轨迹**，两回事。
+- [✓] **不接真实物流 API**（与「不接真实支付」同理：商品和支付都是假的，物流轨迹保持假数据）：
+      快递公司 + 快递单号是发货时写进 `orders` 的**真实值**；轨迹节点（已揽件/运输中/派送中/已签收）是
+      后端按订单 id 当种子编的，**按「已经发生的时间」逐条出现**——刚发货只有 1 条，发货越久条数越多
+      （C 端接口已发货最多 4 条、后台接口 5 条，已完成再多派送/签收 2 条）；未发货订单返回空数组。
+- [✓] **实现**：新增 `src/pages/orders/LogisticsDrawer.vue`（抽屉 + 时间线 + 快递公司/单号，无轨迹显示空态）；
+      入口加在**订单详情弹窗**（收货人那行「编辑」旁）和**快递发货列表**操作列（「查看流水」旁）；
+      后端零改动
+- [✓] **验证**：接口返回 200，`courier`/`trackingNumber`/`traces[{time,status,desc}]` 字段与后端 `LogisticsVO` 对齐；
+      前端 `vite build` 通过
+- [✓] **轨迹算法重做（2026-11-04，用户指出「过了一段时间就不更新了，一查看还是两天前的状态」）**：
+  节点时间原来是**固定偏移**（`shipTime + 2h/6h/18h`），发货一段时间后就永远停在那个节点不再更新。
+  改成**滚动时间轴**：已揽件固定在真实发货时间，其余节点按「距现在多久」生成（now-6h / now-6h / now-4h，
+  已完成再加 派送中 now-2h、已签收 finishAt），每次查看都是最新状态。
+  顺带把轨迹生成抽成 `order-service/support/LogisticsBuilder`，**C 端与后台共用一份** —— 历史上两边各写一份，
+  后台那份还漏了「只显示已发生节点」的过滤（刚发货能看到未来轨迹），抽成共用后不会再分叉。
+  实测：已发货 4 条、已完成 6 条；间隔 3 秒再取，滚动节点时间随 now 更新、已揽件时间不变（数据已还原）
+- [✓] **三端物流轨迹同步（2026-11-04，用户要求「商家看的已送达，客户不能还显示派送中」）**：
+  `LogisticsBuilder` 改成 Spring Bean，C 端 `OrderServiceImpl` 与后台 `AdminOrderServiceImpl` 注入同一个实例；
+  小程序与 PC 商城本来就走同一个 C 端接口，因此三端内容天然一致。
+  快递公司名也统一：新增 `LogisticsBuilder.courierName(code)`（字典表 `delivery_express` 优先 → 枚举 → 原 code），
+  C 端订单列表的快递公司名原先读枚举、后台读字典，商家改字典名会出现两端显示不一致，现已统一。
+  **时间基准取整点**（`now.truncatedTo(HOURS)`）：同一小时内所有请求返回完全相同的时间戳 ——
+  否则两次请求跨一秒时间戳就差一秒，三端就对不上；跨整点自动推进一次。
+  实测（后台 admin token vs C 端 token，同一订单）：已发货 4 条、已完成 6 条，
+  快递公司 / 单号 / 条数 / 每条状态与文案 / 时间戳 **全部一致**（数据已还原）
 
 ## 风险与待确认
 

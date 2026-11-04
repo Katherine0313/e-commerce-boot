@@ -10,7 +10,7 @@ INSERT IGNORE INTO `user` (`id`, `openid`, `name`, `phone`) VALUES (6, 'migrated
 INSERT IGNORE INTO `user` (`id`, `openid`, `name`, `phone`) VALUES (7, 'migrated_3', '普通用户2', '13800138000');
 
 -- orders
-INSERT IGNORE INTO `orders` (`id`, `user_id`, `order_no`, `is_deleted`, `pay_amount`, `pay_type`, `order_status`, `remark`, `consignee`, `phone`, `region`, `detail_address`, `shipping_type`, `courier`, `tracking_number`, `sign_status`, `created_at`, `pay_at`, `ship_at`, `confirm_at`, `finish_at`, `updated_at`) VALUES
+INSERT IGNORE INTO `orders` (`id`, `user_id`, `order_no`, `is_deleted`, `pay_amount`, `pay_type`, `order_status`, `remark`, `consignee`, `phone`, `region`, `detail_address`, `shipping_type`, `courier`, `tracking_number`, `sign_status`, `created_at`, `pay_at`, `ship_at`, `finish_at`, `updated_at`) VALUES
 (8, 5, 'ORD20260731064030', 1, 13697.00, 'WeChat', 'pending_confirm', '打包好一点', '米多多', '13900139000', '北京市 市辖区 东城区', '建国路888号', '商家配送', NULL, NULL, 'unsigned', FROM_UNIXTIME(1785451230), FROM_UNIXTIME(1785451235), NULL, NULL, NULL, FROM_UNIXTIME(1785451235)),
 (14, 6, 'ORD20260721120000', 0, 22998.00, 'WeChat', 'pending_confirm', '', '李四', '13900139002', '上海市 浦东新区', '陆家嘴金融中心1808', '商家配送', NULL, NULL, 'unsigned', FROM_UNIXTIME(1784609667), FROM_UNIXTIME(1784609132), NULL, NULL, NULL, FROM_UNIXTIME(1784609667)),
 (17, 6, 'ORD20260724000000', 0, 16498.50, 'WeChat', 'cancel', '', '孙七', '13500135005', '四川省 成都市 武侯区', '天府软件园E区', '商家配送', NULL, NULL, 'unsigned', FROM_UNIXTIME(1784823857), FROM_UNIXTIME(1784826667), NULL, FROM_UNIXTIME(1784826377), NULL, FROM_UNIXTIME(1786001167)),

@@ -74,13 +74,6 @@ public class AdminOrderController {
         return Result.success(adminOrderService.updateOrder(id, dto));
     }
 
-    @Operation(summary = "确认收款（待确认 → 待发货）")
-    @RequirePerm("order:order:update")
-    @PutMapping("/{id}/confirm")
-    public Result<OrderVO> confirm(@PathVariable Long id) {
-        return Result.success(adminOrderService.confirmOrder(id));
-    }
-
     @Operation(summary = "发货（待发货 → 已发货）")
     @RequirePerm("order:order:ship")
     @PutMapping("/{id}/ship")

@@ -11,7 +11,6 @@ import ecommerce.order.dto.OrderItemDTO;
 import ecommerce.order.entity.Order;
 import ecommerce.order.entity.OrderItem;
 import ecommerce.order.entity.Product;
-import ecommerce.order.enums.CourierEnum;
 import ecommerce.order.enums.OrderStatusEnum;
 import ecommerce.order.enums.PayTypeEnum;
 import ecommerce.order.mapper.AfterSaleRefundMapper;
@@ -26,6 +25,7 @@ import ecommerce.order.service.CouponPricingService;
 import ecommerce.order.service.OrderService;
 import ecommerce.order.service.PromotionPricingService;
 import ecommerce.order.support.InsuranceReviewer;
+import ecommerce.order.support.LogisticsBuilder;
 import ecommerce.order.vo.LogisticsTraceVO;
 import ecommerce.order.vo.LogisticsVO;
 import ecommerce.order.vo.OrderItemVO;
@@ -67,8 +67,6 @@ public class OrderServiceImpl implements OrderService {
     private static final long AUTO_CONFIRM_DAYS = 7;
     /** 订单号格式：ORD + 年月日时分秒毫秒（再加 4 位随机数防同毫秒撞唯一索引） */
     private static final DateTimeFormatter ORDER_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmssSSS");
-    /** 物流轨迹时间展示格式 */
-    private static final DateTimeFormatter DATE_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss");
     /** 售后单号格式：AS + 年月日时分秒（照 aftersale-service 的 generateAfterSaleNo） */
     private static final DateTimeFormatter AFTER_SALE_NO_FORMATTER = DateTimeFormatter.ofPattern("yyyyMMddHHmmss");
     /** 下单幂等：Redis key 前缀，key = 前缀 + userId + ":" + idempotencyKey */
@@ -93,6 +91,7 @@ public class OrderServiceImpl implements OrderService {
     private final PromotionPricingService promotionPricingService;
     private final CouponPricingService couponPricingService;
     private final CouponMapper couponMapper;
+    private final LogisticsBuilder logisticsBuilder;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper, ProductMapper productMapper,
                             CartMapper cartMapper, ProductReviewMapper productReviewMapper,
@@ -103,7 +102,8 @@ public class OrderServiceImpl implements OrderService {
                             WeChatSubscribeProperties subscribeProperties,
                             PromotionPricingService promotionPricingService,
                             CouponPricingService couponPricingService,
-                            CouponMapper couponMapper) {
+                            CouponMapper couponMapper,
+                            LogisticsBuilder logisticsBuilder) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
@@ -119,6 +119,7 @@ public class OrderServiceImpl implements OrderService {
         this.promotionPricingService = promotionPricingService;
         this.couponPricingService = couponPricingService;
         this.couponMapper = couponMapper;
+        this.logisticsBuilder = logisticsBuilder;
     }
 
     @Override
@@ -333,8 +334,10 @@ public class OrderServiceImpl implements OrderService {
     @Transactional
     public OrderVO payOrder(Long id, String payType) {
         Order order = getOwnedOrder(id);
-        checkTransition(order, OrderStatusEnum.PENDING_CONFIRM);
-        orderMapper.updateStatus(id, OrderStatusEnum.PENDING_CONFIRM.getCode(), payType, null, null, LocalDateTime.now());
+        // 支付成功直接进入「待发货」：原先的「待确认收款(2)」是真实支付场景下的商家人工对账环节，
+        // 本项目支付是 mock 的，点一下即成功，不存在到账延迟，没必要再让商家逐单点一次确认
+        checkTransition(order, OrderStatusEnum.PENDING_SHIP);
+        orderMapper.updateStatus(id, OrderStatusEnum.PENDING_SHIP.getCode(), payType, null, null, LocalDateTime.now());
         // 券核销：LOCKED -> USED
         couponMapper.markUsedByOrder(id, LocalDateTime.now());
         // 支付成功后推「新订单提醒」给后台管理端（推送失败不影响主流程）
@@ -355,15 +358,6 @@ public class OrderServiceImpl implements OrderService {
         } catch (Exception e) {
             log.warn("推送新订单提醒失败: {}", e.getMessage());
         }
-    }
-
-    @Override
-    @Transactional
-    public OrderVO confirmOrder(Long id) {
-        Order order = getOwnedOrder(id);
-        checkTransition(order, OrderStatusEnum.PENDING_SHIP);
-        orderMapper.updateStatus(id, OrderStatusEnum.PENDING_SHIP.getCode(), null, null, null, LocalDateTime.now());
-        return getOrder(id);
     }
 
     @Override
@@ -390,9 +384,8 @@ public class OrderServiceImpl implements OrderService {
         Order order = getOwnedOrder(id);
         checkTransition(order, OrderStatusEnum.CANCEL);
         restoreStock(order.getId());
-        // 已支付未发货（status 2/3）取消 → 自动生成退款售后单（整单退）
-        if (OrderStatusEnum.PENDING_CONFIRM.getCode().equals(order.getOrderStatus())
-                || OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getOrderStatus())) {
+        // 已支付未发货（status 3）取消 → 自动生成退款售后单（整单退）
+        if (OrderStatusEnum.PENDING_SHIP.getCode().equals(order.getOrderStatus())) {
             autoRefundOnCancel(order);
         }
         orderMapper.updateStatus(id, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
@@ -579,75 +572,11 @@ public class OrderServiceImpl implements OrderService {
     }
 
     /**
-     * 生成假物流轨迹（照旧 Node 后端 getLogistics）：
-     * 用订单 id 做种子，让每单的城市/路线/快递员不同；courier 存英文 key，这里转中文。
+     * 生成假物流轨迹：轨迹逻辑见 {@link LogisticsBuilder}（C 端与后台共用一份，避免两边跑偏）。
+     * 用订单 id 做种子让每单的城市/路线/快递员不同；courier 存英文 key，这里转中文。
      */
     private LogisticsVO buildLogistics(Order order) {
-        int seed = (int) (order.getId() % 97);
-        List<String> cities = List.of("杭州", "北京", "上海", "广州", "深圳", "成都", "武汉", "南京", "西安", "重庆");
-        List<String> districts = List.of("萧山", "朝阳", "浦东", "天河", "南山", "武侯", "洪山", "江宁", "雁塔", "渝北");
-        String originCity = cities.get(seed % cities.size());
-        String originDistrict = districts.get((seed + 3) % districts.size());
-        String destCity = cities.get((seed + 5) % cities.size());
-
-        // 快递公司：优先用发货时选的（英文 key 转中文），否则随机挑一个
-        CourierEnum courierEnum = CourierEnum.fromCode(order.getCourier());
-        String courierName = courierEnum != null ? courierEnum.getDesc()
-                : List.of("顺丰速运", "中通快递", "圆通速递", "韵达快递", "申通快递", "极兔速递", "京东物流", "德邦快递").get((seed + 7) % 8);
-        String courierShort = courierName.replaceAll("速运|快递|速递|物流", "");
-        String trackingNumber = order.getTrackingNumber() != null ? order.getTrackingNumber() : ("YT" + System.currentTimeMillis());
-
-        List<LogisticsTraceVO> traces = new ArrayList<>();
-        LocalDateTime shipTime = order.getShipAt();
-        LocalDateTime finishTime = order.getFinishAt();
-        LocalDateTime now = LocalDateTime.now();
-        String[] courierStaff = {"张伟", "李强", "王磊", "刘洋", "陈明"};
-
-        if (OrderStatusEnum.SHIPPED.getCode().equals(order.getOrderStatus())) {
-            addTraceIfPast(traces, now, shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
-            addTraceIfPast(traces, now, plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity);
-            addTraceIfPast(traces, now, plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity);
-            addTraceIfPast(traces, now, plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心");
-        } else if (OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())) {
-            addTraceIfPast(traces, now, shipTime, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
-            addTraceIfPast(traces, now, plusHours(shipTime, 2, seed), "运输中", "【" + originCity + "分拣中心】快件已完成分拣，准备发往" + destCity);
-            addTraceIfPast(traces, now, plusHours(shipTime, 6, seed), "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity);
-            addTraceIfPast(traces, now, plusHours(shipTime, 18, seed), "运输中", "快件已到达" + destCity + "中转中心");
-            addTraceIfPast(traces, now, plusHours(shipTime, 22, seed), "运输中", "【" + destCity + "分拣中心】快件正在分拣，即将安排派送");
-            addTraceIfPast(traces, now, plusHours(shipTime, 24, seed), "派送中", "【" + destCity + "】" + courierShort + "快递员" + courierStaff[seed % courierStaff.length] + "正在为您派送，请保持电话畅通");
-            addTraceIfPast(traces, now, finishTime, "已签收", "快件已由本人签收，感谢使用");
-        }
-
-        return LogisticsVO.builder()
-                .courier(courierName)
-                .trackingNumber(trackingNumber)
-                .traces(traces)
-                .build();
-    }
-
-    /**
-     * 只添加已经发生（时间不晚于当前）的轨迹。
-     * 假数据按发货时间往后推小时数，不加这层过滤会把明天的轨迹也返回给前端。
-     */
-    private void addTraceIfPast(List<LogisticsTraceVO> traces, LocalDateTime now,
-                                LocalDateTime time, String status, String desc) {
-        if (time == null || !time.isAfter(now)) {
-            traces.add(trace(time, status, desc));
-        }
-    }
-
-    /** 组装单条轨迹（时间空则给空串） */
-    private LogisticsTraceVO trace(LocalDateTime time, String status, String desc) {
-        return LogisticsTraceVO.builder()
-                .time(time == null ? "" : time.format(DATE_FMT))
-                .status(status)
-                .desc(desc)
-                .build();
-    }
-
-    /** 发货时间 + hours + seed%7，模拟各条轨迹的时间偏移（旧 Node 逻辑） */
-    private LocalDateTime plusHours(LocalDateTime base, long hours, int seed) {
-        return base == null ? null : base.plusHours(hours + seed % 7);
+        return logisticsBuilder.build(order);
     }
 
     private Long currentUserId() {
@@ -698,9 +627,11 @@ public class OrderServiceImpl implements OrderService {
         // 是否已评价：仅已完成订单可能有评价记录，其余状态直接 false（省去无谓查询）
         boolean reviewed = OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())
                 && productReviewMapper.findByOrderId(order.getId()) != null;
-        // courier 存英文 key，转中文返回（照旧 Node 后端）
-        CourierEnum courierEnum = CourierEnum.fromCode(order.getCourier());
-        String courierDesc = courierEnum != null ? courierEnum.getDesc() : order.getCourier();
+        // courier 存英文 key，转中文返回；字典表优先，与物流轨迹里的名称保持一致
+        String courierDesc = logisticsBuilder.courierName(order.getCourier());
+        if (courierDesc == null) {
+            courierDesc = order.getCourier();
+        }
         // 物流摘要：已发货/已完成订单取最新一条轨迹，列表卡片直接展示，避免每卡一次请求
         String logisticsStatus = null;
         String latestTrace = null;
@@ -740,7 +671,6 @@ public class OrderServiceImpl implements OrderService {
                 .createdAt(order.getCreatedAt())
                 .payAt(order.getPayAt())
                 .shipAt(order.getShipAt())
-                .confirmAt(order.getConfirmAt())
                 .finishAt(order.getFinishAt())
                 .reviewed(reviewed)
                 .afterSale(order.getAfterSale())

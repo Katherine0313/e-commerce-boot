@@ -11,6 +11,11 @@
 --
 -- 说明：先加临时列做映射，再换正式列，避免 VARCHAR 直接 ALTER 成 TINYINT 时把字符串转数字失败。
 --       CASE 的 ELSE 1 是兜底（未收录的字符串/NULL → 1待付款）；执行前已确认库中 52 行均为已知值。
+--
+-- 历史说明：本脚本执行时 pending_confirm 映射为 2。该状态后来已退役（真实支付场景才需要人工对账，
+--           本项目支付是 mock 的），2 已并入 3待发货，历史订单也已迁移；当前状态码见
+--           docs/sql/order-status-merge-pending-confirm.sql 与 OrderStatusEnum。
+--           本脚本是一次性迁移脚本，不需重跑；此处保留 pending_confirm → 2 的原始映射以备追溯。
 
 -- 1. 加临时列
 ALTER TABLE `orders` ADD COLUMN `order_status_tmp` TINYINT NULL;
