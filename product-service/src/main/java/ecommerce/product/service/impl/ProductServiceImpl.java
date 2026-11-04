@@ -319,8 +319,6 @@ public class ProductServiceImpl implements ProductService {
                 .salesMode(p.getSalesMode())
                 .status(p.getListingStatus())
                 .productCode(p.getProductCode())
-                .weight(p.getWeight())
-                .volume(p.getVolume())
                 .specs(specsCodec.decode(p.getSpecs()))
                 .build();
     }

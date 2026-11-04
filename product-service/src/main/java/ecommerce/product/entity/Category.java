@@ -23,5 +23,7 @@ public class Category {
     private Integer recommend;
     /** 分类图片路径（如 /image/category/phone.webp），C 端小程序分类入口展示用 */
     private String image;
+    /** 规格模板字段名 JSON 数组，商品表单按此顺序自动生成规格参数行 */
+    private String specTemplate;
     private Integer productCount;
 }

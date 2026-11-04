@@ -33,6 +33,8 @@ public class CategoryTreeVO {
     private Integer recommend;
     @Schema(description = "分类图片路径")
     private String image;
+    @Schema(description = "规格模板字段名列表")
+    private List<String> specTemplate;
     @Schema(description = "该分类下直接挂靠的商品数")
     private Integer productCount;
     @Schema(description = "子分类列表")

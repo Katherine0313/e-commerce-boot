@@ -54,10 +54,6 @@ public class ProductVO {
     private Integer status;
     @Schema(description = "商品编码")
     private String productCode;
-    @Schema(description = "重量")
-    private BigDecimal weight;
-    @Schema(description = "体积")
-    private BigDecimal volume;
     @Schema(description = "规格参数（有序键值对，非 SKU）")
     private List<SpecItemVO> specs;
     @Schema(description = "可选增值保障项（商品不适用保障时为空列表）")

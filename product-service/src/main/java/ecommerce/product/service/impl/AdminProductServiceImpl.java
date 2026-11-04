@@ -129,8 +129,6 @@ public class AdminProductServiceImpl implements AdminProductService {
         if (dto.getCostPrice() != null) p.setCostPrice(dto.getCostPrice());
         if (dto.getProductCode() != null) p.setProductCode(dto.getProductCode());
         if (dto.getStock() != null) p.setStock(dto.getStock());
-        if (dto.getWeight() != null) p.setWeight(dto.getWeight());
-        if (dto.getVolume() != null) p.setVolume(dto.getVolume());
         // specs 传 null 不修改；传 [] 清空
         if (dto.getSpecs() != null) p.setSpecs(specsCodec.encode(dto.getSpecs()));
     }
@@ -153,8 +151,6 @@ public class AdminProductServiceImpl implements AdminProductService {
                 .costPrice(p.getCostPrice())
                 .productCode(p.getProductCode())
                 .stock(p.getStock())
-                .weight(p.getWeight())
-                .volume(p.getVolume())
                 .specs(specsCodec.decode(p.getSpecs()))
                 // 后台商品预览弹窗也展示增值保障，与 C 端同一套规则
                 .insuranceOptions(InsurancePolicy.options(p.getCategoryId(), p.getSalesPrice()))

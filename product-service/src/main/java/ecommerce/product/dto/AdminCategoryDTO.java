@@ -3,6 +3,8 @@ package ecommerce.product.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 后台分类新增/编辑请求体（/api/admin/categories）。
  * <p>
@@ -20,4 +22,6 @@ public class AdminCategoryDTO {
     private Integer recommend;
     @Schema(description = "分类图片路径")
     private String image;
+    @Schema(description = "规格模板字段名列表，商品表单按顺序自动生成规格参数；null 表示不修改，[] 表示清空")
+    private List<String> specTemplate;
 }

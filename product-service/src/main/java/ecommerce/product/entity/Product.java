@@ -33,8 +33,6 @@ public class Product {
     private BigDecimal costPrice;
     private String productCode;
     private Integer stock;
-    private BigDecimal weight;
-    private BigDecimal volume;
     /** 规格参数（JSON 数组字符串：[{"name":"屏幕","value":"6.1英寸"}]，非 SKU） */
     private String specs;
     private LocalDateTime createTime;

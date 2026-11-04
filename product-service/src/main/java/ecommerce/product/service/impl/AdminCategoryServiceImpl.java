@@ -6,6 +6,7 @@ import ecommerce.product.dto.AdminCategoryDTO;
 import ecommerce.product.entity.Category;
 import ecommerce.product.mapper.CategoryMapper;
 import ecommerce.product.service.AdminCategoryService;
+import ecommerce.product.support.CategorySpecTemplateCodec;
 import ecommerce.product.vo.CategoryTreeVO;
 import ecommerce.product.vo.CategoryVO;
 import org.springframework.http.HttpStatus;
@@ -29,10 +30,14 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
 
     private final CategoryMapper categoryMapper;
     private final CategoryCacheEvictor categoryCacheEvictor;
+    private final CategorySpecTemplateCodec categorySpecTemplateCodec;
 
-    public AdminCategoryServiceImpl(CategoryMapper categoryMapper, CategoryCacheEvictor categoryCacheEvictor) {
+    public AdminCategoryServiceImpl(CategoryMapper categoryMapper,
+                                    CategoryCacheEvictor categoryCacheEvictor,
+                                    CategorySpecTemplateCodec categorySpecTemplateCodec) {
         this.categoryMapper = categoryMapper;
         this.categoryCacheEvictor = categoryCacheEvictor;
+        this.categorySpecTemplateCodec = categorySpecTemplateCodec;
     }
 
     @Override
@@ -62,6 +67,7 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
         c.setStatus(dto.getStatus() == null ? 1 : dto.getStatus());
         c.setRecommend(dto.getRecommend() == null ? 0 : dto.getRecommend());
         c.setImage(dto.getImage());
+        c.setSpecTemplate(categorySpecTemplateCodec.encode(dto.getSpecTemplate()));
         c.setSortOrder(nextSortOrder(dto.getParentId()));
         categoryMapper.insert(c);
         categoryCacheEvictor.evictAll();
@@ -84,6 +90,7 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
         c.setStatus(dto.getStatus());
         c.setRecommend(dto.getRecommend());
         c.setImage(dto.getImage());
+        c.setSpecTemplate(categorySpecTemplateCodec.encode(dto.getSpecTemplate()));
         categoryMapper.update(c);
         categoryCacheEvictor.evictAll();
         return toVO(categoryMapper.findById(id));
@@ -185,6 +192,7 @@ public class AdminCategoryServiceImpl implements AdminCategoryService {
                 .status(c.getStatus())
                 .recommend(c.getRecommend())
                 .image(c.getImage())
+                .specTemplate(categorySpecTemplateCodec.decode(c.getSpecTemplate()))
                 .productCount(c.getProductCount())
                 .build();
     }
