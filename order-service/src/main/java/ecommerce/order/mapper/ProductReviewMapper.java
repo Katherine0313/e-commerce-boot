@@ -75,7 +75,7 @@ public interface ProductReviewMapper {
     // C 端评价条数（与列表同筛选条件）
     long countByProduct(@Param("productId") Long productId, @Param("tags") List<String> tags);
 
-    // C 端标签统计用：取可见评价的标签列（tagsJson + 旧 tag）
+    // C 端标签统计用：取可见评价的标签列（tagsJson）
     List<Map<String, Object>> listVisibleTagRows(@Param("productId") Long productId);
 
     // C 端评价统计（总数/平均分/好评率/星级分布）

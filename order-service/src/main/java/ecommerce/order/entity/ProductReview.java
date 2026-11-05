@@ -33,8 +33,6 @@ public class ProductReview {
     private String productName;
     private String productImage;
     private Integer rating;
-    /** 旧单值标签，已迁移到 tags，代码不再写入 */
-    private String tag;
     /** 多值标签 JSON 数组，最多 4 个 */
     private String tags;
     private String content;

@@ -11,7 +11,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 
 /**
- * 评价标签工具：多选归一化、JSON 读写、兼容旧的单值 tag。
+ * 评价标签工具：多选归一化、JSON 读写。
  */
 public final class ReviewTags {
 
@@ -24,9 +24,9 @@ public final class ReviewTags {
     }
 
     /**
-     * 写入前归一化：合并旧单值 tag、去空、去重、校验白名单与数量上限。
+     * 写入前归一化：去空、去重、校验白名单与数量上限。
      */
-    public static List<String> normalize(List<String> tags, String legacyTag) {
+    public static List<String> normalize(List<String> tags) {
         LinkedHashSet<String> set = new LinkedHashSet<>();
         if (tags != null) {
             for (String tag : tags) {
@@ -38,9 +38,6 @@ public final class ReviewTags {
                     set.add(value);
                 }
             }
-        }
-        if (set.isEmpty() && legacyTag != null && !legacyTag.isBlank()) {
-            set.add(legacyTag.trim());
         }
         List<String> result = new ArrayList<>(set);
         if (result.size() > MAX) {
@@ -89,9 +86,9 @@ public final class ReviewTags {
     }
 
     /**
-     * 读取标签：优先 JSON 数组，兼容历史单值 tag。
+     * 读取 JSON 数组；为空或格式非法时返回空列表。
      */
-    public static List<String> parse(String tagsJson, String legacyTag) {
+    public static List<String> parse(String tagsJson) {
         if (tagsJson != null && !tagsJson.isBlank()) {
             try {
                 List<String> list = MAPPER.readValue(tagsJson, new TypeReference<List<String>>() {
@@ -100,11 +97,8 @@ public final class ReviewTags {
                     return list;
                 }
             } catch (Exception ignored) {
-                // 不是合法 JSON 时退回旧单值
+                // 历史脏数据按无标签处理
             }
-        }
-        if (legacyTag != null && !legacyTag.isBlank()) {
-            return List.of(legacyTag);
         }
         return List.of();
     }

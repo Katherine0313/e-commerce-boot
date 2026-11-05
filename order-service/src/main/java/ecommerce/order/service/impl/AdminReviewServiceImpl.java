@@ -107,7 +107,7 @@ public class AdminReviewServiceImpl implements AdminReviewService {
                 .productName(snapshot.getTitle())
                 .productImage(snapshot.getImage())
                 .rating(dto.getRating())
-                .tags(ReviewTags.toJson(ReviewTags.normalize(dto.getTags(), dto.getTag())))
+                .tags(ReviewTags.toJson(ReviewTags.normalize(dto.getTags())))
                 .content(dto.getContent().trim())
                 .images(dto.getImages())
                 .status(1)
@@ -142,7 +142,7 @@ public class AdminReviewServiceImpl implements AdminReviewService {
                 .productName(snapshot.getTitle())
                 .productImage(snapshot.getImage())
                 .rating(dto.getRating())
-                .tags(ReviewTags.toJson(ReviewTags.normalize(dto.getTags(), dto.getTag())))
+                .tags(ReviewTags.toJson(ReviewTags.normalize(dto.getTags())))
                 .content(dto.getContent().trim())
                 .images(dto.getImages())
                 .updatedAt(now)
@@ -295,7 +295,7 @@ public class AdminReviewServiceImpl implements AdminReviewService {
 
     /** 把库里存的 JSON 标签数组解析成前端可直接渲染的数组 */
     private void fillTags(AdminReviewVO vo) {
-        vo.setTags(ReviewTags.parse(vo.getTagsJson(), vo.getTag()));
+        vo.setTags(ReviewTags.parse(vo.getTagsJson()));
     }
 
     /** 表头样式：加粗 + 居中 */

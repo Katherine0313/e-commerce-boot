@@ -20,9 +20,6 @@ public class AdminReviewDTO {
     @Schema(description = "星级：1~5")
     private Integer rating;
 
-    @Schema(description = "旧单值标签，兼容旧前端；新前端用 tags")
-    private String tag;
-
     @Schema(description = "评价标签数组，最多 4 个")
     private List<String> tags;
 

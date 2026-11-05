@@ -53,9 +53,6 @@ public class AdminReviewVO {
     @Schema(description = "星级：1~5")
     private Integer rating;
 
-    @Schema(description = "旧单值标签，仅用于兼容历史数据")
-    private String tag;
-
     @Schema(description = "评价标签数组，最多 4 个")
     private List<String> tags;
 

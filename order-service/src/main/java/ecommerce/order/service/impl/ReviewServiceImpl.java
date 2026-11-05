@@ -86,7 +86,7 @@ public class ReviewServiceImpl implements ReviewService {
                 .productName(item.getProductName())
                 .productImage(item.getImage())
                 .rating(dto.getRating())
-                .tags(ReviewTags.toJson(ReviewTags.normalize(dto.getTags(), dto.getTag())))
+                .tags(ReviewTags.toJson(ReviewTags.normalize(dto.getTags())))
                 .content(dto.getContent().trim())
                 .images(dto.getImages())
                 // createdAt 用 JVM 的 LocalDateTime.now()，不用 MySQL NOW()（数据库时区 UTC 会差 8 小时）
@@ -108,7 +108,7 @@ public class ReviewServiceImpl implements ReviewService {
         List<ReviewDetailVO> list = productReviewMapper.listByProduct(productId, offset, safeSize, tags);
         list.forEach(vo -> {
             maskUserInfo(vo);
-            vo.setTags(ReviewTags.parse(vo.getTagsJson(), vo.getTag()));
+            vo.setTags(ReviewTags.parse(vo.getTagsJson()));
         });
         long total = productReviewMapper.countByProduct(productId, tags);
         return new PageVO<>(list, total, safePage, safeSize);
@@ -123,10 +123,7 @@ public class ReviewServiceImpl implements ReviewService {
         Map<String, Long> counter = new HashMap<>();
         for (Map<String, Object> row : rows) {
             Object tagsJson = row.get("tagsJson");
-            Object legacyTag = row.get("tag");
-            List<String> tags = ReviewTags.parse(
-                    tagsJson == null ? null : tagsJson.toString(),
-                    legacyTag == null ? null : legacyTag.toString());
+            List<String> tags = ReviewTags.parse(tagsJson == null ? null : tagsJson.toString());
             for (String tag : tags) {
                 // 一条评价有多个标签时，每个标签各计 1 次
                 counter.merge(tag, 1L, Long::sum);
@@ -195,7 +192,7 @@ public class ReviewServiceImpl implements ReviewService {
                 .productName(review.getProductName())
                 .productImage(review.getProductImage())
                 .rating(review.getRating())
-                .tags(ReviewTags.parse(review.getTags(), review.getTag()))
+                .tags(ReviewTags.parse(review.getTags()))
                 .content(review.getContent())
                 .createdAt(review.getCreatedAt())
                 .build();
