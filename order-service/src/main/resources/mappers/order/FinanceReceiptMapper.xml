@@ -1,0 +1,150 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.FinanceReceiptMapper">
+
+    <!--
+      列表 / 详情公共列：
+        r.*            收款单自身
+        u.name         买家昵称（user 是保留字，必须加反引号）
+        a.account_name 收款账户名称（账户被软删后仍能显示）
+        o.order_status 订单状态
+        EXISTS(...)    是否已退款 / 退款金额，只读 after_sales，不在财务表落冗余
+    -->
+    <sql id="receiptColumns">
+        r.id, r.receipt_no, r.order_id, r.order_no, r.user_id, r.channel, r.account_id,
+        r.amount, r.paid_at, r.status, r.audit_by, r.audit_name, r.audit_time, r.remark,
+        r.is_deleted, r.create_time, r.update_time,
+        u.name AS user_name, a.account_name, o.order_status, o.consignee,
+        EXISTS (SELECT 1 FROM after_sales s
+                WHERE s.order_id = r.order_id AND s.status = 'refunded' AND s.is_deleted = 0) AS refunded,
+        (SELECT COALESCE(SUM(s2.refund_amount), 0) FROM after_sales s2
+         WHERE s2.order_id = r.order_id AND s2.status = 'refunded' AND s2.is_deleted = 0) AS refund_amount
+    </sql>
+
+    <sql id="receiptJoins">
+        FROM finance_receipt r
+        LEFT JOIN `user` u ON u.id = r.user_id
+        LEFT JOIN finance_account a ON a.id = r.account_id
+        LEFT JOIN orders o ON o.id = r.order_id
+    </sql>
+
+    <sql id="receiptFilters">
+        WHERE r.is_deleted = 0
+        <if test="receiptNo != null and receiptNo != ''">
+            AND r.receipt_no LIKE CONCAT('%', #{receiptNo}, '%')
+        </if>
+        <if test="orderNo != null and orderNo != ''">
+            AND r.order_no LIKE CONCAT('%', #{orderNo}, '%')
+        </if>
+        <if test="userId != null">
+            AND r.user_id = #{userId}
+        </if>
+        <if test="channel != null and channel != ''">
+            AND r.channel = #{channel}
+        </if>
+        <if test="status != null">
+            AND r.status = #{status}
+        </if>
+        <if test="start != null">
+            AND r.paid_at &gt;= #{start}
+        </if>
+        <if test="end != null">
+            AND r.paid_at &lt;= #{end}
+        </if>
+    </sql>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO finance_receipt (receipt_no, order_id, order_no, user_id, channel, account_id,
+                                     amount, paid_at, status, is_deleted, create_time, update_time)
+        VALUES (#{receiptNo}, #{orderId}, #{orderNo}, #{userId}, #{channel}, #{accountId},
+                #{amount}, #{paidAt}, 0, 0, #{createTime}, #{updateTime})
+    </insert>
+
+    <select id="countByOrderId" resultType="int">
+        SELECT COUNT(*) FROM finance_receipt WHERE order_id = #{orderId}
+    </select>
+
+    <select id="findById" resultType="ecommerce.order.entity.FinanceReceipt">
+        SELECT id, receipt_no, order_id, order_no, user_id, channel, account_id, amount, paid_at,
+               status, audit_by, audit_name, audit_time, remark, is_deleted, create_time, update_time
+        FROM finance_receipt
+        WHERE id = #{id} AND is_deleted = 0
+    </select>
+
+    <select id="findVOById" resultType="ecommerce.order.vo.FinanceReceiptVO">
+        SELECT <include refid="receiptColumns"/>
+        <include refid="receiptJoins"/>
+        WHERE r.id = #{id} AND r.is_deleted = 0
+    </select>
+
+    <select id="listAdmin" resultType="ecommerce.order.vo.FinanceReceiptVO">
+        SELECT <include refid="receiptColumns"/>
+        <include refid="receiptJoins"/>
+        <include refid="receiptFilters"/>
+        ORDER BY r.paid_at DESC, r.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM finance_receipt r
+        <include refid="receiptFilters"/>
+    </select>
+
+    <!-- 条件更新：只有待审核才能改成已审核，返回 0 说明已被别人审核 -->
+    <update id="audit">
+        UPDATE finance_receipt
+        <set>
+            status = 1,
+            audit_by = #{auditBy},
+            audit_name = #{auditName},
+            audit_time = #{now},
+            <if test="remark != null">remark = #{remark},</if>
+            update_time = #{now},
+        </set>
+        WHERE id = #{id} AND status = 0 AND is_deleted = 0
+    </update>
+
+    <update id="updateRemark">
+        UPDATE finance_receipt
+        SET remark = #{remark}, update_time = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <select id="sumAuditedAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(amount), 0)
+        FROM finance_receipt
+        WHERE is_deleted = 0 AND status = 1
+        <if test="start != null">
+            AND paid_at &gt;= #{start}
+        </if>
+        <if test="end != null">
+            AND paid_at &lt;= #{end}
+        </if>
+    </select>
+
+    <!--
+      退款金额：只读售后表。退款完成时间分散在两张子表里，
+      用 COALESCE 取「退货退款完成时间 → 仅退款完成时间 → 售后单更新时间」。
+    -->
+    <select id="sumRefundAmount" resultType="java.math.BigDecimal">
+        SELECT COALESCE(SUM(a.refund_amount), 0)
+        FROM after_sales a
+        LEFT JOIN after_sale_only_refunds r1 ON r1.after_sale_id = a.id AND r1.is_deleted = 0
+        LEFT JOIN after_sale_returns r2 ON r2.after_sale_id = a.id AND r2.is_deleted = 0
+        WHERE a.is_deleted = 0 AND a.status = 'refunded'
+        <if test="start != null">
+            AND COALESCE(r2.refunded_at, r1.refunded_at, a.updated_at) &gt;= #{start}
+        </if>
+        <if test="end != null">
+            AND COALESCE(r2.refunded_at, r1.refunded_at, a.updated_at) &lt;= #{end}
+        </if>
+    </select>
+
+    <select id="countPending" resultType="long">
+        SELECT COUNT(*) FROM finance_receipt WHERE is_deleted = 0 AND status = 0
+    </select>
+
+</mapper>

@@ -1,0 +1,21 @@
+# 由发布流程生成：把每个服务固定到当前运行的镜像 tag
+# 目的：单服务发布后，直接 docker compose up -d 不会拿全局 TAG 去拉其它服务
+services:
+  product-service:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/product-service:20261105-p2-1502dad-dirty
+  order-service:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/order-service:20261105-p2-1502dad-dirty
+  aftersale-service:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/aftersale-service:20261105-p2-1502dad-dirty
+  user-service:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/user-service:20261105-p2-1502dad-dirty
+  file-service:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/file-service:20261105-p2-1502dad-dirty
+  monitor-service:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/monitor-service:20261105-p2-1502dad-dirty
+  ai-service:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/ai-service:20261105-1502dad-dirty
+  gateway:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/gateway:20261105-p2-1502dad-dirty
+  auth-service:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/auth-service:20261105-p2-1502dad-dirty

@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.FinanceAccountMapper">
+
+    <sql id="accountColumns">
+        id, account_name, channel, merchant_no, is_default, status, remark, is_deleted, create_time, update_time
+    </sql>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO finance_account (account_name, channel, merchant_no, is_default, status, remark,
+                                     is_deleted, create_time, update_time)
+        VALUES (#{accountName}, #{channel}, #{merchantNo}, #{isDefault}, #{status}, #{remark},
+                0, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update">
+        UPDATE finance_account
+        <set>
+            <if test="accountName != null">account_name = #{accountName},</if>
+            <if test="merchantNo != null">merchant_no = #{merchantNo},</if>
+            <if test="remark != null">remark = #{remark},</if>
+            update_time = #{updateTime},
+        </set>
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <select id="findById" resultType="ecommerce.order.entity.FinanceAccount">
+        SELECT <include refid="accountColumns"/>
+        FROM finance_account
+        WHERE id = #{id} AND is_deleted = 0
+    </select>
+
+    <!-- 唯一索引是全表生效的，这里必须带上已删除账户，否则会插入冲突 -->
+    <select id="findByChannelAndMerchant" resultType="ecommerce.order.entity.FinanceAccount">
+        SELECT <include refid="accountColumns"/>
+        FROM finance_account
+        WHERE channel = #{channel} AND merchant_no = #{merchantNo}
+        LIMIT 1
+    </select>
+
+    <select id="listAdmin" resultType="ecommerce.order.entity.FinanceAccount">
+        SELECT <include refid="accountColumns"/>
+        FROM finance_account
+        WHERE is_deleted = 0
+        <if test="channel != null">
+            AND channel = #{channel}
+        </if>
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (account_name LIKE CONCAT('%', #{keyword}, '%')
+            OR merchant_no LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        ORDER BY channel ASC, is_default DESC, id ASC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countAdmin" resultType="long">
+        SELECT COUNT(*)
+        FROM finance_account
+        WHERE is_deleted = 0
+        <if test="channel != null">
+            AND channel = #{channel}
+        </if>
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+        <if test="keyword != null and keyword != ''">
+            AND (account_name LIKE CONCAT('%', #{keyword}, '%')
+            OR merchant_no LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+    </select>
+
+    <select id="listEnabled" resultType="ecommerce.order.entity.FinanceAccount">
+        SELECT <include refid="accountColumns"/>
+        FROM finance_account
+        WHERE is_deleted = 0 AND status = 1
+        ORDER BY channel ASC, is_default DESC, id ASC
+    </select>
+
+    <update id="clearDefault">
+        UPDATE finance_account
+        SET is_default = 0, update_time = #{now}
+        WHERE channel = #{channel} AND is_deleted = 0 AND is_default = 1
+        <if test="excludeId != null">
+            AND id &lt;&gt; #{excludeId}
+        </if>
+    </update>
+
+    <update id="setDefault">
+        UPDATE finance_account
+        SET is_default = 1, update_time = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="updateStatus">
+        UPDATE finance_account
+        SET status = #{status}, update_time = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="delete">
+        UPDATE finance_account
+        SET is_deleted = 1, is_default = 0, update_time = #{now}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <update id="restore">
+        UPDATE finance_account
+        SET is_deleted = 0, account_name = #{accountName}, is_default = #{isDefault},
+            status = #{status}, remark = #{remark}, update_time = #{now}
+        WHERE id = #{id}
+    </update>
+
+    <select id="findDefaultIdByChannel" resultType="java.lang.Long">
+        SELECT id
+        FROM finance_account
+        WHERE channel = #{channel} AND is_deleted = 0 AND status = 1
+        ORDER BY is_default DESC, id ASC
+        LIMIT 1
+    </select>
+
+</mapper>

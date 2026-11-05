@@ -1,0 +1,229 @@
+# 电商后台财务模块设计方案（精简版）
+
+本项目版 · 基于现有 Spring Cloud 电商系统
+
+## 一、定位与范围
+
+把每一笔线上支付“单据化”：财务按单审核、按渠道对账、按月导出。
+
+本期做：
+- 支付成功自动生成收款单（待审核），与订单一一对应，天然唯一。
+- 收款单审核，记录审核人与时间，写操作日志。
+- 收款单查询与 Excel 导出。
+- 收款账户维护（微信 / 支付宝 / 银行卡，可启停），用于按渠道归集。
+
+边界：退款由 aftersale-service 处理，财务只读售后数据做统计；orders 与 user.total_paid_amount 均不改动。
+
+## 二、设计依据
+
+| 事实 | 说明 |
+| --- | --- |
+| 单库 | 各服务共用 e_commerce_db，可跨表查询 |
+| 支付 | OrderServiceImpl#payOrder 校验状态机后写 pay_type、pay_at，订单推进到 3 待发货；无真实网关，故“支付成功”只有该方法提交这一个时刻 |
+| 订单 | order_no 为 ORD + yyyyMMddHHmmssSSS + 4 位随机；金额 decimal(10,2)；状态 1 待付款 / 3 待发货 / 4 已发货 / 5 已完成 / 6 已取消 / 7 已退款 |
+| 售后 | status 为字符串（reviewing / returning / refunding / exchanging / exchanged / refunded / rejected），退款金额 refund_amount，渠道取订单 pay_type |
+| 会员 | 买家在 user 表；total_paid_amount 由 user-service 动态重算，财务不得再累加 |
+| 后台约定 | /api/admin/**；@RequirePerm + @OperationLog；Result<T>；菜单在 admin_menu（M/C/F），前端静态路由按 path 匹配 |
+
+## 三、数据模型
+
+两张表，字段风格与 orders / after_sales 一致（bigint 主键、is_deleted、create_time / update_time，操作人由操作日志记录）。
+
+### 3.1 finance_account（收款账户）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | bigint PK | 主键 |
+| account_name | varchar(64) | 账户名称，如“微信商户-主店” |
+| channel | varchar(20) | WeChat / Alipay / BankCard，与 orders.pay_type 同字典 |
+| merchant_no | varchar(64) | 商户号，展示与对账用，不存密钥 |
+| is_default | tinyint | 同渠道默认：1 是 / 0 否 |
+| status | tinyint | 1 启用 / 0 停用 |
+| remark | varchar(255) | 备注 |
+| is_deleted | tinyint | 1 已删除 / 0 正常 |
+| create_time / update_time | datetime | 创建 / 更新时间 |
+
+### 3.2 finance_receipt（收款单）
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| id | bigint PK | 主键 |
+| receipt_no | varchar(40) | FIN + yyyyMMddHHmmssSSS + 4 位随机，唯一 |
+| order_id | bigint | orders.id，唯一索引，防重复生成 |
+| order_no | varchar(40) | 订单号快照 |
+| user_id | bigint | 买家 user.id |
+| channel | varchar(20) | 来自 orders.pay_type |
+| account_id | bigint | 收款账户；渠道未配置时为空，不阻塞支付 |
+| amount | decimal(10,2) | 等于 orders.pay_amount |
+| paid_at | datetime | 等于 orders.pay_at |
+| status | tinyint | 0 待审核 / 1 已审核 |
+| audit_by / audit_name | bigint / varchar(64) | 审核人 id 与账号快照 |
+| audit_time | datetime | 审核时间 |
+| remark | varchar(255) | 备注 |
+| is_deleted | tinyint | 保留字段，无删除入口 |
+| create_time / update_time | datetime | 生成 / 更新时间 |
+
+### 3.3 索引
+
+| 表 | 索引 | 用途 |
+| --- | --- | --- |
+| finance_receipt | uk_order_id、uk_receipt_no | 防重复生成 / 单号唯一 |
+| finance_receipt | idx_status_paid_at | 按状态 + 时间分页与统计 |
+| finance_receipt | idx_user_id、idx_channel | 按买家 / 渠道查询 |
+| finance_account | uk_channel_merchant、idx_status | 同渠道商户号唯一 / 只取启用账户 |
+
+## 四、单据生命周期
+
+| 环节 | 触发 | 状态变化 | 备注 |
+| --- | --- | --- | --- |
+| 生成 | payOrder 成功（订单 1 → 3） | 新增 status=0 | 与支付同事务 |
+| 审核 | 财务点击“审核” | 0 → 1 | 写 audit_by / audit_name / audit_time，终态 |
+| 退款 | 售后确认退款（订单 → 7） | 不变 | 页面打“已退款”标记，统计按净额 |
+
+只有已支付订单（3/4/5/7）才可能有收款单，1 / 6 永远没有。审核用条件更新（WHERE id=? AND status=0），影响行数为 0 时提示“单据已审核，请刷新”。审核后即为终态，不提供删除，数据链完整可审计。
+
+## 五、自动生成流程
+
+| 步骤 | 位置 | 动作 |
+| --- | --- | --- |
+| 1 | OrderController /api/orders/{id}/pay | 买家发起支付（入参 payType） |
+| 2 | OrderServiceImpl#payOrder | 校验归属与状态机（仅 1 可支付） |
+| 3 | OrderMapper.updateStatus | 写 order_status=3、pay_type、pay_at |
+| 4 | FinanceReceiptService#createForPaidOrder | 生成单据：金额取 pay_amount，时间取 pay_at，渠道取 pay_type |
+| 5 | FinanceAccountMapper | 按 channel 取启用且默认的账户填 account_id，取不到留空并 warn |
+| 6 | 事务提交 | 订单与单据同时落库 |
+
+异常策略：
+
+| 异常 | 处理 | 回滚支付 |
+| --- | --- | --- |
+| 渠道未配置账户 | account_id 置空，warn 日志，单据照常生成 | 否 |
+| 插入失败（非唯一键） | error 日志 + 抛异常回滚事务 | 是（保证不漏单） |
+| 唯一键冲突 | 视为已生成，吞掉异常 | 否 |
+
+与 payOrder 同一 @Transactional；先查后插，order_id 唯一索引做最终防线；单号沿用“时间戳 + 随机后缀”，不引入 Redis 自增。落点：OrderServiceImpl#payOrder 的 updateStatus 之后调用 createForPaidOrder(order, payType)。
+
+## 六、审核
+
+| 动作 | 权限串 | 校验 |
+| --- | --- | --- |
+| 列表 / 详情 | finance:receipt:list / detail | 无 |
+| 审核 | finance:receipt:audit | 未删除、status=0 |
+| 导出 | finance:receipt:export | 范围与筛选一致 |
+
+留痕：审核时写 audit_by / audit_name / audit_time；控制器加 @OperationLog(module="finance", action="RECEIPT_AUDIT")；审核人取 UserContext，不接受前端传入。
+
+统计口径（列表默认按收款时间倒序，统计卡默认已审核口径）：
+
+```
+已审核实收 = SUM(amount) WHERE status=1 AND is_deleted=0 AND paid_at 在区间内
+退款金额   = SUM(after_sales.refund_amount) WHERE status='refunded' AND 退款时间在区间内
+净收款     = 已审核实收 - 退款金额
+```
+
+退款金额只读 after_sales，不在财务表落冗余数据。
+
+## 七、接口设计
+
+前缀 /api/admin/finance，管理员 JWT，写操作记录日志，返回 Result<T>。
+
+| 方法 | 路径 | 权限 | 说明 |
+| --- | --- | --- | --- |
+| GET | /receipts | finance:receipt:list | 分页：receiptNo、orderNo、userId、channel、status、startTime、endTime |
+| GET | /receipts/{id} | finance:receipt:detail | 单据 + 订单摘要 + 退款标记 |
+| PUT | /receipts/{id}/audit | finance:receipt:audit | 审核，body 可带 remark；审核后不可再改状态 |
+| PUT | /receipts/{id}/remark | finance:receipt:detail | 改备注 |
+| GET | /receipts/summary | finance:receipt:list | 已审核实收、退款、净额、待审核笔数 |
+| GET | /receipts/export | finance:receipt:export | 按筛选导出 Excel |
+| GET | /accounts | finance:account:list | 分页：channel、status、keyword |
+| GET | /accounts/enabled | finance:account:list | 启用账户下拉 |
+| POST | /accounts | finance:account:add | 新增，同渠道 merchant_no 唯一 |
+| PUT | /accounts/{id} | finance:account:edit | 编辑名称 / 商户号 / 备注 |
+| PUT | /accounts/{id}/status | finance:account:edit | 启停 |
+| PUT | /accounts/{id}/default | finance:account:edit | 设为同渠道默认（互斥） |
+| DELETE | /accounts/{id} | finance:account:remove | 软删除，历史单据仍可查 |
+
+校验：时间按 paid_at 过滤（yyyy-MM-dd HH:mm:ss，结束补 23:59:59）；status 仅 0 / 1；channel 与 PayTypeEnum 同步；导出上限 10000 行；金额一律 BigDecimal。
+
+## 八、菜单、权限与前端路由
+
+新增一级菜单“财务管理”，排在“经营工具”之后，原 7 / 8 / 900 的 sort_order 顺延为 9 / 10 / 11，ID 占 912–920，默认只授权 role_key=admin。
+
+| ID | 菜单 | 类型 | path | 权限串 | sort |
+| --- | --- | --- | --- | --- | --- |
+| 912 | 财务管理 | M | — | — | 8 |
+| 913 | 收款单 | C | /finance/receipt-list | finance:receipt:list | 1 |
+| 914 | 收款账户 | C | /finance/account-list | finance:account:list | 2 |
+| 915 | 查看收款单 | F | — | finance:receipt:detail | 1 |
+| 916 | 审核收款单 | F | — | finance:receipt:audit | 2 |
+| 917 | 导出收款单 | F | — | finance:receipt:export | 3 |
+| 918 | 新增收款账户 | F | — | finance:account:add | 1 |
+| 919 | 编辑收款账户 | F | — | finance:account:edit | 2 |
+| 920 | 删除收款账户 | F | — | finance:account:remove | 3 |
+
+```sql
+INSERT INTO admin_menu (id, parent_id, menu_name, menu_type, path, component, perms, icon, sort_order, visible, status, create_time, update_time)
+VALUES
+(912, 0,   '财务管理',     'M', NULL,                   NULL, NULL,                       'AccountBookOutlined', 8, 1, 1, NOW(), NOW()),
+(913, 912, '收款单',       'C', '/finance/receipt-list', NULL, 'finance:receipt:list',   NULL, 1, 1, 1, NOW(), NOW()),
+(914, 912, '收款账户',     'C', '/finance/account-list', NULL, 'finance:account:list',   NULL, 2, 1, 1, NOW(), NOW()),
+(915, 913, '查看收款单',   'F', NULL, NULL, 'finance:receipt:detail',  NULL, 1, 1, 1, NOW(), NOW()),
+(916, 913, '审核收款单',   'F', NULL, NULL, 'finance:receipt:audit',   NULL, 2, 1, 1, NOW(), NOW()),
+(917, 913, '导出收款单',   'F', NULL, NULL, 'finance:receipt:export',  NULL, 3, 1, 1, NOW(), NOW()),
+(918, 914, '新增收款账户', 'F', NULL, NULL, 'finance:account:add',    NULL, 1, 1, 1, NOW(), NOW()),
+(919, 914, '编辑收款账户', 'F', NULL, NULL, 'finance:account:edit',   NULL, 2, 1, 1, NOW(), NOW()),
+(920, 914, '删除收款账户', 'F', NULL, NULL, 'finance:account:remove', NULL, 3, 1, 1, NOW(), NOW());
+
+UPDATE admin_menu SET sort_order = 9  WHERE id = 7;
+UPDATE admin_menu SET sort_order = 10 WHERE id = 8;
+UPDATE admin_menu SET sort_order = 11 WHERE id = 900;
+
+INSERT IGNORE INTO admin_role_menu (role_id, menu_id)
+SELECT r.id, m.id FROM admin_role r JOIN admin_menu m ON m.id BETWEEN 912 AND 920 WHERE r.role_key = 'admin';
+```
+
+前端路由（path 必须与 admin_menu.path 一致）：
+
+```js
+{ path: '/finance/receipt-list', name: 'FinanceReceiptList',
+  component: () => import('@/pages/finance/receipt/ReceiptList.vue'),
+  meta: { title: '收款单', permissions: ['finance:receipt:list'] } },
+{ path: '/finance/account-list', name: 'FinanceAccountList',
+  component: () => import('@/pages/finance/account/AccountList.vue'),
+  meta: { title: '收款账户', permissions: ['finance:account:list'] } },
+```
+
+## 九、页面交互
+
+收款单列表（/finance/receipt-list）：筛选单号、订单号、买家 ID、渠道、状态、时间区间；统计卡（已审核实收、退款、净收款、待审核笔数）；列含单号、订单号、买家、渠道、账户、金额、收款时间、状态、审核人 / 时间，已退款打标；行操作查看、审核、备注（已审核只读），v-permission 控制；详情抽屉只读展示单据、订单摘要与售后退款。
+
+收款账户（/finance/account-list）：筛选渠道、状态、关键字；操作新增、编辑、启停、设为默认、软删除；同渠道只能有一个默认账户。
+
+约定：审核二次确认并局部刷新；a-table + 查询表单 + 分页；金额两位小数千分位，状态用 a-tag。
+
+## 十、代码落点
+
+后端（order-service）：改 OrderServiceImpl；新增 FinanceAccount / FinanceReceipt 实体、两个 Mapper、FinanceReceiptService(+Impl)、FinanceAccountService(+Impl)、AdminFinanceController、AdminFinanceQueryDTO 与 Finance*VO。
+
+前端（e-commerce）：新增 src/api/finance.js、src/pages/finance/receipt/ReceiptList.vue、src/pages/finance/account/AccountList.vue；改 src/router/index.js。
+
+SQL：docs/sql/2026xxxx_finance_schema.sql（建表与索引）、2026xxxx_finance_menu.sql（菜单 + 排序 + 授权）、2026xxxx_finance_account_init.sql（初始化 3 条渠道账户）。
+
+## 十一、上线与验收
+
+上线顺序：
+1. 本地执行建表 + 菜单 SQL，确认 912–920 与授权正确。
+2. 后端实现并自测：支付一笔立即出现待审核单据；重复支付不产生第二张。
+3. 前端页面与路由接入，用不同角色验证按钮权限。
+4. 本地构建通过后备份生产库，同步执行 SQL，再发布 order-service 与前端。
+5. 生产验证：支付 → 生成 → 审核 → 导出 → 403 → 菜单排序。
+
+| # | 验收项 | 判定标准 |
+| --- | --- | --- |
+| 1 | 自动生成 | 支付成功后有且仅有 1 张单据，金额 / 渠道 / 时间与订单一致 |
+| 2 | 幂等 | 重复或并发支付不产生第二条 |
+| 3 | 账户缺失 | 无启用账户时支付仍成功，account_id 为空且有 warn |
+| 4 | 审核 | 仅待审核可审核，写审核人 / 时间，重复点击提示已审核 |
+| 5 | 退款标记 | 已退款订单显示标记，净额口径正确 |
+| 6 | 权限 | 无 finance 权限看不到菜单，接口 403，按钮隐藏 |
+| 7 | 一致性 | 订单表结构未变，user.total_paid_amount 未被改写 |
