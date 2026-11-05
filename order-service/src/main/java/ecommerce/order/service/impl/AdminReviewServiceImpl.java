@@ -210,12 +210,15 @@ public class AdminReviewServiceImpl implements AdminReviewService {
 
             int rowIdx = 1;
             for (AdminReviewVO item : list) {
+                // 列表 SQL 只带回 tags_json，这里补一次解析，否则取不到 tags
+                fillTags(item);
                 Row row = sheet.createRow(rowIdx++);
                 setCell(row, 0, item.getId());
                 setCell(row, 1, item.getProductId());
                 setCell(row, 2, item.getProductName());
                 setCell(row, 3, item.getRating());
-                setCell(row, 4, String.join("、", item.getTags()));
+                List<String> tags = item.getTags();
+                setCell(row, 4, tags == null || tags.isEmpty() ? null : String.join("、", tags));
                 setCell(row, 5, item.getContent());
                 setCell(row, 6, Integer.valueOf(1).equals(item.getIsVirtual()) ? "虚拟" : "真实");
                 setCell(row, 7, item.getUserName());

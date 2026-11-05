@@ -16,6 +16,7 @@ import ecommerce.auth.vo.AdminUserVO;
 import ecommerce.auth.vo.CaptchaVO;
 import ecommerce.auth.vo.MenuVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.security.AdminOnlineSessionStore;
 import ecommerce.utils.JwtUtil;
 import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
@@ -67,6 +68,7 @@ public class AuthServiceImpl implements AuthService {
     private final JwtUtil jwtUtil;
     private final StringRedisTemplate stringRedisTemplate;
     private final LoginLogService loginLogService;
+    private final AdminOnlineSessionStore onlineSessionStore;
 
     /** 连续密码错误多少次后锁定 */
     @Value("${auth.login.max-fail-count:5}")
@@ -77,12 +79,14 @@ public class AuthServiceImpl implements AuthService {
 
     public AuthServiceImpl(AdminMapper adminMapper, RbacMapper rbacMapper, JwtUtil jwtUtil,
                            StringRedisTemplate stringRedisTemplate,
-                           LoginLogService loginLogService) {
+                           LoginLogService loginLogService,
+                           AdminOnlineSessionStore onlineSessionStore) {
         this.adminMapper = adminMapper;
         this.rbacMapper = rbacMapper;
         this.jwtUtil = jwtUtil;
         this.stringRedisTemplate = stringRedisTemplate;
         this.loginLogService = loginLogService;
+        this.onlineSessionStore = onlineSessionStore;
     }
 
     @Override
@@ -138,7 +142,7 @@ public class AuthServiceImpl implements AuthService {
                     LocalDateTime.now());
         }
         // 7. 签发管理员令牌：claims 带上 username/role/id，前端解 payload 做权限判断
-        AdminLoginVO result = buildLoginResult(admin);
+        AdminLoginVO result = buildLoginResult(admin, clientIp, userAgent);
         recordLoginLog(admin.getId(), admin.getUsername(), LoginResult.SUCCESS,
                 null, clientIp, userAgent);
         return result;
@@ -156,15 +160,21 @@ public class AuthServiceImpl implements AuthService {
         Long adminId = null;
         String username = null;
         String token = bearerToken(authorization);
+        String sid = null;
         if (token != null) {
             try {
                 Claims claims = jwtUtil.parseToken(token);
                 username = claims.get("username", String.class);
+                sid = claims.get("sid", String.class);
                 Object id = claims.get("id");
                 adminId = id instanceof Number number ? number.longValue() : null;
             } catch (Exception e) {
                 log.debug("登出时解析令牌失败，跳过登录日志: {}", e.getMessage());
             }
+        }
+        // 删除在线会话（老 token 没有 sid，跳过）
+        if (adminId != null && sid != null) {
+            onlineSessionStore.remove(adminId, sid);
         }
         if (adminId == null && (username == null || username.isBlank())) {
             return;
@@ -351,10 +361,14 @@ public class AuthServiceImpl implements AuthService {
     }
 
     /** 签发令牌并组装登录响应 */
-    private AdminLoginVO buildLoginResult(Admin admin) {
+    private AdminLoginVO buildLoginResult(Admin admin, String clientIp, String userAgent) {
         AuthInfo auth = loadAuthInfo(admin);
+        // 会话标识：写入 JWT claim + Redis 会话，后台「在线用户」按它定位
+        String sid = UUID.randomUUID().toString().replace("-", "");
         String token = jwtUtil.generateAdminToken(admin.getId(), admin.getUsername(),
-                auth.roles(), auth.permissions());
+                auth.roles(), auth.permissions(), sid);
+        onlineSessionStore.register(admin.getId(), sid, admin.getUsername(),
+                clientIp, userAgent, auth.roles());
         return AdminLoginVO.builder()
                 .token(token)
                 .user(buildUserVO(admin, auth))

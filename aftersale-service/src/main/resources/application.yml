@@ -31,6 +31,16 @@ spring:
 server:
   port: 9005
 
+# Actuator：只暴露健康与指标，供 monitor-service 内网聚合；网关不转发 /actuator/**
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: never
+
 # jwt.secret 统一从环境变量 JWT_SECRET 读取，必须与 user-service 签发令牌用的密钥一致，
 # 否则 aftersale-service 验签失败，/api/after-sales 等需登录接口会全部返回 401。
 jwt:

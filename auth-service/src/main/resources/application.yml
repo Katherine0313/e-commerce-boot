@@ -33,6 +33,16 @@ spring:
 server:
   port: 9001
 
+# Actuator：只暴露健康与指标，供 monitor-service 内网聚合；网关不转发 /actuator/**
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: never
+
 mybatis:
   configuration:
     map-underscore-to-camel-case: true
@@ -44,6 +54,11 @@ jwt:
   secret: ${JWT_SECRET}
   #token有效期，单位：秒（7天）
   expire: 604800
+
+# 动态定时任务：从 admin_monitor_task 读取启用任务，本服务只调度有对应 Runner 的行
+monitor:
+  dynamic-task:
+    enabled: true
 
 # 后台登录失败锁定：同一「用户名 + IP」连续输错密码达到次数后锁定
 auth:

@@ -1,4 +1,4 @@
-# 生产部署（/www/java）：Nacos 3.1.1 + 9 个 Spring Boot 服务
+# 生产部署（/www/java）：Nacos 3.1.1 + 10 个 Spring Boot 服务
 # 使用前：
 #   1. 每个服务目录放好 Dockerfile + 一个 jar
 #   2. 本文件同目录放 .env（从 .env.example 复制并填值）
@@ -127,6 +127,27 @@ services:
     networks:
       - my-net
 
+  # 系统监控：OSHI 主机指标 + Docker socket 只读看容器 + Redis SCAN 缓存
+  # Docker socket 只读挂载也等于宿主信息可读，因此本服务绝不对公网开放，
+  # 网关只放行 /api/admin/monitor/**，且必须后台 JWT + monitor:* 权限
+  monitor-service:
+    image: "${REGISTRY:-local}/monitor-service:${TAG:-latest}"
+    build: ./monitor-service
+    container_name: monitor-service
+    restart: always
+    depends_on:
+      - nacos
+    env_file: .env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    environment:
+      JAVA_OPTS: "-Xms128m -Xmx384m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -Xss256k -XX:+UseSerialGC -Duser.timezone=Asia/Shanghai"
+      MONITOR_DOCKER_SOCKET: "/var/run/docker.sock"
+    networks:
+      - my-net
+
   # 导购机器人：Python FastAPI + LangGraph，网关按静态地址转发
   ai-service:
     image: "${REGISTRY:-local}/ai-service:${TAG:-latest}"
@@ -152,6 +173,7 @@ services:
       - aftersale-service
       - user-service
       - file-service
+      - monitor-service
       - ai-service
     env_file: .env
     extra_hosts:

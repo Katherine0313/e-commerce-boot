@@ -1,6 +1,7 @@
 package ecommerce.interceptor;
 
 import ecommerce.exception.BusinessException;
+import ecommerce.security.AdminOnlineSessionStore;
 import ecommerce.security.AdminTokenRevocationStore;
 import ecommerce.utils.JwtUtil;
 import ecommerce.utils.UserContext;
@@ -37,11 +38,14 @@ public class JwtInterceptor implements HandlerInterceptor {
 
     private final JwtUtil jwtUtil;
     private final AdminTokenRevocationStore revocationStore;
+    private final AdminOnlineSessionStore onlineSessionStore;
 
-    public JwtInterceptor(JwtUtil jwtUtil, AdminTokenRevocationStore revocationStore) {
+    public JwtInterceptor(JwtUtil jwtUtil, AdminTokenRevocationStore revocationStore,
+                          AdminOnlineSessionStore onlineSessionStore) {
 
         this.jwtUtil = jwtUtil;
         this.revocationStore = revocationStore;
+        this.onlineSessionStore = onlineSessionStore;
     }
 
     @Override
@@ -85,6 +89,8 @@ public class JwtInterceptor implements HandlerInterceptor {
                 log.info("管理员令牌已失效: adminId={}", userId);
                 throw new BusinessException(HttpStatus.UNAUTHORIZED, "登录状态已变更，请重新登录");
             }
+            // 在线会话活跃时间：10 分钟节流刷新，失败不影响请求
+            onlineSessionStore.touch(userId, claims.get("sid", String.class));
         }
         // 存入本次请求的上下文，Controller / Service 里用 UserContext 取
         UserContext.setUserId(userId);

@@ -48,4 +48,10 @@ public interface OrderService {
 
     /** 超时关闭待付款订单（定时任务调用） */
     void sweepExpiredPendingPayOrders();
+
+    /** 待付款订单订阅消息提醒（定时任务调用） */
+    void sweepUnpaidNotify();
+
+    /** 发货 7 天后自动确认收货（定时任务调用） */
+    void sweepAutoConfirmOrders();
 }

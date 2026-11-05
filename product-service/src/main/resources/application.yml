@@ -42,6 +42,16 @@ spring:
 server:
   port: 9003
 
+# Actuator：只暴露健康与指标，供 monitor-service 内网聚合；网关不转发 /actuator/**
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: never
+
 # jwt.secret 统一从环境变量 JWT_SECRET 读取。当前接口都在免登录白名单里，暂不校验令牌，
 # 但 common 的 JwtProperties 启动时校验非空，未设置 JWT_SECRET 时服务直接启动失败。
 jwt:

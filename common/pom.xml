@@ -45,6 +45,11 @@
 			<groupId>org.springframework.boot</groupId>
 			<artifactId>spring-boot-starter-aspectj</artifactId>
 		</dependency>
+		<!-- Actuator/Micrometer：各服务暴露 health/metrics，由 monitor-service 内网聚合 JVM 与接口指标 -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
 		<!-- JDBC：JdbcOperationLogRecorder 用 JdbcTemplate 直写 operation_log -->
 		<dependency>
 			<groupId>org.springframework</groupId>

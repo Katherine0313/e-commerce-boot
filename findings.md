@@ -4,6 +4,21 @@
 
 > 本文件只存事实与研究结论。外部网页/搜索内容只写这里，不写进 `task_plan.md`。
 
+## 硬规则：本地数据库变更必须同步生产（2026-11-05）
+
+> 用户原话：「**执行了本地的更改数据库之后，一定要同步到线上。**」这不是建议，是发版流程的一部分。
+
+- **代码发版 ≠ 数据同步**。`release.sh` 只推镜像、`release-web.sh` 只推前端 dist，**都不会带库里的数据**；本地 MySQL（本机 3306）与生产 MySQL（服务器内 127.0.0.1:3306，容器走 `host.docker.internal`）是两台**独立实例**。
+- **任何写库操作（DDL / DML / 种子数据）在本地执行完，必须立刻在生产执行同一份脚本**，并**核对结果**（行数、关键字段、指纹），不能只看「脚本没报错」。核对工具：`docs/sql/check-local-prod-parity.sql`。
+- **执行前先备份生产**：`/www/backup/e_commerce_db_<日期>_<时间>.sql`，确认文件里有 `Dump completed`。
+- **执行方式**（优先不落盘）：
+  - 本地管道：`ssh ecommerce "mysql ... < docs/sql/xxx.sql"`；
+  - 或 `scp` 到 `/www/java/sql/`，服务器执行 `bash deploy/run-sql-prod.sh /www/java/sql/xxx.sql`（该脚本从 `/www/java/.env` 读账号连本机 MySQL）。
+- **脚本必须幂等**：`CREATE TABLE IF NOT EXISTS`、`INSERT ... ON DUPLICATE KEY UPDATE`、先查 `information_schema` 再 `ALTER`，允许重跑。
+- **改了缓存类数据要重启或等 TTL**：AI 知识库有 **60 秒内存缓存**（`KB_CACHE_TTL`）、Redis 分类树 30 分钟 —— 只导库不重启，线上还会拿旧数据回答。
+- **方向原则（沿用 2026-11-01 审计结论）**：结构缺陷（缺表/缺列/缺索引）以本地为准往生产补；运营配置（分类推荐、标签绑定、Banner、活动）以生产为准往本地对齐，因为生产才是真实用户看到的业务事实。
+- **反例（本次真实踩中）**：2026-11-05 只把 519 条知识库导进本地，生产 `kb_qa` 一直是 **0 条** → 线上 AI 客服对业务问题全部走兜底（`matched:false`），本地却正常；用户打开生产库发现「表全都是空的」后才暴露。**所以这条规则不靠人记得，写进流程。**
+
 ## 本地启动流程（开发环境）
 
 > 2026-10-03 补记。起因是一次排查：`java.exe` 只有 IDEA、8080/8848 全无监听，结论是**后端不是启动失败，是根本没起**；而且即使去起，Docker 没开的话也起不来。
@@ -650,8 +665,30 @@ ecommerce
 - `order-service /ws/order`，握手 query `?token=` 只校验 admin 类型；单店模式用单 `Set<WebSocketSession>` 注册表，支付成功 `broadcast` `{type,orderId,content}`。
 - 前端登录后自动连，弹窗 + 语音 + 25s 心跳 + 断线重连；多实例广播计划用 RabbitMQ fanout（见下）。
 
+### 客服知识库与生产同步（2026-11-05）
+- **运行时读 MySQL，不读 Excel**。链路：`docs/QandA.xlsx` → `recommender-python/scripts/import_kb.py` → `e_commerce_db.kb_qa` → ai-service **内存缓存 60 秒**（`KB_CACHE_TTL`）。这是「改了 Excel 还是旧内容」的三层原因：① 没执行导入脚本；② 导入后缓存没到期；③ 本地库与生产库不是同一个实例。
+- **表**：`kb_qa`（分类/问题/答案/关键词/priority/status/hit_count，唯一键 `(category, question)`）+ `kb_miss`（未命中记录，不参与检索）。建表 `docs/sql/20261105_kb.sql`；种子 `docs/sql/20261105_kb_seed.sql`（519 条 `INSERT ... ON DUPLICATE KEY UPDATE`，可重复执行）。
+- **导入**：`python scripts/import_kb.py --xlsx docs/QandA.xlsx`（`--dry-run` 只算不入库）；按 `(category, question)` 去重，Excel **532 行 → 519 条唯一**（13 条同分类重复被合并）。
+- **Excel 现状**：单 Sheet `qa`，四列「分类/问题/答案/关键词」，2026-11-05 从 332 行补到 **532 行**（+200 条）；样式统一微软雅黑 10、细边框、斑马纹、自动换行、冻结 A2、筛选 A1:D533。备份 `%TEMP%\QandA-backup-20261105.xlsx`。
+- **生产同步（已完成）**：两份 SQL 上传 `/www/java/sql/` → 生产建表 + 种子 → `kb_qa` **519 条、全部 `status=1`** → 重启 `ai-service` → 容器内实测 `你们店主要卖什么？` / `店里现在有什么活动？` / `会员制度是怎么样的？` / `iPhone 15 Pro 多少钱？` / `有什么手机推荐？` 全部 `matched=True`（分数 100~142.9）。
+- **已知边界**：寒暄类「你好」分数 **8.0 < 阈值** → `matched=False`，走兜底并提示转人工。这是**设计如此**，不是故障；要接住需补 5~8 条寒暄问答并同步生产。
+- **旧库矛盾条目（未处理）**：`kb_qa` 里仍有与当前数据库不一致的历史答案（「晒单送 50 积分」「100 积分抵 1 元」「价保 7 天」「优惠券可叠加」），而项目**没有积分体系、没有价保、优惠券不可叠加**，运营问答会自相矛盾，待确认后一并修订。
+
+### 数据库现状快照（2026-11-05 只读探索）
+- `products` **136** 条（`sales_price`/`market_price`/`listing_status`/`specs` JSON）；`categories` **29**（8 个一级 + 21 个二级）。
+- `member_level` **4 档**（0 / 500 / 2000 / 5000），权益依次为「注册即享 / 会员专享券 + 专属活动优先购 / 更高额度会员券 + 专属客服 / 最高等级会员券 + 新品优先购」。
+- `delivery_express` **8** 家快递；`promotion*`、`coupon_template`、`user_coupon` **全为空**；当前线上只有「双十一」Banner + 全场包邮，**无满减/秒杀/拼团/预售/可领券**。
+- `product_reviews` **274** 条（272 条虚拟），平均分 **4.41**；`kb_qa` / `kb_miss` 为客服知识库。
+- **会员成长值口径**：成长值 = 已支付实付 − 已退款，**1 元 = 1 点、向下取整、实时重算**；退款会降级；**没有积分体系**（不要在文案里承诺积分兑换/抵现）。
+
+### 后台评价列表三处修复（2026-11-05）
+- 文件 `e-commerce/src/pages/orders/review/ReviewList.vue`。
+- **评价内容不再拼标签**：删除 `reviewTags` 函数与 `.cell-tag` 样式，只显示正文（`.cell-content-text` 两行截断）。标签本来就在独立列，混进正文会挤成一团。
+- **窄屏操作按钮不溢出**：操作列固定 `width: 150`，按钮容器 `.action-buttons` 改 `display:flex; flex-wrap: wrap; gap:6px`，屏宽变小时换行而不是把文字撑出表格。
+- **序号整列空白**：根因是 `<template #bodyCell="{ column, record }">` **没解构 `index`**，`record` 上没有序号字段。补 `index` 后序号 = `(pagination.current - 1) * pagination.pageSize + index + 1`（跨页连续递增，不是每页从 1 开始）。
+
 ### AI 服务（Python `recommender-python`）
-- FastAPI + LangGraph，接口 `/api/agent/chat`、`/api/agent/chat/stream`、`/health`；JWT 只校验不签发，每用户限流。
+- FastAPI + LangGraph，接口 `/api/agent/chat`、`/api/agent/chat/stream`、`/health`；JWT 只校验不签发，每用户限流。**2026-11-05 起客服问答只走知识库，不调用大模型**（`kb/service.py` 纯规则检索，未命中即转人工）。
 - 生产容器 `ai-service:8000`，网关 `/api/agent/**` 转发；容器连宿主机 MySQL 需 `MYSQL_HOST=host.docker.internal`（2026-10-29 补上）。
 - 商品查询只读 `products + categories`，条件 `listing_status=1 AND stock>0`（无 shop_id）。
 

@@ -42,13 +42,18 @@ public class JwtUtil {
         return buildToken(userId, TYPE_USER, new HashMap<>());
     }
     public String generateAdminToken(Long adminId, String username,
-                                     List<String> roles, List<String> permissions){
+                                     List<String> roles, List<String> permissions,
+                                     String sid){
         // 创建哈希表
         Map<String, Object> extraClaims = new HashMap<>();
         extraClaims.put("id", adminId);
         extraClaims.put("username", username);
         extraClaims.put("roles", roles == null ? List.of() : roles);
         extraClaims.put("permissions", permissions == null ? List.of() : permissions);
+        // sid：会话标识，用于在线用户列表与退出登录时精确删除会话；老 token 没有该 claim 仍可正常鉴权
+        if (sid != null && !sid.isBlank()) {
+            extraClaims.put("sid", sid);
+        }
         return buildToken(adminId, TYPE_ADMIN, extraClaims);
 
     }

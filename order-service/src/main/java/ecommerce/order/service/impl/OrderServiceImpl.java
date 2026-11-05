@@ -22,6 +22,7 @@ import ecommerce.order.mapper.ProductMapper;
 import ecommerce.order.mapper.ProductReviewMapper;
 import ecommerce.order.mapper.UserMapper;
 import ecommerce.order.service.CouponPricingService;
+import ecommerce.order.service.FinanceReceiptService;
 import ecommerce.order.service.OrderService;
 import ecommerce.order.service.PromotionPricingService;
 import ecommerce.order.support.InsuranceReviewer;
@@ -33,12 +34,12 @@ import ecommerce.order.vo.OrderVO;
 import ecommerce.order.wechat.WeChatSubscribeMessageClient;
 import ecommerce.order.wechat.WeChatSubscribeMessageClient.SendResult;
 import ecommerce.order.ws.WebSocketSessionRegistry;
+import ecommerce.task.MonitoredTask;
 import ecommerce.utils.UserContext;
 import lombok.extern.slf4j.Slf4j;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.http.HttpStatus;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -92,6 +93,7 @@ public class OrderServiceImpl implements OrderService {
     private final CouponPricingService couponPricingService;
     private final CouponMapper couponMapper;
     private final LogisticsBuilder logisticsBuilder;
+    private final FinanceReceiptService financeReceiptService;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper, ProductMapper productMapper,
                             CartMapper cartMapper, ProductReviewMapper productReviewMapper,
@@ -103,7 +105,8 @@ public class OrderServiceImpl implements OrderService {
                             PromotionPricingService promotionPricingService,
                             CouponPricingService couponPricingService,
                             CouponMapper couponMapper,
-                            LogisticsBuilder logisticsBuilder) {
+                            LogisticsBuilder logisticsBuilder,
+                            FinanceReceiptService financeReceiptService) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
@@ -120,6 +123,7 @@ public class OrderServiceImpl implements OrderService {
         this.couponPricingService = couponPricingService;
         this.couponMapper = couponMapper;
         this.logisticsBuilder = logisticsBuilder;
+        this.financeReceiptService = financeReceiptService;
     }
 
     @Override
@@ -337,7 +341,10 @@ public class OrderServiceImpl implements OrderService {
         // 支付成功直接进入「待发货」：原先的「待确认收款(2)」是真实支付场景下的商家人工对账环节，
         // 本项目支付是 mock 的，点一下即成功，不存在到账延迟，没必要再让商家逐单点一次确认
         checkTransition(order, OrderStatusEnum.PENDING_SHIP);
-        orderMapper.updateStatus(id, OrderStatusEnum.PENDING_SHIP.getCode(), payType, null, null, LocalDateTime.now());
+        LocalDateTime now = LocalDateTime.now();
+        orderMapper.updateStatus(id, OrderStatusEnum.PENDING_SHIP.getCode(), payType, null, null, now);
+        // 支付成功即生成收款单（同一事务）：一笔订单一张，财务后续按单审核
+        financeReceiptService.createForPaidOrder(order, payType, now);
         // 券核销：LOCKED -> USED
         couponMapper.markUsedByOrder(id, LocalDateTime.now());
         // 支付成功后推「新订单提醒」给后台管理端（推送失败不影响主流程）
@@ -408,9 +415,10 @@ public class OrderServiceImpl implements OrderService {
         return buildLogistics(getOwnedOrder(id));
     }
 
-    /** 超时关闭待付款订单：每分钟扫一次，恢复库存 + 改 cancel（保留订单记录，不软删除） */
-    @Scheduled(fixedDelay = 60000)
+    /** 超时关闭待付款订单：执行周期由后台动态任务配置控制，默认每分钟一次 */
     @Transactional
+    @MonitoredTask(name = "closeExpiredOrders", description = "超时关闭待付款订单并恢复库存",
+            cron = "每 60 秒")
     public void sweepExpiredPendingPayOrders() {
         LocalDateTime threshold = LocalDateTime.now().minusSeconds(PENDING_PAY_TIMEOUT_SECONDS);
         List<Order> expired = orderMapper.findExpiredPendingPay(OrderStatusEnum.PENDING_PAY.getCode(), threshold);
@@ -439,7 +447,8 @@ public class OrderServiceImpl implements OrderService {
      * 保证用户收到时还有时间付款，且 time8 填入的是未来时间。
      * 只处理：待付款 + 用户已授权 + 从未推送过的订单；推送成功或永久失败后标记 sent=1，避免重复推送。
      */
-    @Scheduled(fixedDelay = 60000)
+    @MonitoredTask(name = "unpaidNotify", description = "待付款订单订阅消息提醒",
+            cron = "每 60 秒")
     public void sweepUnpaidNotify() {
         // 提前分钟数限制在 1～29，防止配置错误把窗口算反
         int beforeMinutes = Math.max(1, Math.min(29, subscribeProperties.getNotifyBeforeMinutes()));
@@ -495,9 +504,11 @@ public class OrderServiceImpl implements OrderService {
         return items.size() > 1 ? name + "等" + items.size() + "件" : name;
     }
 
-    /** 自动确认收货：每分钟扫一次，ship_at 超过 7 天的已发货订单自动变已完成，无论用户是否主动签收 */
-    @Scheduled(fixedDelay = 60000)
+    /** 自动确认收货：执行周期由后台动态任务配置控制，默认每分钟一次；
+     *  ship_at 超过 7 天的已发货订单自动变已完成，无论用户是否主动签收 */
     @Transactional
+    @MonitoredTask(name = "autoConfirmOrders", description = "发货 7 天后自动确认收货",
+            cron = "每 60 秒")
     public void sweepAutoConfirmOrders() {
         LocalDateTime threshold = LocalDateTime.now().minusDays(AUTO_CONFIRM_DAYS);
         List<Order> shipped = orderMapper.findExpiredShipped(OrderStatusEnum.SHIPPED.getCode(), threshold);

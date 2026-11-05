@@ -30,6 +30,11 @@
 			<groupId>com.alibaba.cloud</groupId>
 			<artifactId>spring-cloud-starter-alibaba-nacos-discovery</artifactId>
 		</dependency>
+		<!-- Actuator/Micrometer：网关同样暴露 health/metrics，供系统监控聚合 -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-actuator</artifactId>
+		</dependency>
 		<!-- 聚合各服务 Swagger 文档：WebFlux 版 springdoc（gateway 是 WebFlux，不能引 webmvc 版） -->
 		<dependency>
 			<groupId>org.springdoc</groupId>

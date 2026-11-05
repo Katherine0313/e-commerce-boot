@@ -4,8 +4,8 @@ import ecommerce.auth.mapper.AdminLoginLogMapper;
 import ecommerce.auth.mapper.AdminOperationLogMapper;
 import ecommerce.log.OperationLogEntry;
 import ecommerce.log.OperationLogRecorder;
+import ecommerce.task.MonitoredTask;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
@@ -44,8 +44,9 @@ public class LogCleanupTask {
         this.operationLogRecorder = operationLogRecorder;
     }
 
-    /** 每天 03:00 清理一次 */
-    @Scheduled(cron = "0 0 3 * * ?")
+    /** 执行周期由后台动态任务配置（admin_monitor_task）控制，默认每天 03:00 */
+    @MonitoredTask(name = "logCleanup", description = "清理超过 180 天的操作日志/登录日志",
+            cron = "0 0 3 * * ?", allowManualRun = true)
     public void clean() {
         // 时间由 Java 算好再传给 SQL：DB 服务器时区是 UTC，NOW() 比本地时间早 8 小时
         LocalDateTime before = LocalDateTime.now().minusDays(RETAIN_DAYS);
