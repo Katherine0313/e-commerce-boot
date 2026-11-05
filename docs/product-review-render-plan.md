@@ -474,7 +474,7 @@ onReachBottom() {
 ### 落地顺序
 
 1. 商城详情页先做 Tab 外壳 + 评价汇总/列表（数据已就绪）。
-2. 后端新增标签枚举、`GET /api/reviews/product/{id}/tags`、`tag` 筛选参数、DTO 校验。
+2. 后端新增标签枚举、`GET /api/reviews/product/{id}/tags`、`tags` 筛选参数、DTO 校验。
 3. 数据迁移（「中规中矩」→「有待改进」），本地执行后同步生产。
 4. 商城接入标签云（8 个平铺、带数量、点击筛选）。
 5. 后端补 `ratingType`、`hasMedia` 参数，再接星级筛选。
@@ -539,35 +539,33 @@ onReachBottom() {
 
 ### 12.3 数据存储调整
 
-现有 `tag varchar(64)` 是单值，改为多值 `tags`。
+现有 `tag varchar(64)` 是单值，已改为多值 `tags JSON`；旧 `tag` 列已完成迁移并删除。
 
-推荐新增 JSON 字段，保留旧 `tag` 字段做过渡：
+迁移分两步执行（均已在本地和生产完成）：
 
 ```sql
--- 1) 先把中性标签并入负向
-UPDATE product_reviews SET tag = '有待改进' WHERE tag = '中规中矩';
-
--- 2) 新增多值字段
+-- 1) 新增多值字段，历史单值转数组，然后清空旧字段
 ALTER TABLE product_reviews
   ADD COLUMN tags JSON NULL COMMENT '评价标签数组，最多 4 个' AFTER tag;
 
--- 3) 历史单值转数组
 UPDATE product_reviews
 SET tags = JSON_ARRAY(tag)
 WHERE tag IS NOT NULL AND tag <> '';
 
--- 4) 确认数据无误后停用旧字段
 UPDATE product_reviews SET tag = NULL;
+
+-- 2) 新版 order-service 发布后，删除旧列
+ALTER TABLE product_reviews DROP COLUMN tag;
 ```
 
 - 生产 MySQL 5.7.44 支持 JSON 类型；
-- 不想用 JSON 类型时，可用 `varchar(255)` 存 JSON 字符串，实体按 String 接收，再用 Jackson 转 `List<String>`；筛选仍可用 `JSON_CONTAINS`；
+- 迁移脚本：[20261105_review_tags_multi.sql](sql/20261105_review_tags_multi.sql)、[20261105_drop_review_tag.sql](sql/20261105_drop_review_tag.sql)；
 - 本地执行后必须同步生产，避免线上表结构残缺。
 
 ### 12.4 后端接口与校验
 
 - order-service 新增 `ReviewTagEnum`，固定上述 8 个值，标签值直接存中文，不做 code 映射。
-- 实体 `ProductReview` 的 `tag: String` 改为 `tags: List<String>`（或保留 `tag` 只读过渡）。
+- 实体 `ProductReview` 只有 `tags: String`（JSON 文本），不再保留旧 `tag`。
 - `CreateReviewDTO`、`AdminReviewDTO` 的 `tag` 改为 `List<String> tags`，校验：
   - 数量 ≤ 4；
   - 去重；
