@@ -184,9 +184,9 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 ## 10. 必查清单
 
 - [ ] `JWT_SECRET` 所有服务一致
-- [ ] `SILICONFLOW_API_KEY` 是真实 key（Python `ai-service` 使用）
-- [ ] `.env` 有 `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE`，`ai-service` 能读到商品
-- [ ] `docker logs ai-service` 无报错；网关 `/api/agent/chat/stream` 能逐块返回
+- [ ] 已执行 `docs/sql/20261105_kb.sql`，`kb_qa` 有 132 条数据（`recommender-python/scripts/import_kb.py` 导入）
+- [ ] `.env` 有 `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE`，`ai-service` 能读到知识库
+- [ ] `docker logs ai-service` 无报错；网关 `/api/agent/chat` 能返回知识库答案
 - [ ] `WECHAT_SECRET` 正确
 - [ ] `DB_URL` 指向正确的库，且库里有表和数据
 - [ ] `/www/java/upload` 存在且可写，且已上传现有图片（`image/upload`、`body`、`category`、`swiper`、`share`、`QRcode.webp`、`store-logo.webp` 等）
