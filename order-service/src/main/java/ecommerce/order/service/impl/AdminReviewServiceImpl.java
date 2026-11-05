@@ -7,6 +7,7 @@ import ecommerce.order.dto.AdminReviewQueryDTO;
 import ecommerce.order.entity.ProductReview;
 import ecommerce.order.mapper.ProductReviewMapper;
 import ecommerce.order.service.AdminReviewService;
+import ecommerce.order.support.ReviewTags;
 import ecommerce.order.vo.AdminReviewVO;
 import ecommerce.order.vo.ProductSnapshotVO;
 import ecommerce.utils.UserContext;
@@ -68,7 +69,10 @@ public class AdminReviewServiceImpl implements AdminReviewService {
         List<AdminReviewVO> list = productReviewMapper.listAdmin(offset, safeSize,
                 q.getKeyword(), q.getOrderNo(), q.getRating(), q.getIsVirtual(), q.getVisible(),
                 q.getStart(), q.getEnd());
-        list.forEach(this::fillStatusDesc);
+        list.forEach(vo -> {
+            fillStatusDesc(vo);
+            fillTags(vo);
+        });
         long total = productReviewMapper.countAdmin(q.getKeyword(), q.getOrderNo(), q.getRating(),
                 q.getIsVirtual(), q.getVisible(), q.getStart(), q.getEnd());
         return new PageVO<>(list, total, safePage, safeSize);
@@ -81,6 +85,7 @@ public class AdminReviewServiceImpl implements AdminReviewService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "评价不存在");
         }
         fillStatusDesc(vo);
+        fillTags(vo);
         return vo;
     }
 
@@ -102,7 +107,7 @@ public class AdminReviewServiceImpl implements AdminReviewService {
                 .productName(snapshot.getTitle())
                 .productImage(snapshot.getImage())
                 .rating(dto.getRating())
-                .tag(dto.getTag())
+                .tags(ReviewTags.toJson(ReviewTags.normalize(dto.getTags(), dto.getTag())))
                 .content(dto.getContent().trim())
                 .images(dto.getImages())
                 .status(1)
@@ -137,7 +142,7 @@ public class AdminReviewServiceImpl implements AdminReviewService {
                 .productName(snapshot.getTitle())
                 .productImage(snapshot.getImage())
                 .rating(dto.getRating())
-                .tag(dto.getTag())
+                .tags(ReviewTags.toJson(ReviewTags.normalize(dto.getTags(), dto.getTag())))
                 .content(dto.getContent().trim())
                 .images(dto.getImages())
                 .updatedAt(now)
@@ -210,7 +215,7 @@ public class AdminReviewServiceImpl implements AdminReviewService {
                 setCell(row, 1, item.getProductId());
                 setCell(row, 2, item.getProductName());
                 setCell(row, 3, item.getRating());
-                setCell(row, 4, item.getTag());
+                setCell(row, 4, String.join("、", item.getTags()));
                 setCell(row, 5, item.getContent());
                 setCell(row, 6, Integer.valueOf(1).equals(item.getIsVirtual()) ? "虚拟" : "真实");
                 setCell(row, 7, item.getUserName());
@@ -286,6 +291,11 @@ public class AdminReviewServiceImpl implements AdminReviewService {
 
     private void fillStatusDesc(AdminReviewVO vo) {
         vo.setStatusDesc(Integer.valueOf(1).equals(vo.getStatus()) ? "显示" : "隐藏");
+    }
+
+    /** 把库里存的 JSON 标签数组解析成前端可直接渲染的数组 */
+    private void fillTags(AdminReviewVO vo) {
+        vo.setTags(ReviewTags.parse(vo.getTagsJson(), vo.getTag()));
     }
 
     /** 表头样式：加粗 + 居中 */

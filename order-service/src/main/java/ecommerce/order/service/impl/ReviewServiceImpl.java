@@ -7,12 +7,15 @@ import ecommerce.order.entity.Order;
 import ecommerce.order.entity.OrderItem;
 import ecommerce.order.entity.ProductReview;
 import ecommerce.order.enums.OrderStatusEnum;
+import ecommerce.order.enums.ReviewTagEnum;
 import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductReviewMapper;
 import ecommerce.order.service.ReviewService;
+import ecommerce.order.support.ReviewTags;
 import ecommerce.order.vo.ReviewDetailVO;
 import ecommerce.order.vo.ReviewSummaryVO;
+import ecommerce.order.vo.ReviewTagStatVO;
 import ecommerce.order.vo.ReviewVO;
 import ecommerce.utils.UserContext;
 import org.springframework.http.HttpStatus;
@@ -20,7 +23,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 商品评价 Service 实现。
@@ -80,7 +86,7 @@ public class ReviewServiceImpl implements ReviewService {
                 .productName(item.getProductName())
                 .productImage(item.getImage())
                 .rating(dto.getRating())
-                .tag(dto.getTag())
+                .tags(ReviewTags.toJson(ReviewTags.normalize(dto.getTags(), dto.getTag())))
                 .content(dto.getContent().trim())
                 .images(dto.getImages())
                 // createdAt 用 JVM 的 LocalDateTime.now()，不用 MySQL NOW()（数据库时区 UTC 会差 8 小时）
@@ -92,17 +98,49 @@ public class ReviewServiceImpl implements ReviewService {
     }
 
     @Override
-    public PageVO<ReviewDetailVO> listByProduct(Long productId, int page, int pageSize) {
+    public PageVO<ReviewDetailVO> listByProduct(Long productId, int page, int pageSize, List<String> tags) {
         if (productId == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID 不能为空");
         }
         int safePage = Math.max(page, 1);
         int safeSize = Math.min(Math.max(pageSize, 1), 50);
         int offset = (safePage - 1) * safeSize;
-        List<ReviewDetailVO> list = productReviewMapper.listByProduct(productId, offset, safeSize);
-        list.forEach(this::maskUserInfo);
-        long total = productReviewMapper.countByProduct(productId);
+        List<ReviewDetailVO> list = productReviewMapper.listByProduct(productId, offset, safeSize, tags);
+        list.forEach(vo -> {
+            maskUserInfo(vo);
+            vo.setTags(ReviewTags.parse(vo.getTagsJson(), vo.getTag()));
+        });
+        long total = productReviewMapper.countByProduct(productId, tags);
         return new PageVO<>(list, total, safePage, safeSize);
+    }
+
+    @Override
+    public List<ReviewTagStatVO> tagStats(Long productId) {
+        if (productId == null) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID 不能为空");
+        }
+        List<Map<String, Object>> rows = productReviewMapper.listVisibleTagRows(productId);
+        Map<String, Long> counter = new HashMap<>();
+        for (Map<String, Object> row : rows) {
+            Object tagsJson = row.get("tagsJson");
+            Object legacyTag = row.get("tag");
+            List<String> tags = ReviewTags.parse(
+                    tagsJson == null ? null : tagsJson.toString(),
+                    legacyTag == null ? null : legacyTag.toString());
+            for (String tag : tags) {
+                // 一条评价有多个标签时，每个标签各计 1 次
+                counter.merge(tag, 1L, Long::sum);
+            }
+        }
+        List<ReviewTagStatVO> result = new ArrayList<>(ReviewTagEnum.values().length);
+        for (ReviewTagEnum tag : ReviewTagEnum.values()) {
+            result.add(ReviewTagStatVO.builder()
+                    .value(tag.getLabel())
+                    .label(tag.getLabel())
+                    .count(counter.getOrDefault(tag.getLabel(), 0L))
+                    .build());
+        }
+        return result;
     }
 
     @Override
@@ -157,7 +195,7 @@ public class ReviewServiceImpl implements ReviewService {
                 .productName(review.getProductName())
                 .productImage(review.getProductImage())
                 .rating(review.getRating())
-                .tag(review.getTag())
+                .tags(ReviewTags.parse(review.getTags(), review.getTag()))
                 .content(review.getContent())
                 .createdAt(review.getCreatedAt())
                 .build();

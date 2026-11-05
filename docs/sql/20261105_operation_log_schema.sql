@@ -1,11 +1,11 @@
--- 操作日志审计表（通用基建，所有服务共用）
+-- 后台操作日志审计表（admin_ 前缀，后台管理系统专用，所有服务共用）
 -- 说明：这张表原先是手工建的，DDL 一直没进仓库，新环境会漏建表。
 --       本脚本按生产/本地实际结构回写，供新环境初始化使用。
 -- 写入方：common 的 JdbcOperationLogRecorder（JdbcTemplate 直写，异步）
 -- 读取方：auth-service 的 AdminOperationLogMapper（后台「操作日志」页面）
 -- 显式 COLLATE utf8mb4_general_ci：服务器是 MySQL 5.7，不支持 utf8mb4_0900_ai_ci
 
-CREATE TABLE `operation_log` (
+CREATE TABLE `admin_operation_log` (
   `id` bigint NOT NULL AUTO_INCREMENT COMMENT '操作日志 ID',
   `user_id` bigint DEFAULT NULL COMMENT '操作人 ID（admin.id 或 user.id）',
   `user_type` varchar(16) COLLATE utf8mb4_general_ci DEFAULT NULL COMMENT '操作人类型：admin / user',

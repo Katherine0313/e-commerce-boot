@@ -12,6 +12,7 @@ import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
 import ecommerce.log.LogDetail;
 import ecommerce.log.OperationLog;
+import ecommerce.utils.IpMasker;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -116,7 +117,8 @@ public class LoginLogServiceImpl implements LoginLogService {
                 .loginType(entity.getLoginType())
                 .resultCode(entity.getResultCode())
                 .reason(entity.getReason())
-                .ip(entity.getIp())
+                // 展示脱敏，库里仍保留完整 IP 供排查
+                .ip(IpMasker.mask(entity.getIp()))
                 .userAgent(entity.getUserAgent())
                 .createdAt(entity.getCreatedAt())
                 .build();
@@ -131,7 +133,7 @@ public class LoginLogServiceImpl implements LoginLogService {
                 str(entity.getLoginType()),
                 str(entity.getResultCode()),
                 str(entity.getReason()),
-                str(entity.getIp()),
+                str(IpMasker.mask(entity.getIp())),
                 str(entity.getUserAgent()),
                 str(entity.getCreatedAt()));
     }

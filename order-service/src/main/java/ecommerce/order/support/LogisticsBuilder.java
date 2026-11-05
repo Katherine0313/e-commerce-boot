@@ -43,7 +43,7 @@ public class LogisticsBuilder {
     }
 
     /** 轨迹节点相对【发货时间】的小时偏移：揽件 → 分拣 → 发出 → 到达 → 派送 */
-    private static final int[] OFFSETS = {0, 2, 5, 12, 20};
+    private static final int[] OFFSETS = {5, 5, 5, 12, 20};
 
     /**
      * 生成物流轨迹。
@@ -92,7 +92,7 @@ public class LogisticsBuilder {
 
         List<LogisticsTraceVO> traces = new ArrayList<>();
         if (shipped || finished) {
-            add(traces, base.plusHours(OFFSETS[0]), "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
+            addIfReached(traces, base.plusHours(OFFSETS[0]), end, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
             addIfReached(traces, base.plusHours(OFFSETS[1]), end, "运输中", "【" + originCity + originDistrict + "分拣中心】快件已完成分拣，准备发往" + destCity);
             addIfReached(traces, base.plusHours(OFFSETS[2]), end, "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity);
             addIfReached(traces, base.plusHours(OFFSETS[3]), end, "运输中", "快件已到达" + destCity + "中转中心");

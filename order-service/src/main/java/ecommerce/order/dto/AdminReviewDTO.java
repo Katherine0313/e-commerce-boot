@@ -3,6 +3,8 @@ package ecommerce.order.dto;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Data;
 
+import java.util.List;
+
 /**
  * 后台新增/编辑虚拟评价请求体。
  * <p>
@@ -18,8 +20,11 @@ public class AdminReviewDTO {
     @Schema(description = "星级：1~5")
     private Integer rating;
 
-    @Schema(description = "评价标签，如「质量好」「性价比高」")
+    @Schema(description = "旧单值标签，兼容旧前端；新前端用 tags")
     private String tag;
+
+    @Schema(description = "评价标签数组，最多 4 个")
+    private List<String> tags;
 
     @Schema(description = "评价内容，至少 5 个字")
     private String content;

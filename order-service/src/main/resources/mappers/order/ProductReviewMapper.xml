@@ -7,15 +7,15 @@
     <!-- 插入评价：created_at 由 Java 传参（不用 NOW()，避免数据库时区差 8 小时），status/is_deleted 默认 1/0 -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO product_reviews (order_id, user_id, product_id, product_name, product_image,
-                                     rating, tag, content, images, status, is_deleted, created_at)
+                                     rating, tags, content, images, status, is_deleted, created_at)
         VALUES (#{orderId}, #{userId}, #{productId}, #{productName}, #{productImage},
-                #{rating}, #{tag}, #{content}, #{images}, 1, 0, #{createdAt})
+                #{rating}, #{tags}, #{content}, #{images}, 1, 0, #{createdAt})
     </insert>
 
     <!-- 查某订单的评价（不含软删除），用于「是否已评价」标记与防重复提交 -->
     <select id="findByOrderId" resultType="ecommerce.order.entity.ProductReview">
         SELECT id, order_id, user_id, product_id, product_name, product_image,
-               rating, tag, content, images, status, is_deleted, created_at, updated_at
+               rating, tag, tags, content, images, status, is_deleted, created_at, updated_at
         FROM product_reviews
         WHERE order_id = #{orderId} AND is_deleted = 0
     </select>
@@ -33,7 +33,7 @@
     -->
     <sql id="adminColumns">
         r.id, r.order_id, r.user_id, r.product_id, r.product_name, r.product_image,
-        r.rating, r.tag, r.content, r.images, r.status, r.is_virtual, r.created_by,
+        r.rating, r.tag, r.tags AS tags_json, r.content, r.images, r.status, r.is_virtual, r.created_by,
         r.reply, r.reply_time, r.created_at, r.updated_at,
         o.order_no, u.name AS user_name, u.avatar AS user_avatar, a.name AS created_by_name
     </sql>
@@ -116,10 +116,10 @@
     -->
     <insert id="insertVirtual" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO product_reviews (order_id, user_id, product_id, product_name, product_image,
-                                     rating, tag, content, images, status, is_deleted,
+                                     rating, tags, content, images, status, is_deleted,
                                      is_virtual, created_by, created_at, updated_at)
         VALUES (0, 0, #{productId}, #{productName}, #{productImage},
-                #{rating}, #{tag}, #{content}, #{images}, 1, 0,
+                #{rating}, #{tags}, #{content}, #{images}, 1, 0,
                 1, #{createdBy}, #{createdAt}, #{updatedAt})
     </insert>
 
@@ -133,7 +133,7 @@
             product_name  = #{productName},
             product_image = #{productImage},
             rating        = #{rating},
-            tag           = #{tag},
+            tags          = #{tags},
             content       = #{content},
             images        = #{images},
             updated_at    = #{updatedAt}
@@ -180,21 +180,42 @@
       虚拟评价 user_id=0 → user_name 为 NULL，服务层补成「系统」。
     -->
     <select id="listByProduct" resultType="ecommerce.order.vo.ReviewDetailVO">
-        SELECT r.id, r.rating, r.tag, r.content, r.images, r.created_at,
+        SELECT r.id, r.rating, r.tag, r.tags AS tags_json, r.content, r.images, r.created_at,
                r.reply, r.reply_time, r.is_virtual,
                u.name AS user_name, u.avatar AS user_avatar
         FROM product_reviews r
         LEFT JOIN `user` u ON u.id = r.user_id
         WHERE r.product_id = #{productId} AND r.is_deleted = 0 AND r.status = 1
+        <if test="tags != null and tags.size() > 0">
+            AND (
+            <foreach collection="tags" item="tagItem" separator=" OR ">
+                JSON_CONTAINS(r.tags, JSON_QUOTE(#{tagItem}))
+            </foreach>
+            )
+        </if>
         ORDER BY r.created_at DESC, r.id DESC
         LIMIT #{offset}, #{pageSize}
     </select>
 
-    <!-- C 端评价条数 -->
+    <!-- C 端评价条数（与列表同一套筛选条件） -->
     <select id="countByProduct" resultType="long">
         SELECT COUNT(*)
-        FROM product_reviews
-        WHERE product_id = #{productId} AND is_deleted = 0 AND status = 1
+        FROM product_reviews r
+        WHERE r.product_id = #{productId} AND r.is_deleted = 0 AND r.status = 1
+        <if test="tags != null and tags.size() > 0">
+            AND (
+            <foreach collection="tags" item="tagItem" separator=" OR ">
+                JSON_CONTAINS(r.tags, JSON_QUOTE(#{tagItem}))
+            </foreach>
+            )
+        </if>
+    </select>
+
+    <!-- C 端标签统计：取可见评价的 tags（JSON）与旧 tag，Java 侧计数 -->
+    <select id="listVisibleTagRows" resultType="java.util.Map">
+        SELECT r.tags AS tagsJson, r.tag AS tag
+        FROM product_reviews r
+        WHERE r.product_id = #{productId} AND r.is_deleted = 0 AND r.status = 1
     </select>
 
     <!--

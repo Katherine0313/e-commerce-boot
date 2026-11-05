@@ -29,8 +29,10 @@ public class AdminOperationLogVO {
     private String username;
     @Schema(description = "业务模块，如 system")
     private String module;
-    @Schema(description = "动作，如 USER_ADD")
+    @Schema(description = "动作码，如 USER_ADD")
     private String action;
+    @Schema(description = "动作中文名，如 新增管理员")
+    private String actionName;
     @Schema(description = "业务对象 ID")
     private Long bizId;
     @Schema(description = "变更详情")

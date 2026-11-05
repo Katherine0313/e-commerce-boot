@@ -66,7 +66,7 @@ public class AdminAfterSaleController {
     }
 
     @Operation(summary = "删除售后（软删主表/明细/子表）")
-    @RequirePerm("aftersale:aftersale:audit")
+    @RequirePerm("aftersale:aftersale:remove")
     @DeleteMapping("/{id}")
     public Result<Void> delete(@PathVariable Long id) {
         adminAfterSaleService.delete(id);

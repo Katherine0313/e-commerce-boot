@@ -8,6 +8,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * 商品评价 VO（C 端返回）。
@@ -29,8 +30,8 @@ public class ReviewVO {
     private String productImage;
     @Schema(description = "星级：1~5")
     private Integer rating;
-    @Schema(description = "评价标签")
-    private String tag;
+    @Schema(description = "评价标签数组，最多 4 个")
+    private List<String> tags;
     @Schema(description = "评价内容")
     private String content;
     @Schema(description = "评价时间")

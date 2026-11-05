@@ -1,6 +1,7 @@
 package ecommerce.order.vo;
 
 import com.fasterxml.jackson.annotation.JsonFormat;
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
@@ -8,6 +9,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 /**
  * C 端商品评价 VO（/api/reviews/product/{productId} 返回）。
@@ -29,8 +31,15 @@ public class ReviewDetailVO {
     @Schema(description = "星级：1~5")
     private Integer rating;
 
-    @Schema(description = "评价标签")
+    @Schema(description = "旧单值标签，仅用于兼容历史数据")
     private String tag;
+
+    @Schema(description = "评价标签数组，最多 4 个")
+    private List<String> tags;
+
+    @Schema(hidden = true)
+    @JsonIgnore
+    private String tagsJson;
 
     @Schema(description = "评价内容")
     private String content;

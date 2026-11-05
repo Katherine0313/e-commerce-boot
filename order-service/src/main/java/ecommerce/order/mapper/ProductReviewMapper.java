@@ -9,6 +9,7 @@ import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 商品评价 Mapper（product_reviews 表）。
@@ -66,12 +67,16 @@ public interface ProductReviewMapper {
 
     // ===== C 端 =====
 
-    // C 端评价列表（只返回可见且未删除的）
+    // C 端评价列表（只返回可见且未删除的；tags 非空时按标签 OR 过滤）
     List<ReviewDetailVO> listByProduct(@Param("productId") Long productId,
-                                       @Param("offset") int offset, @Param("pageSize") int pageSize);
+                                       @Param("offset") int offset, @Param("pageSize") int pageSize,
+                                       @Param("tags") List<String> tags);
 
-    // C 端评价条数
-    long countByProduct(@Param("productId") Long productId);
+    // C 端评价条数（与列表同筛选条件）
+    long countByProduct(@Param("productId") Long productId, @Param("tags") List<String> tags);
+
+    // C 端标签统计用：取可见评价的标签列（tagsJson + 旧 tag）
+    List<Map<String, Object>> listVisibleTagRows(@Param("productId") Long productId);
 
     // C 端评价统计（总数/平均分/好评率/星级分布）
     ReviewSummaryVO summaryByProduct(@Param("productId") Long productId);

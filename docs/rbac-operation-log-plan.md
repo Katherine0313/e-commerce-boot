@@ -8,7 +8,7 @@
 
 只做两类，都是**后台管理员**的审计日志。不做 C 端日志、不做 API 访问日志、不做接口异常堆栈表。
 
-### 1. 操作日志（表 `operation_log`，已存在）
+### 1. 操作日志（表 `admin_operation_log`，已存在）
 
 记管理员「改了什么东西」，**只记写操作**，查询不记。
 
@@ -43,7 +43,7 @@
 
 ## 二、现状（2026-11-05 实测，已核对）
 
-### 2.1 `operation_log` 表
+### 2.1 `admin_operation_log` 表
 
 14 个字段：`id / user_id / user_type / module / action / biz_id / detail(255) / method / uri / ip / params(2000) / success / error_msg / cost_ms / created_at`。
 
@@ -82,16 +82,16 @@
 
 ## 三、数据模型
 
-### 3.1 `operation_log` 增量（不动存量）
+### 3.1 `admin_operation_log` 增量（不动存量）
 
 ```sql
-ALTER TABLE operation_log
+ALTER TABLE admin_operation_log
   ADD COLUMN username VARCHAR(64) NULL COMMENT '操作人账号快照' AFTER user_id;
 
-ALTER TABLE operation_log
+ALTER TABLE admin_operation_log
   MODIFY COLUMN detail VARCHAR(1024) NULL COMMENT '补充说明/变更详情';
 
-ALTER TABLE operation_log
+ALTER TABLE admin_operation_log
   ADD INDEX idx_operation_log_module_action (module, action, created_at),
   ADD INDEX idx_operation_log_username (username, created_at);
 ```
@@ -183,7 +183,7 @@ LogDiff.of("售后状态", 1, 2, AfterSaleStatusText::of); // 翻译成中文
 | `GET /api/admin/system/logs/export?format=csv\|xlsx` | `system:log:export` |
 | `GET /api/admin/system/login-logs/export?format=csv\|xlsx` | `system:log:login:export` |
 
-新增 `AdminOperationLogMapper` + XML（读 `operation_log`，与写入方共用 `e_commerce_db`）。Controller 上加 `@RequirePerm`，与 `AdminSystemUserController` 写法一致；超管靠 `*:*:*` 放行。
+新增 `AdminOperationLogMapper` + XML（读 `admin_operation_log`，与写入方共用 `e_commerce_db`）。Controller 上加 `@RequirePerm`，与 `AdminSystemUserController` 写法一致；超管靠 `*:*:*` 放行。
 
 - 操作日志参数：`page/pageSize/module/action/username/success/startTime/endTime/keyword`，默认近 7 天，`pageSize ≤ 100`，SQL 用 `LIMIT #{offset}, #{pageSize}`（MySQL 5.7）
 - 登录日志参数：`page/pageSize/username/loginType/resultCode/ip/startTime/endTime`
@@ -288,7 +288,7 @@ SELECT r.id, m.id FROM admin_role r JOIN admin_menu m ON m.id IN (804, 839, 840)
 
 ## 八、已定决策与待确认
 
-**已定**：保留 180 天定时清理；页面仅超管可见；CSV + Excel 都要且独立权限码；只记后台管理员；`params` 手机号脱敏为 `138****5678`；表名 `operation_log` 保留、`admin_login_log` 新建；查询接口放 auth-service（网关已路由，不改网关）。
+**已定**：保留 180 天定时清理；页面仅超管可见；CSV + Excel 都要且独立权限码；只记后台管理员；`params` 手机号脱敏为 `138****5678`；表名改为 `admin_operation_log`（后台专用统一 admin_ 前缀，原 `operation_log` 重命名）、`admin_login_log` 新建；查询接口放 auth-service（网关已路由，不改网关）。
 
 **待确认**：
 

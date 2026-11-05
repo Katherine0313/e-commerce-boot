@@ -23,7 +23,7 @@ import java.time.LocalDateTime;
 public class JdbcOperationLogRecorder implements OperationLogRecorder {
 
     private static final String INSERT_SQL = """
-            INSERT INTO operation_log
+            INSERT INTO admin_operation_log
               (user_id, user_type, username, module, action, biz_id, detail, method, uri, ip, params, success, error_msg, cost_ms, created_at)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;

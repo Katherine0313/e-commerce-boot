@@ -33,19 +33,19 @@
     <select id="list" resultType="ecommerce.auth.entity.AdminOperationLog">
         SELECT id, user_id, user_type, username, module, action, biz_id, detail,
                method, uri, ip, params, success, error_msg, cost_ms, created_at
-        FROM operation_log
+        FROM admin_operation_log
         WHERE <include refid="operationLogWhere"/>
         ORDER BY created_at DESC, id DESC
         LIMIT #{offset}, #{pageSize}
     </select>
 
     <select id="count" resultType="long">
-        SELECT COUNT(*) FROM operation_log WHERE <include refid="operationLogWhere"/>
+        SELECT COUNT(*) FROM admin_operation_log WHERE <include refid="operationLogWhere"/>
     </select>
 
     <!-- 分批清理：先按时间过滤再 LIMIT，命中 idx_operation_log_created -->
     <delete id="deleteBefore">
-        DELETE FROM operation_log
+        DELETE FROM admin_operation_log
         WHERE created_at &lt; #{before}
         LIMIT #{limit}
     </delete>

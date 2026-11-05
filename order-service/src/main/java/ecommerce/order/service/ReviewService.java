@@ -4,7 +4,10 @@ import ecommerce.common.PageVO;
 import ecommerce.order.dto.CreateReviewDTO;
 import ecommerce.order.vo.ReviewDetailVO;
 import ecommerce.order.vo.ReviewSummaryVO;
+import ecommerce.order.vo.ReviewTagStatVO;
 import ecommerce.order.vo.ReviewVO;
+
+import java.util.List;
 
 /**
  * 商品评价 Service。
@@ -18,8 +21,11 @@ public interface ReviewService {
     /** 提交评价：校验订单归属 + 已完成 + 未评价 → 从订单明细取商品快照落库 */
     ReviewVO submit(Long orderId, CreateReviewDTO dto);
 
-    /** C 端：某商品的评价列表（只含可见评价，手机号昵称打码） */
-    PageVO<ReviewDetailVO> listByProduct(Long productId, int page, int pageSize);
+    /** C 端：某商品的评价列表（只含可见评价，手机号昵称打码；tags 非空时按标签 OR 过滤） */
+    PageVO<ReviewDetailVO> listByProduct(Long productId, int page, int pageSize, List<String> tags);
+
+    /** C 端：某商品 8 个固定标签及各自条数（数量为 0 也返回） */
+    List<ReviewTagStatVO> tagStats(Long productId);
 
     /** C 端：某商品的评价统计（总数/平均分/好评率/星级分布） */
     ReviewSummaryVO summary(Long productId);

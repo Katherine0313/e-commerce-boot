@@ -3,8 +3,10 @@ package ecommerce.order.controller;
 import ecommerce.common.PageVO;
 import ecommerce.common.Result;
 import ecommerce.order.service.ReviewService;
+import ecommerce.order.support.ReviewTags;
 import ecommerce.order.vo.ReviewDetailVO;
 import ecommerce.order.vo.ReviewSummaryVO;
+import ecommerce.order.vo.ReviewTagStatVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,6 +14,8 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
 
 /**
  * C 端商品评价只读接口（/api/reviews）。
@@ -36,12 +40,19 @@ public class ProductReviewController {
         this.reviewService = reviewService;
     }
 
-    @Operation(summary = "商品评价列表（分页）")
+    @Operation(summary = "商品评价列表（分页，可按标签筛选）")
     @GetMapping("/product/{productId}")
     public Result<PageVO<ReviewDetailVO>> list(@PathVariable Long productId,
                                                @RequestParam(defaultValue = "1") int page,
-                                               @RequestParam(defaultValue = "10") int pageSize) {
-        return Result.success(reviewService.listByProduct(productId, page, pageSize));
+                                               @RequestParam(defaultValue = "10") int pageSize,
+                                               @RequestParam(required = false) String tags) {
+        return Result.success(reviewService.listByProduct(productId, page, pageSize, ReviewTags.forQuery(tags)));
+    }
+
+    @Operation(summary = "商品评价标签统计（8 个固定标签及条数）")
+    @GetMapping("/product/{productId}/tags")
+    public Result<List<ReviewTagStatVO>> tags(@PathVariable Long productId) {
+        return Result.success(reviewService.tagStats(productId));
     }
 
     @Operation(summary = "商品评价统计（总数/平均分/好评率/星级分布）")
