@@ -30,7 +30,8 @@ public class AuthController {
     @Operation(summary = "管理员登录")
     @PostMapping("/login")
     public Result<AdminLoginVO> login(@RequestBody AdminLoginDTO dto, HttpServletRequest request) {
-        return Result.success(authService.login(dto, resolveClientIp(request)));
+        return Result.success(authService.login(dto, resolveClientIp(request),
+                request.getHeader("User-Agent")));
     }
 
     /** 取客户端 IP：EdgeOne 回源时注入的 EO-Connecting-IP 最可信，其次 X-Forwarded-For / X-Real-IP */
@@ -64,8 +65,11 @@ public class AuthController {
 
     @Operation(summary = "登出")
     @PostMapping("/logout")
-    public Result<Void> logout() {
-        // 无状态 JWT：服务端无需作废令牌，前端删除本地 token 即可
+    public Result<Void> logout(HttpServletRequest request) {
+        // 无状态 JWT：服务端无需作废令牌，前端删除本地 token 即可；
+        // 这里只记一条登出日志（登录人从 Authorization 头里解析）
+        authService.logout(request.getHeader("Authorization"), resolveClientIp(request),
+                request.getHeader("User-Agent"));
         return Result.success();
     }
 }

@@ -7,6 +7,8 @@ import ecommerce.auth.service.AdminMenuService;
 import ecommerce.auth.support.AdminTokenInvalidator;
 import ecommerce.auth.vo.AdminMenuVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.log.LogDetail;
+import ecommerce.log.OperationLog;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -65,16 +67,20 @@ public class AdminMenuServiceImpl implements AdminMenuService {
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "MENU_ADD")
     public Long create(AdminMenuDTO dto) {
         AdminMenu menu = build(dto, null);
         adminMenuMapper.insert(menu);
+        LogDetail.add("新增菜单：" + menu.getMenuName());
         return menu.getId();
     }
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "MENU_EDIT", bizId = "#id")
     public void update(Long id, AdminMenuDTO dto) {
         AdminMenu existing = requireMenu(id);
+        LogDetail.add("修改菜单：" + existing.getMenuName());
         AdminMenu menu = build(dto, id);
         // 有子级时禁止改类型，避免出现按钮下面挂菜单这类非法结构
         if (!Objects.equals(existing.getMenuType(), menu.getMenuType())
@@ -91,8 +97,10 @@ public class AdminMenuServiceImpl implements AdminMenuService {
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "MENU_REMOVE", bizId = "#id")
     public void delete(Long id) {
-        requireMenu(id);
+        AdminMenu existing = requireMenu(id);
+        LogDetail.add("删除菜单：" + existing.getMenuName());
         if (adminMenuMapper.countChildren(id) > 0) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "存在子菜单，不能删除");
         }

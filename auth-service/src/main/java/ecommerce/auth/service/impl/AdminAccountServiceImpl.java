@@ -12,6 +12,8 @@ import ecommerce.auth.support.PasswordUtil;
 import ecommerce.auth.vo.AdminAccountVO;
 import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.log.LogDetail;
+import ecommerce.log.OperationLog;
 import ecommerce.utils.UserContext;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -67,6 +69,7 @@ public class AdminAccountServiceImpl implements AdminAccountService {
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "USER_ADD", detail = "'新增管理员账号：' + #dto.username")
     public Long create(AdminAccountDTO dto) {
         if (dto == null || dto.getUsername() == null || dto.getUsername().isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "用户名不能为空");
@@ -104,8 +107,10 @@ public class AdminAccountServiceImpl implements AdminAccountService {
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "USER_EDIT", bizId = "#id")
     public void update(Long id, AdminAccountDTO dto) {
         Admin existing = requireAdmin(id);
+        LogDetail.add("修改管理员账号：" + existing.getUsername());
         // 记录原角色，用于判断变更后是否需要让旧 token 立即失效
         List<Long> oldRoleIds = adminUserRoleMapper.listRoleIds(id);
         if (dto == null) {
@@ -148,9 +153,11 @@ public class AdminAccountServiceImpl implements AdminAccountService {
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "USER_REMOVE", bizId = "#id")
     public void delete(Long id) {
         // requireAdmin 已过滤 is_deleted=0，删过的账号再删一次会 404
-        requireAdmin(id);
+        Admin existing = requireAdmin(id);
+        LogDetail.add("删除管理员账号：" + existing.getUsername());
         if (Objects.equals(id, 1L)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "超级管理员账号不能删除");
         }
@@ -166,11 +173,13 @@ public class AdminAccountServiceImpl implements AdminAccountService {
     }
 
     @Override
+    @OperationLog(module = "system", action = "RESET_PWD", bizId = "#id", recordParams = false)
     public void resetPassword(Long id, String password) {
-        requireAdmin(id);
+        Admin existing = requireAdmin(id);
         if (password == null || password.length() < 6) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "密码至少 6 位");
         }
+        LogDetail.add("重置管理员密码：" + existing.getUsername());
         adminMapper.updatePassword(id, PasswordUtil.encode(password), LocalDateTime.now());
         // 重置密码后强制该账号重新登录
         adminTokenInvalidator.invalidateAfterCommit(id);

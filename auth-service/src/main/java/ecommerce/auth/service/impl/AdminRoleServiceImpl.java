@@ -11,6 +11,8 @@ import ecommerce.auth.support.AdminTokenInvalidator;
 import ecommerce.auth.vo.AdminRoleVO;
 import ecommerce.auth.vo.MenuVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.log.LogDetail;
+import ecommerce.log.OperationLog;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -61,6 +63,8 @@ public class AdminRoleServiceImpl implements AdminRoleService {
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "ROLE_ADD",
+            detail = "'新增角色：' + #dto.roleName")
     public Long create(AdminRoleDTO dto) {
         if (dto == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "角色参数不能为空");
@@ -84,8 +88,10 @@ public class AdminRoleServiceImpl implements AdminRoleService {
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "ROLE_EDIT", bizId = "#id")
     public void update(Long id, AdminRoleDTO dto) {
         AdminRole existing = requireRole(id);
+        LogDetail.add("修改角色：" + existing.getRoleName());
         if (dto == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "角色参数不能为空");
         }
@@ -120,8 +126,10 @@ public class AdminRoleServiceImpl implements AdminRoleService {
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "ROLE_REMOVE", bizId = "#id")
     public void delete(Long id) {
         AdminRole role = requireRole(id);
+        LogDetail.add("删除角色：" + role.getRoleName());
         if ("admin".equals(role.getRoleKey())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "店铺管理员角色不能删除");
         }
@@ -140,9 +148,11 @@ public class AdminRoleServiceImpl implements AdminRoleService {
 
     @Override
     @Transactional
+    @OperationLog(module = "system", action = "ROLE_ASSIGN", bizId = "#id")
     public void assignMenus(Long id, List<Long> menuIds) {
-        requireRole(id);
+        AdminRole role = requireRole(id);
         List<Long> target = menuIds == null ? List.of() : menuIds;
+        LogDetail.add("分配角色菜单：" + role.getRoleName() + "，共 " + target.size() + " 个");
         Set<Long> oldMenuIds = new HashSet<>(adminRoleMapper.listMenuIds(id));
         Set<Long> newMenuIds = target.stream().filter(Objects::nonNull).collect(Collectors.toSet());
         saveMenus(id, target);

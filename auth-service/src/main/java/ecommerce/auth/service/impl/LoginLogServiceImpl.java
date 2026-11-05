@@ -2,7 +2,7 @@ package ecommerce.auth.service.impl;
 
 import ecommerce.auth.dto.AdminLoginLogQuery;
 import ecommerce.auth.entity.AdminLoginLog;
-importecommerce.auth.enums.LoginResult;
+import ecommerce.auth.enums.LoginResult;
 import ecommerce.auth.enums.LoginType;
 import ecommerce.auth.mapper.AdminLoginLogMapper;
 import ecommerce.auth.service.LoginLogService;

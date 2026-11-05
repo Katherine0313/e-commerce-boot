@@ -3,6 +3,7 @@ package ecommerce.auth;
 import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 认证服务启动类：管理员登录/登出、JWT 签发。
@@ -12,6 +13,8 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  */
 @SpringBootApplication(scanBasePackages = "ecommerce")
 @MapperScan("ecommerce.auth.mapper")
+// 日志定时清理（LogCleanupTask）依赖调度器，没有它 @Scheduled 不会执行
+@EnableScheduling
 public class AuthServiceApplication {
 
     public static void main(String[] args) {

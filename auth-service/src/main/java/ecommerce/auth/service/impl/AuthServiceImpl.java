@@ -4,9 +4,12 @@ import ecommerce.auth.dto.AdminLoginDTO;
 import ecommerce.auth.entity.Admin;
 import ecommerce.auth.entity.AdminMenu;
 import ecommerce.auth.entity.AdminRole;
+import ecommerce.auth.enums.LoginResult;
+import ecommerce.auth.enums.LoginType;
 import ecommerce.auth.mapper.AdminMapper;
 import ecommerce.auth.mapper.RbacMapper;
 import ecommerce.auth.service.AuthService;
+import ecommerce.auth.service.LoginLogService;
 import ecommerce.auth.support.PasswordUtil;
 import ecommerce.auth.vo.AdminLoginVO;
 import ecommerce.auth.vo.AdminUserVO;
@@ -14,6 +17,7 @@ import ecommerce.auth.vo.CaptchaVO;
 import ecommerce.auth.vo.MenuVO;
 import ecommerce.exception.BusinessException;
 import ecommerce.utils.JwtUtil;
+import io.jsonwebtoken.Claims;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -62,6 +66,7 @@ public class AuthServiceImpl implements AuthService {
     private final RbacMapper rbacMapper;
     private final JwtUtil jwtUtil;
     private final StringRedisTemplate stringRedisTemplate;
+    private final LoginLogService loginLogService;
 
     /** 连续密码错误多少次后锁定 */
     @Value("${auth.login.max-fail-count:5}")
@@ -71,31 +76,50 @@ public class AuthServiceImpl implements AuthService {
     private long lockMinutes;
 
     public AuthServiceImpl(AdminMapper adminMapper, RbacMapper rbacMapper, JwtUtil jwtUtil,
-                           StringRedisTemplate stringRedisTemplate) {
+                           StringRedisTemplate stringRedisTemplate,
+                           LoginLogService loginLogService) {
         this.adminMapper = adminMapper;
         this.rbacMapper = rbacMapper;
         this.jwtUtil = jwtUtil;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.loginLogService = loginLogService;
     }
 
     @Override
-    public AdminLoginVO login(AdminLoginDTO dto, String clientIp) {
+    public AdminLoginVO login(AdminLoginDTO dto, String clientIp, String userAgent) {
         // 1. 参数校验：用户名/密码都不能为空
         if (dto == null || dto.getUsername() == null || dto.getUsername().isBlank()
                 || dto.getPassword() == null || dto.getPassword().isBlank()) {
+            recordLoginLog(null, dto == null ? null : dto.getUsername(),
+                    LoginResult.PARAM_MISSING, "用户名或密码为空", clientIp, userAgent);
             throw new BusinessException(HttpStatus.BAD_REQUEST, "用户名和密码不能为空");
         }
         String username = dto.getUsername().trim();
         // 2. 失败次数锁定：按「用户名 + IP」，避免被别人恶意锁死账号
-        assertNotLocked(username, clientIp);
+        try {
+            assertNotLocked(username, clientIp);
+        } catch (BusinessException e) {
+            recordLoginLog(null, username, LoginResult.LOCKED, e.getMessage(), clientIp, userAgent);
+            throw e;
+        }
         // 3. 图形验证码：一次性使用，校验后立即删除
-        validateCaptcha(dto.getCaptchaId(), dto.getCaptchaCode());
+        try {
+            validateCaptcha(dto.getCaptchaId(), dto.getCaptchaCode());
+        } catch (BusinessException e) {
+            recordLoginLog(null, username, LoginResult.CAPTCHA_ERROR, e.getMessage(), clientIp, userAgent);
+            throw e;
+        }
         // 4. 按用户名查管理员；查不到或密码不符统一回「用户名或密码错误」，不暴露账号是否存在
         Admin admin = adminMapper.findByUsername(username);
         // BCrypt 密文走 matches，历史明文账号首次登录成功后自动升级为 BCrypt
         if (admin == null || !PasswordUtil.matches(dto.getPassword(), admin.getPassword())) {
             long failures = recordLoginFailure(username, clientIp);
-            if (failures >= maxFailCount) {
+            boolean locked = failures >= maxFailCount;
+            // 本次是错误密码：达到上限时记为「触发锁定」，否则普通账密错误
+            recordLoginLog(admin == null ? null : admin.getId(), username,
+                    locked ? LoginResult.LOCKED : LoginResult.BAD_CREDENTIALS,
+                    locked ? lockedMessage(null) : "用户名或密码错误", clientIp, userAgent);
+            if (locked) {
                 throw new BusinessException(HttpStatus.TOO_MANY_REQUESTS, lockedMessage(null));
             }
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "用户名或密码错误");
@@ -104,6 +128,8 @@ public class AuthServiceImpl implements AuthService {
         clearLoginFailures(username, clientIp);
         // 6. 账号停用拦截（status=0；已软删的账号 findByUsername 查不到，走不到这里）
         if (admin.getStatus() != null && admin.getStatus() == 0) {
+            recordLoginLog(admin.getId(), username, LoginResult.USER_DISABLED,
+                    "账号已停用", clientIp, userAgent);
             throw new BusinessException(HttpStatus.FORBIDDEN, "账号已停用");
         }
         // 历史明文密码升级为 BCrypt（失败不影响本次登录）
@@ -112,7 +138,59 @@ public class AuthServiceImpl implements AuthService {
                     LocalDateTime.now());
         }
         // 7. 签发管理员令牌：claims 带上 username/role/id，前端解 payload 做权限判断
-        return buildLoginResult(admin);
+        AdminLoginVO result = buildLoginResult(admin);
+        recordLoginLog(admin.getId(), admin.getUsername(), LoginResult.SUCCESS,
+                null, clientIp, userAgent);
+        return result;
+    }
+
+    /**
+     * 登出。
+     * <p>
+     * /api/logout 在免登录清单里（JwtInterceptor 不处理），拿不到 UserContext，
+     * 所以这里自己解一次 Authorization 头：解析失败（没带/过期/伪造）就不记，
+     * 避免给没有身份信息的请求刷一堆空账号日志。
+     */
+    @Override
+    public void logout(String authorization, String clientIp, String userAgent) {
+        Long adminId = null;
+        String username = null;
+        String token = bearerToken(authorization);
+        if (token != null) {
+            try {
+                Claims claims = jwtUtil.parseToken(token);
+                username = claims.get("username", String.class);
+                Object id = claims.get("id");
+                adminId = id instanceof Number number ? number.longValue() : null;
+            } catch (Exception e) {
+                log.debug("登出时解析令牌失败，跳过登录日志: {}", e.getMessage());
+            }
+        }
+        if (adminId == null && (username == null || username.isBlank())) {
+            return;
+        }
+        recordLoginLog(adminId, username, LoginType.LOGOUT, LoginResult.SUCCESS,
+                null, clientIp, userAgent);
+    }
+
+    /** 从 Authorization 头取 Bearer 令牌；格式不对返回 null */
+    private String bearerToken(String authorization) {
+        if (authorization == null || authorization.isBlank()) {
+            return null;
+        }
+        String value = authorization.trim();
+        return value.startsWith("Bearer ") ? value.substring(7).trim() : null;
+    }
+
+    /** 记一条登录日志；默认 LOGIN，异常已在 LoginLogService 内部兜底 */
+    private void recordLoginLog(Long adminId, String username, LoginResult result,
+                                String reason, String clientIp, String userAgent) {
+        recordLoginLog(adminId, username, LoginType.LOGIN, result, reason, clientIp, userAgent);
+    }
+
+    private void recordLoginLog(Long adminId, String username, LoginType type, LoginResult result,
+                                String reason, String clientIp, String userAgent) {
+        loginLogService.record(adminId, username, type, result, reason, clientIp, userAgent);
     }
 
     @Override
