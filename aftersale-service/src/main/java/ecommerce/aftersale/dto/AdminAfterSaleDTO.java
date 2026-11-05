@@ -12,4 +12,10 @@ public class AdminAfterSaleDTO {
     private String status;
     @Schema(description = "商家内部备注（拒绝售后时必填）")
     private String merchantRemark;
+    @Schema(description = "换货补发快递公司（选填）")
+    private String shipCourier;
+    @Schema(description = "换货补发快递单号（选填）")
+    private String shipTrackingNumber;
+    @Schema(description = "换货补发时间（选填，默认当前时间）")
+    private java.time.LocalDateTime shipAt;
 }

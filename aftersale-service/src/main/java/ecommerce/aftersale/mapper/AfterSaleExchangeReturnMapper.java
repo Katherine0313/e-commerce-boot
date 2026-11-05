@@ -26,6 +26,17 @@ public interface AfterSaleExchangeReturnMapper {
                        @Param("courier") String courier, @Param("trackingNumber") String trackingNumber,
                        @Param("returnAt") LocalDateTime returnAt, @Param("updatedAt") LocalDateTime updatedAt);
 
+    // 买家确认上门取件：写 pickup_at/pickup_no/return_at
+    int updatePickup(@Param("afterSaleId") Long afterSaleId,
+                     @Param("pickupAt") LocalDateTime pickupAt, @Param("pickupNo") String pickupNo,
+                     @Param("updatedAt") LocalDateTime updatedAt);
+
+    // 商家补发信息（选填，写 ship_courier/ship_tracking_number/ship_at）
+    int updateShipInfo(@Param("afterSaleId") Long afterSaleId,
+                       @Param("shipCourier") String shipCourier,
+                       @Param("shipTrackingNumber") String shipTrackingNumber,
+                       @Param("shipAt") LocalDateTime shipAt, @Param("updatedAt") LocalDateTime updatedAt);
+
     // 后台审核：更新指定时间戳列（列名由 STATUS_COLUMN_MAP 白名单保证）
     int updateTimestamp(@Param("afterSaleId") Long afterSaleId,
                         @Param("column") String column, @Param("now") LocalDateTime now);

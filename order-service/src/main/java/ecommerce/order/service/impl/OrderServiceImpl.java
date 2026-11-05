@@ -689,6 +689,8 @@ public class OrderServiceImpl implements OrderService {
                 .discountAmount(item.getDiscountAmount())
                 .quantity(item.getQuantity())
                 .subTotal(item.getSubTotal())
+                .afterSaleStatus(item.getAfterSaleStatus())
+                .afterSaleId(item.getAfterSaleId())
                 .build();
     }
 }

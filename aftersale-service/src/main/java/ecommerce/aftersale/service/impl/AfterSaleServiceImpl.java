@@ -62,6 +62,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     private static final int ORDER_STATUS_PENDING_SHIP = 3;
     private static final int ORDER_STATUS_SHIPPED = 4;
     private static final int ORDER_STATUS_FINISHED = 5;
+    /** 整单商品全部退款后的订单状态：已退款 */
+    private static final int ORDER_STATUS_REFUNDED = 7;
 
     private final AfterSaleMapper afterSaleMapper;
     private final AfterSaleItemMapper afterSaleItemMapper;
@@ -137,12 +139,18 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         if (!statusOk) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "当前订单状态不支持该售后类型");
         }
-        // 同一订单不允许重复申请
-        if (afterSaleMapper.findByOrderId(dto.getOrderId()) != null) {
-            throw new BusinessException(HttpStatus.BAD_REQUEST, "该订单已存在售后申请，请勿重复提交");
+        // 按订单项唯一：同一订单项同时只能有一张进行中的售后单；
+        // 整单申请时，订单里任意商品有进行中的售后都不能再整单申请。
+        if (dto.getOrderItemId() != null) {
+            if (afterSaleMapper.countActiveByOrderItem(dto.getOrderItemId()) > 0) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "该商品已有进行中的售后申请，请勿重复提交");
+            }
+        } else if (afterSaleMapper.countActiveByOrder(dto.getOrderId()) > 0) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "该订单已有进行中的售后申请，请勿重复提交");
         }
 
         // 快照订单明细：传了 orderItemId 则只退单个商品，否则整单
+        List<OrderItem> allItems = orderMapper.listItems(dto.getOrderId());
         List<OrderItem> orderItems;
         if (dto.getOrderItemId() != null) {
             OrderItem item = orderMapper.findItemById(dto.getOrderItemId(), dto.getOrderId());
@@ -151,13 +159,16 @@ public class AfterSaleServiceImpl implements AfterSaleService {
             }
             orderItems = List.of(item);
         } else {
-            orderItems = orderMapper.listItems(dto.getOrderId());
+            orderItems = allItems;
         }
         if (orderItems.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "订单无明细，无法申请售后");
         }
 
         LocalDateTime now = LocalDateTime.now();
+        // 退款金额快照：按选中订单项实付占比分摊，最后一项补差额
+        Map<Long, BigDecimal> refundMap = allocateRefund(allItems, orderItems, order.getPayAmount());
+        BigDecimal totalRefund = refundMap.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add);
 
         // 写主表（初始状态 reviewing）
         AfterSale afterSale = AfterSale.builder()
@@ -172,6 +183,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .remark(dto.getRemark() == null ? "" : dto.getRemark())
                 .images(toImagesJson(dto.getImages()))
                 .merchantRemark("")
+                .refundAmount(totalRefund)
                 .createdAt(now)
                 .updatedAt(now)
                 .build();
@@ -191,7 +203,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                         .image(oi.getImage())
                         .salesPrice(oi.getSalesPrice())
                         .quantity(oi.getQuantity())
-                        .refundAmount(oi.getSubTotal() == null ? BigDecimal.ZERO : oi.getSubTotal())
+                        .refundAmount(refundMap.getOrDefault(oi.getId(), BigDecimal.ZERO))
                         .insuranceDetail(oi.getInsuranceDetail() == null ? "[]" : oi.getInsuranceDetail())
                         .insuranceFee(oi.getInsuranceFee() == null ? BigDecimal.ZERO : oi.getInsuranceFee())
                         .createdAt(now)
@@ -200,7 +212,57 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .toList();
         afterSaleItemMapper.insertBatch(items);
 
+        // 标记订单项售后中，供订单详情展示与发货跳过
+        for (OrderItem oi : orderItems) {
+            orderMapper.updateItemAfterSale(oi.getId(), afterSale.getId(), "processing", now);
+        }
+
         return buildDetail(afterSale.getId());
+    }
+
+    /**
+     * 按订单项实付占比分摊退款金额。
+     * <p>
+     * 口径：退款只看买家实际支付的钱；优惠券已体现在实付里且不返还；订单包邮，不单独退运费。
+     * 选中项按小计占比分摊，最后一项吃掉四舍五入差额，保证合计等于选中项实付。
+     */
+    private Map<Long, BigDecimal> allocateRefund(List<OrderItem> allItems, List<OrderItem> selectedItems,
+                                                 BigDecimal payAmount) {
+        BigDecimal allSubTotal = allItems.stream()
+                .map(oi -> oi.getSubTotal() == null ? BigDecimal.ZERO : oi.getSubTotal())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+        BigDecimal paid = payAmount == null ? allSubTotal : payAmount;
+        BigDecimal selectedSubTotal = selectedItems.stream()
+                .map(oi -> oi.getSubTotal() == null ? BigDecimal.ZERO : oi.getSubTotal())
+                .reduce(BigDecimal.ZERO, BigDecimal::add);
+
+        BigDecimal selectedPaid;
+        if (allSubTotal.compareTo(BigDecimal.ZERO) <= 0) {
+            selectedPaid = BigDecimal.ZERO;
+        } else if (selectedSubTotal.compareTo(allSubTotal) == 0) {
+            selectedPaid = paid;
+        } else {
+            selectedPaid = paid.multiply(selectedSubTotal)
+                    .divide(allSubTotal, 2, java.math.RoundingMode.HALF_UP);
+        }
+
+        Map<Long, BigDecimal> result = new java.util.LinkedHashMap<>();
+        BigDecimal allocated = BigDecimal.ZERO;
+        for (int i = 0; i < selectedItems.size(); i++) {
+            OrderItem oi = selectedItems.get(i);
+            BigDecimal amount;
+            if (i == selectedItems.size() - 1) {
+                amount = selectedPaid.subtract(allocated);
+            } else if (selectedSubTotal.compareTo(BigDecimal.ZERO) <= 0) {
+                amount = BigDecimal.ZERO;
+            } else {
+                BigDecimal sub = oi.getSubTotal() == null ? BigDecimal.ZERO : oi.getSubTotal();
+                amount = selectedPaid.multiply(sub).divide(selectedSubTotal, 2, java.math.RoundingMode.HALF_UP);
+                allocated = allocated.add(amount);
+            }
+            result.put(oi.getId(), amount);
+        }
+        return result;
     }
 
     @Override
@@ -302,6 +364,7 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 trackingNumber = dto.getTrackingNumber();
             }
             afterSaleReturnMapper.updateTracking(id, courier, trackingNumber, now, now);
+            // 上门取件由 pickup-complete 写 pickup_at；这里自行寄回只写 return_at
             afterSaleMapper.updateStatus(id, AfterSaleStatusEnum.REFUNDING.getCode(), now);
         } else {
             // 换货：提交退货方式 + 回填物流（自行寄回填单号）
@@ -326,6 +389,54 @@ public class AfterSaleServiceImpl implements AfterSaleService {
             afterSaleExchangeReturnMapper.updateReturnInfo(id, returnWay, returnTimeSlot, now, now);
             afterSaleExchangeReturnMapper.updateTracking(id, courier, trackingNumber, now, now);
             afterSaleMapper.updateStatus(id, afterSale.getStatus(), now);
+        }
+
+        return buildDetail(id);
+    }
+
+    @Override
+    @Transactional
+    @AfterSaleLogRecord(operateType = AfterSaleOperateTypeEnum.USER_PICKUP_COMPLETE,
+            operator = AfterSaleLogRecord.OperatorType.BUYER)
+    public AfterSaleVO pickupComplete(Long id) {
+        AfterSale afterSale = getOwnedAfterSale(id);
+        if (AfterSaleTypeEnum.ONLY_REFUND.getCode().equals(afterSale.getAfterSaleType())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "仅退款售后无需上门取件");
+        }
+        if (!AfterSaleStatusEnum.RETURNING.getCode().equals(afterSale.getStatus())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "当前状态不允许确认上门取件");
+        }
+
+        LocalDateTime pickupAt;
+        String pickupNo;
+        if (AfterSaleTypeEnum.RETURN_REFUND.getCode().equals(afterSale.getAfterSaleType())) {
+            AfterSaleReturn sub = afterSaleReturnMapper.findByAfterSaleId(id);
+            if (sub == null || !"pickup".equals(sub.getReturnWay())) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "当前售后不是上门取件");
+            }
+            // 幂等：已确认过直接返回详情
+            if (sub.getPickupAt() != null) {
+                return buildDetail(id);
+            }
+            pickupAt = LocalDateTime.now();
+            pickupNo = "PU" + afterSale.getAfterSaleNo();
+            afterSaleReturnMapper.updatePickup(id, pickupAt, pickupNo, pickupAt);
+            afterSaleMapper.updateStatus(id, AfterSaleStatusEnum.REFUNDING.getCode(), pickupAt);
+        } else if (AfterSaleTypeEnum.EXCHANGE.getCode().equals(afterSale.getAfterSaleType())) {
+            AfterSaleExchangeReturn sub = afterSaleExchangeReturnMapper.findByAfterSaleId(id);
+            if (sub == null || !"pickup".equals(sub.getReturnWay())) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "当前售后不是上门取件");
+            }
+            if (sub.getPickupAt() != null) {
+                return buildDetail(id);
+            }
+            pickupAt = LocalDateTime.now();
+            pickupNo = "PU" + afterSale.getAfterSaleNo();
+            afterSaleExchangeReturnMapper.updatePickup(id, pickupAt, pickupNo, pickupAt);
+            // 换货保持 returning，等商家确认收到退货
+            afterSaleMapper.updateStatus(id, afterSale.getStatus(), pickupAt);
+        } else {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "当前售后类型不支持上门取件");
         }
 
         return buildDetail(id);
@@ -421,6 +532,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                     sub.returnTimeSlot = r.getReturnTimeSlot();
                     sub.returnCourier = r.getReturnCourier();
                     sub.returnTrackingNumber = r.getReturnTrackingNumber();
+                    sub.pickupAt = r.getPickupAt();
+                    sub.pickupNo = r.getPickupNo();
                     sub.returnAt = r.getReturnAt();
                     sub.reviewAt = r.getReviewAt();
                     sub.rejectedAt = r.getRejectedAt();
@@ -445,6 +558,11 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                     sub.returnCourier = r.getReturnCourier();
                     sub.returnTrackingNumber = r.getReturnTrackingNumber();
                     sub.shipAddress = r.getShipAddress();
+                    sub.pickupAt = r.getPickupAt();
+                    sub.pickupNo = r.getPickupNo();
+                    sub.shipCourier = r.getShipCourier();
+                    sub.shipTrackingNumber = r.getShipTrackingNumber();
+                    sub.shipAt = r.getShipAt();
                     sub.returnAt = r.getReturnAt();
                     sub.reviewAt = r.getReviewAt();
                     sub.rejectedAt = r.getRejectedAt();
@@ -521,6 +639,9 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .payTypeDesc(payType == null ? null : payType.getDesc())
                 .payAt(a.getPayAt())
                 .payAmount(a.getPayAmount())
+                .refundAmount(a.getRefundAmount())
+                .refundNo(a.getRefundNo())
+                .refundChannel(a.getRefundChannel())
                 .courier(a.getCourier())
                 .courierDesc(courier == null ? null : courier.getDesc())
                 .trackingNumber(a.getTrackingNumber())
@@ -530,6 +651,11 @@ public class AfterSaleServiceImpl implements AfterSaleService {
                 .returnCourier(sub == null ? null : sub.returnCourier)
                 .returnCourierDesc(returnCourier == null ? null : returnCourier.getDesc())
                 .returnTrackingNumber(sub == null ? null : sub.returnTrackingNumber)
+                .pickupAt(sub == null ? null : sub.pickupAt)
+                .pickupNo(sub == null ? null : sub.pickupNo)
+                .shipCourier(sub == null ? null : sub.shipCourier)
+                .shipTrackingNumber(sub == null ? null : sub.shipTrackingNumber)
+                .shipAt(sub == null ? null : sub.shipAt)
                 .returnAt(sub == null ? null : sub.returnAt)
                 .reviewAt(sub == null ? null : sub.reviewAt)
                 .rejectedAt(sub == null ? null : sub.rejectedAt)
@@ -607,6 +733,11 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         String returnCourier;
         String returnTrackingNumber;
         String shipAddress;
+        LocalDateTime pickupAt;
+        String pickupNo;
+        String shipCourier;
+        String shipTrackingNumber;
+        LocalDateTime shipAt;
         LocalDateTime returnAt;
         LocalDateTime reviewAt;
         LocalDateTime rejectedAt;

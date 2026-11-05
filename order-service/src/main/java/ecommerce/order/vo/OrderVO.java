@@ -65,7 +65,7 @@ public class OrderVO {
     private String trackingNumber;
     @Schema(description = "签收状态")
     private String signStatus;
-    @Schema(description = "物流最新状态（已揽件/运输中/派送中/已签收，假数据）")
+    @Schema(description = "物流最新状态（待揽件/已揽件/运输中/派送中/已签收，假数据）")
     private String logisticsStatus;
     @Schema(description = "物流最新轨迹描述（假数据）")
     private String latestTrace;

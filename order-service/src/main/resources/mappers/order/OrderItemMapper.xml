@@ -19,7 +19,8 @@
     <!-- 查某订单明细 -->
     <select id="listByOrderId" resultType="ecommerce.order.entity.OrderItem">
         SELECT id, order_id, product_id, product_name, image, sales_price, original_price,
-               quantity, sub_total, discount_amount, insurance_detail, insurance_fee, is_deleted, created_at
+               quantity, sub_total, discount_amount, insurance_detail, insurance_fee,
+               after_sale_status, after_sale_id, is_deleted, created_at
         FROM order_items
         WHERE order_id = #{orderId} AND is_deleted = 0
     </select>

@@ -41,7 +41,10 @@ public enum AfterSaleOperateTypeEnum {
     ADMIN_START_EXCHANGE(8, "ADMIN_START_EXCHANGE", "商家开始换货", "商家已确认收到退货，开始换货"),
 
     /** 9 换货完成（目标状态 exchanged） */
-    ADMIN_FINISH_EXCHANGE(9, "ADMIN_FINISH_EXCHANGE", "换货完成", "换货已完成");
+    ADMIN_FINISH_EXCHANGE(9, "ADMIN_FINISH_EXCHANGE", "换货完成", "换货已完成"),
+
+    /** 10 买家确认上门取件（退货退款 → refunding；换货 → returning 不变） */
+    USER_PICKUP_COMPLETE(10, "USER_PICKUP_COMPLETE", "买家确认上门取件", "买家已确认快递员上门取件");
 
     /** 数据库存储编码 */
     private final Integer code;

@@ -23,6 +23,10 @@ public class AfterSaleReturn {
     private String returnTimeSlot;
     private String returnCourier;
     private String returnTrackingNumber;
+    /** 买家确认上门取件时间 */
+    private LocalDateTime pickupAt;
+    /** 模拟取件单号 */
+    private String pickupNo;
     private LocalDateTime returnAt;
     private LocalDateTime reviewAt;
     private LocalDateTime rejectedAt;

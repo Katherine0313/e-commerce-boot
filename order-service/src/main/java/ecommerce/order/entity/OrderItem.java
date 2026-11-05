@@ -32,6 +32,9 @@ public class OrderItem {
     private BigDecimal discountAmount;
     private String insuranceDetail;
     private BigDecimal insuranceFee;
+    /** 售后标记：none/processing/refunded/exchanged/rejected（aftersale-service 回写） */
+    private String afterSaleStatus;
+    private Long afterSaleId;
     private Integer isDeleted;
     private LocalDateTime createdAt;
 }

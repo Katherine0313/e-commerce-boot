@@ -12,7 +12,7 @@
 
     <select id="findByAfterSaleId" resultType="ecommerce.aftersale.entity.AfterSaleReturn">
         SELECT id, after_sale_id, return_way, return_time_slot, return_courier, return_tracking_number,
-               return_at, review_at, rejected_at,
+               pickup_at, pickup_no, return_at, review_at, rejected_at,
                refund_at, refunded_at, is_deleted, created_at, updated_at
         FROM after_sale_returns
         WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
@@ -29,6 +29,13 @@
     <update id="updateTracking">
         UPDATE after_sale_returns
         SET return_courier = #{courier}, return_tracking_number = #{trackingNumber}, return_at = #{returnAt}, updated_at = #{updatedAt}
+        WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
+    </update>
+
+    <!-- 买家确认上门取件 -->
+    <update id="updatePickup">
+        UPDATE after_sale_returns
+        SET pickup_at = #{pickupAt}, pickup_no = #{pickupNo}, return_at = #{pickupAt}, updated_at = #{updatedAt}
         WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
     </update>
 

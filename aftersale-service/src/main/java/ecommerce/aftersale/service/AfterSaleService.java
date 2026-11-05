@@ -31,6 +31,9 @@ public interface AfterSaleService {
     /** 用户提交退货方式（status=returning 时可调用） */
     AfterSaleVO submitReturn(Long id, SubmitReturnDTO dto);
 
+    /** 买家确认上门取件（退货退款 → refunding；换货保持 returning） */
+    AfterSaleVO pickupComplete(Long id);
+
     /** 售后变更流水（买家可见，不含商家内部备注） */
     List<AfterSaleLogVO> listLogs(Long id);
 

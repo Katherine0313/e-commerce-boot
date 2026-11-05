@@ -22,7 +22,9 @@ public enum OrderStatusEnum {
     PENDING_SHIP(3, "待发货", "待发货", "cyan"),
     SHIPPED(4, "已发货", "已发货", "purple"),
     FINISHED(5, "已完成", "已完成", "success"),
-    CANCEL(6, "已取消", "已取消", "default");
+    CANCEL(6, "已取消", "已取消", "default"),
+    /** 售后全部订单项退款完成后的终态（由 aftersale-service 回写） */
+    REFUNDED(7, "已退款", "已退款", "red");
 
     private final Integer code;
     /** C 端（顾客）展示文案 */
@@ -64,7 +66,8 @@ public enum OrderStatusEnum {
             PENDING_SHIP, EnumSet.of(SHIPPED, CANCEL),
             SHIPPED, EnumSet.of(FINISHED),
             FINISHED, EnumSet.noneOf(OrderStatusEnum.class),
-            CANCEL, EnumSet.noneOf(OrderStatusEnum.class)
+            CANCEL, EnumSet.noneOf(OrderStatusEnum.class),
+            REFUNDED, EnumSet.noneOf(OrderStatusEnum.class)
     );
 
     /** 是否允许从当前状态流转到目标状态 */

@@ -17,6 +17,7 @@ import ecommerce.aftersale.mapper.AfterSaleLogMapper;
 import ecommerce.aftersale.mapper.AfterSaleMapper;
 import ecommerce.aftersale.mapper.AfterSaleOnlyRefundMapper;
 import ecommerce.aftersale.mapper.AfterSaleReturnMapper;
+import ecommerce.aftersale.mapper.OrderMapper;
 import ecommerce.aftersale.service.AdminAfterSaleService;
 import ecommerce.aftersale.support.AfterSaleLogConverter;
 import ecommerce.aftersale.support.AfterSaleTransitions;
@@ -66,12 +67,16 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
             "exchanged", List.of("exchanged_at")
     );
 
+    /** 整单商品全部退款后的订单状态：已退款（对齐 order-service 新增的 7） */
+    private static final int ORDER_STATUS_REFUNDED = 7;
+
     private final AfterSaleMapper afterSaleMapper;
     private final AfterSaleItemMapper afterSaleItemMapper;
     private final AfterSaleReturnMapper afterSaleReturnMapper;
     private final AfterSaleOnlyRefundMapper afterSaleOnlyRefundMapper;
     private final AfterSaleExchangeReturnMapper afterSaleExchangeReturnMapper;
     private final AfterSaleLogMapper afterSaleLogMapper;
+    private final OrderMapper orderMapper;
     private final ObjectMapper objectMapper;
 
     public AdminAfterSaleServiceImpl(AfterSaleMapper afterSaleMapper, AfterSaleItemMapper afterSaleItemMapper,
@@ -79,6 +84,7 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                                      AfterSaleOnlyRefundMapper afterSaleOnlyRefundMapper,
                                      AfterSaleExchangeReturnMapper afterSaleExchangeReturnMapper,
                                      AfterSaleLogMapper afterSaleLogMapper,
+                                     OrderMapper orderMapper,
                                      ObjectMapper objectMapper) {
         this.afterSaleMapper = afterSaleMapper;
         this.afterSaleItemMapper = afterSaleItemMapper;
@@ -86,6 +92,7 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
         this.afterSaleOnlyRefundMapper = afterSaleOnlyRefundMapper;
         this.afterSaleExchangeReturnMapper = afterSaleExchangeReturnMapper;
         this.afterSaleLogMapper = afterSaleLogMapper;
+        this.orderMapper = orderMapper;
         this.objectMapper = objectMapper;
     }
 
@@ -160,6 +167,8 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                     sub.returnWay = r.getReturnWay();
                     sub.returnTimeSlot = r.getReturnTimeSlot();
                     sub.returnAt = r.getReturnAt();
+                    sub.pickupAt = r.getPickupAt();
+                    sub.pickupNo = r.getPickupNo();
                     sub.reviewAt = r.getReviewAt();
                     sub.rejectedAt = r.getRejectedAt();
                     sub.refundAt = r.getRefundAt();
@@ -181,6 +190,11 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                     sub.returnWay = r.getReturnWay();
                     sub.returnTimeSlot = r.getReturnTimeSlot();
                     sub.returnAt = r.getReturnAt();
+                    sub.pickupAt = r.getPickupAt();
+                    sub.pickupNo = r.getPickupNo();
+                    sub.shipCourier = r.getShipCourier();
+                    sub.shipTrackingNumber = r.getShipTrackingNumber();
+                    sub.shipAt = r.getShipAt();
                     sub.reviewAt = r.getReviewAt();
                     sub.rejectedAt = r.getRejectedAt();
                     sub.exchangeAt = r.getExchangeAt();
@@ -222,9 +236,17 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                 .payTypeDesc(payType == null ? null : payType.getDesc())
                 .payAt(a.getPayAt())
                 .payAmount(a.getPayAmount())
+                .refundAmount(a.getRefundAmount())
+                .refundNo(a.getRefundNo())
+                .refundChannel(a.getRefundChannel())
                 .orderStatus(a.getOrderStatus())
                 .returnWay(sub == null ? null : sub.returnWay)
                 .returnTimeSlot(sub == null ? null : sub.returnTimeSlot)
+                .pickupAt(sub == null ? null : sub.pickupAt)
+                .pickupNo(sub == null ? null : sub.pickupNo)
+                .shipCourier(sub == null ? null : sub.shipCourier)
+                .shipTrackingNumber(sub == null ? null : sub.shipTrackingNumber)
+                .shipAt(sub == null ? null : sub.shipAt)
                 .returnAt(sub == null ? null : sub.returnAt)
                 .reviewAt(sub == null ? null : sub.reviewAt)
                 .rejectedAt(sub == null ? null : sub.rejectedAt)
@@ -293,6 +315,11 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
         String returnWay;
         String returnTimeSlot;
         LocalDateTime returnAt;
+        LocalDateTime pickupAt;
+        String pickupNo;
+        String shipCourier;
+        String shipTrackingNumber;
+        LocalDateTime shipAt;
         LocalDateTime reviewAt;
         LocalDateTime rejectedAt;
         LocalDateTime refundAt;
@@ -344,10 +371,63 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                 updateSubTimestamp(afterSale.getAfterSaleType(), id, column, now);
             }
         }
-        // 3. 变更文案：状态码翻译成中文，写进 operation_log.detail
+        // 3. 业务副作用：退款回补库存/回写订单项/订单终态；换货/拒绝回写订单项；换货补发信息
+        applySideEffects(afterSale, dto, now);
+
+        // 4. 变更文案：状态码翻译成中文，写进 operation_log.detail
         //    afterSale 是审核前查出来的旧对象，dto.getStatus() 是新状态
         LogDetail.add(LogDiff.of("售后状态", afterSale.getStatus(), dto.getStatus(),
                 value -> statusDesc(String.valueOf(value))));
+    }
+
+    /** 审核通过后的业务副作用（都在同一事务内） */
+    private void applySideEffects(AfterSale afterSale, AdminAfterSaleDTO dto, LocalDateTime now) {
+        List<AfterSaleItem> items = afterSaleItemMapper.listByAfterSaleId(afterSale.getId());
+        switch (dto.getStatus()) {
+            case "refunded" -> {
+                // 退款金额：优先用申请时快照，旧数据兜底为明细合计
+                java.math.BigDecimal total = afterSale.getRefundAmount();
+                if (total == null || total.compareTo(java.math.BigDecimal.ZERO) <= 0) {
+                    total = items.stream()
+                            .map(i -> i.getRefundAmount() == null ? java.math.BigDecimal.ZERO : i.getRefundAmount())
+                            .reduce(java.math.BigDecimal.ZERO, java.math.BigDecimal::add);
+                }
+                String channel = afterSale.getRefundChannel() != null
+                        ? afterSale.getRefundChannel() : afterSale.getPayType();
+                afterSaleMapper.updateRefund(afterSale.getId(), total,
+                        "RF" + afterSale.getAfterSaleNo(), channel, now);
+                for (AfterSaleItem item : items) {
+                    // 商品回补库存
+                    orderMapper.restoreStock(item.getProductId(), item.getQuantity());
+                    orderMapper.updateItemAfterSale(item.getOrderItemId(), afterSale.getId(), "refunded", now);
+                }
+                // 全部订单项都退款后，订单才变“已退款”
+                if (orderMapper.countItemsNotStatus(afterSale.getOrderId(), "refunded") == 0) {
+                    orderMapper.updateOrderStatus(afterSale.getOrderId(), ORDER_STATUS_REFUNDED, now);
+                }
+            }
+            case "exchanged" -> {
+                for (AfterSaleItem item : items) {
+                    orderMapper.updateItemAfterSale(item.getOrderItemId(), afterSale.getId(), "exchanged", now);
+                }
+            }
+            case "rejected" -> {
+                for (AfterSaleItem item : items) {
+                    orderMapper.updateItemAfterSale(item.getOrderItemId(), afterSale.getId(), "rejected", now);
+                }
+            }
+            case "exchanging" -> {
+                // 换货补发信息选填：只填了才写
+                if (dto.getShipCourier() != null || dto.getShipTrackingNumber() != null || dto.getShipAt() != null) {
+                    afterSaleExchangeReturnMapper.updateShipInfo(afterSale.getId(),
+                            dto.getShipCourier(), dto.getShipTrackingNumber(),
+                            dto.getShipAt() == null ? now : dto.getShipAt(), now);
+                }
+            }
+            default -> {
+                // 其他状态无订单/库存副作用
+            }
+        }
     }
 
     @Override

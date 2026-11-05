@@ -30,6 +30,12 @@ public class AfterSale {
     private String remark;
     private String images;
     private String merchantRemark;
+    /** 退款金额快照（申请时按订单项实付分摊） */
+    private BigDecimal refundAmount;
+    /** 模拟退款单号 */
+    private String refundNo;
+    /** 退款渠道（取订单支付方式） */
+    private String refundChannel;
     private Integer isDeleted;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;

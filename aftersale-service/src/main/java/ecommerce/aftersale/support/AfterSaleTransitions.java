@@ -75,14 +75,14 @@ public final class AfterSaleTransitions {
                 action(RETURNING, "同意退货退款", Kind.PRIMARY, AfterSaleOperateTypeEnum.ADMIN_AUDIT_AGREE_RETURN),
                 action(REJECTED, "拒绝售后", Kind.DANGER, AfterSaleOperateTypeEnum.ADMIN_AUDIT_REJECT)));
         rules.put(key(RETURN_REFUND, REFUNDING), List.of(
-                action(REFUNDED, "确认退款", Kind.PRIMARY, AfterSaleOperateTypeEnum.ADMIN_CONFIRM_REFUND)));
+                action(REFUNDED, "确认收到退货并退款", Kind.PRIMARY, AfterSaleOperateTypeEnum.ADMIN_CONFIRM_REFUND)));
 
         // 换货：审核通过 → 退货中（买家填物流）→ 确认收到退货 → 换货中 → 换货完成
         rules.put(key(EXCHANGE, REVIEWING), List.of(
                 action(RETURNING, "同意换货", Kind.PRIMARY, AfterSaleOperateTypeEnum.ADMIN_AUDIT_AGREE_EXCHANGE),
                 action(REJECTED, "拒绝售后", Kind.DANGER, AfterSaleOperateTypeEnum.ADMIN_AUDIT_REJECT)));
         rules.put(key(EXCHANGE, RETURNING), List.of(
-                action(EXCHANGING, "确认收到退货，开始换货", Kind.PRIMARY,
+                action(EXCHANGING, "确认收到退货", Kind.PRIMARY,
                         AfterSaleOperateTypeEnum.ADMIN_START_EXCHANGE, true)));
         rules.put(key(EXCHANGE, EXCHANGING), List.of(
                 action(EXCHANGED, "换货完成", Kind.PRIMARY, AfterSaleOperateTypeEnum.ADMIN_FINISH_EXCHANGE)));

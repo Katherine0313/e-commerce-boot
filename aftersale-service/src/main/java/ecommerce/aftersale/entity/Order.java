@@ -5,6 +5,8 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.math.BigDecimal;
+
 /**
  * 订单实体（aftersale 域内只读快照，仅售后需要的字段）。
  * <p>
@@ -20,4 +22,8 @@ public class Order {
     private Long userId;
     private String orderNo;
     private Integer orderStatus;
+    /** 活动前金额（订单项原价合计） */
+    private BigDecimal originalAmount;
+    /** 实付金额 */
+    private BigDecimal payAmount;
 }

@@ -27,4 +27,7 @@ public class OrderItem {
     private BigDecimal subTotal;
     private String insuranceDetail;
     private BigDecimal insuranceFee;
+    /** 订单项售后标记：none/processing/refunded/exchanged/rejected */
+    private String afterSaleStatus;
+    private Long afterSaleId;
 }

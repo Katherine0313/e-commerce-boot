@@ -21,4 +21,18 @@ public interface OrderMapper {
 
     // 查订单的单个明细（校验 orderItemId 归属 orderId + 单品快照用，不含软删除）
     OrderItem findItemById(@Param("orderItemId") Long orderItemId, @Param("orderId") Long orderId);
+
+    // 回写订单项售后标记
+    int updateItemAfterSale(@Param("orderItemId") Long orderItemId, @Param("afterSaleId") Long afterSaleId,
+                            @Param("status") String status, @Param("now") java.time.LocalDateTime now);
+
+    // 统计订单里未处于指定售后标记的订单项数量（判断整单是否全部退款）
+    int countItemsNotStatus(@Param("orderId") Long orderId, @Param("status") String status);
+
+    // 回补商品库存（退款/退货回库）
+    int restoreStock(@Param("productId") Long productId, @Param("quantity") Integer quantity);
+
+    // 更新订单主状态
+    int updateOrderStatus(@Param("orderId") Long orderId, @Param("status") Integer status,
+                          @Param("now") java.time.LocalDateTime now);
 }

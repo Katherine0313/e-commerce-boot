@@ -75,6 +75,12 @@ public class AfterSaleController {
         return Result.success(afterSaleService.submitReturn(id, dto));
     }
 
+    @Operation(summary = "买家确认上门取件（快递员已上门取走包裹，mock 动作）")
+    @PostMapping("/{id}/pickup-complete")
+    public Result<AfterSaleVO> pickupComplete(@PathVariable Long id) {
+        return Result.success(afterSaleService.pickupComplete(id));
+    }
+
     @Operation(summary = "售后变更流水（买家可见，不含商家内部备注）")
     @GetMapping("/{id}/logs")
     public Result<List<AfterSaleLogVO>> listLogs(@PathVariable Long id) {

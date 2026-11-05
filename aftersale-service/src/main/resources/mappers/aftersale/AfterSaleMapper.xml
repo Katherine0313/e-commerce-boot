@@ -8,6 +8,7 @@
     <sql id="joinOrderColumns">
         SELECT a.id, a.order_id, a.after_sale_no, a.order_no, a.after_sale_type, a.status, a.goods_status,
                a.reason, a.remark, a.images, a.merchant_remark,
+               a.refund_amount, a.refund_no, a.refund_channel,
                a.is_deleted, a.created_at, a.updated_at,
                o.user_id, o.consignee, o.phone, o.region, o.detail_address, o.pay_type, o.pay_at, o.pay_amount, o.order_status,
                o.courier, o.tracking_number
@@ -18,10 +19,10 @@
     <!-- 创建售后单：初始状态由 service 传入，is_deleted 默认 0 -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO after_sales (order_id, order_no, after_sale_no, after_sale_type, status,
-                                 goods_status, reason, remark, images, merchant_remark,
+                                 goods_status, reason, remark, images, merchant_remark, refund_amount,
                                  is_deleted, created_at, updated_at)
         VALUES (#{orderId}, #{orderNo}, #{afterSaleNo}, #{afterSaleType}, #{status},
-                #{goodsStatus}, #{reason}, #{remark}, #{images}, #{merchantRemark},
+                #{goodsStatus}, #{reason}, #{remark}, #{images}, #{merchantRemark}, #{refundAmount},
                 0, #{createdAt}, #{updatedAt})
     </insert>
 
@@ -79,6 +80,32 @@
         WHERE a.order_id = #{orderId} AND a.is_deleted = 0
         ORDER BY a.id DESC
         LIMIT 1
+    </select>
+
+    <!-- 退款信息回落：金额快照 + 模拟退款单号/渠道 -->
+    <update id="updateRefund">
+        UPDATE after_sales
+        SET refund_amount = #{refundAmount}, refund_no = #{refundNo}, refund_channel = #{refundChannel},
+            updated_at = #{updatedAt}
+        WHERE id = #{id} AND is_deleted = 0
+    </update>
+
+    <!-- 某订单项当前是否存在进行中的售后（同项同时只能有一张） -->
+    <select id="countActiveByOrderItem" resultType="int">
+        SELECT COUNT(1)
+        FROM after_sales a
+        JOIN after_sale_items i ON i.after_sale_id = a.id AND i.is_deleted = 0
+        WHERE a.is_deleted = 0
+          AND a.status IN ('reviewing', 'returning', 'refunding', 'exchanging')
+          AND i.order_item_id = #{orderItemId}
+    </select>
+
+    <!-- 某订单当前是否存在进行中的售后（整单申请时校验） -->
+    <select id="countActiveByOrder" resultType="int">
+        SELECT COUNT(1)
+        FROM after_sales a
+        WHERE a.order_id = #{orderId} AND a.is_deleted = 0
+          AND a.status IN ('reviewing', 'returning', 'refunding', 'exchanging')
     </select>
 
     <!-- 更新售后状态：主表只动 status + updated_at，业务时间戳写在子表 -->

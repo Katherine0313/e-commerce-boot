@@ -92,12 +92,20 @@ public class LogisticsBuilder {
 
         List<LogisticsTraceVO> traces = new ArrayList<>();
         if (shipped || finished) {
-            addIfReached(traces, base.plusHours(OFFSETS[0]), end, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
-            addIfReached(traces, base.plusHours(OFFSETS[1]), end, "运输中", "【" + originCity + originDistrict + "分拣中心】快件已完成分拣，准备发往" + destCity);
-            addIfReached(traces, base.plusHours(OFFSETS[2]), end, "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity);
-            addIfReached(traces, base.plusHours(OFFSETS[3]), end, "运输中", "快件已到达" + destCity + "中转中心");
-            addIfReached(traces, base.plusHours(OFFSETS[4]), end, "派送中", "【" + destCity + "】" + courierShort + "快递员"
-                    + COURIER_STAFF[seed % COURIER_STAFF.length] + "正在为您派送，请保持电话畅通");
+            // 快递员还没揽件时只显示“待揽件”，不要伪造后续的运输/派送节点
+            LocalDateTime pickupTime = base.plusHours(OFFSETS[0]);
+            boolean picked = finished || !pickupTime.isAfter(end);
+            if (!picked) {
+                add(traces, base, "待揽件", "【" + originCity + originDistrict + "营业点】商家已发货，等待"
+                        + courierShort + "快递员揽件");
+            } else {
+                addIfReached(traces, base.plusHours(OFFSETS[0]), end, "已揽件", "【" + originCity + originDistrict + "营业点】" + courierShort + "快递员已揽件，即将发往分拣中心");
+                addIfReached(traces, base.plusHours(OFFSETS[1]), end, "运输中", "【" + originCity + originDistrict + "分拣中心】快件已完成分拣，准备发往" + destCity);
+                addIfReached(traces, base.plusHours(OFFSETS[2]), end, "运输中", "【" + originCity + "中转部】快件已发出，正在运往" + destCity);
+                addIfReached(traces, base.plusHours(OFFSETS[3]), end, "运输中", "快件已到达" + destCity + "中转中心");
+                addIfReached(traces, base.plusHours(OFFSETS[4]), end, "派送中", "【" + destCity + "】" + courierShort + "快递员"
+                        + COURIER_STAFF[seed % COURIER_STAFF.length] + "正在为您派送，请保持电话畅通");
+            }
         }
         if (finished) {
             add(traces, end, "已签收", "快件已由本人签收，感谢使用");

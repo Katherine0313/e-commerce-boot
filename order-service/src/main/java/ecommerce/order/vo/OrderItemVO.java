@@ -36,4 +36,8 @@ public class OrderItemVO {
     private Integer stock;
     @Schema(description = "小计")
     private BigDecimal subTotal;
+    @Schema(description = "售后标记：none/processing/refunded/exchanged/rejected")
+    private String afterSaleStatus;
+    @Schema(description = "关联售后单 ID")
+    private Long afterSaleId;
 }

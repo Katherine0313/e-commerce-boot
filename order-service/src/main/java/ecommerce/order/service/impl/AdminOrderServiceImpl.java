@@ -401,6 +401,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
             stock = product == null ? null : product.getStock();
         }
         return OrderItemVO.builder()
+                .orderItemId(item.getId())
                 .productId(item.getProductId())
                 .productName(item.getProductName())
                 .image(item.getImage())
@@ -410,6 +411,8 @@ public class AdminOrderServiceImpl implements AdminOrderService {
                 .quantity(item.getQuantity())
                 .stock(stock)
                 .subTotal(item.getSubTotal())
+                .afterSaleStatus(item.getAfterSaleStatus())
+                .afterSaleId(item.getAfterSaleId())
                 .build();
     }
 }

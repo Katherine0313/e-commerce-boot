@@ -24,6 +24,16 @@ public class AfterSaleExchangeReturn {
     private String returnCourier;
     private String returnTrackingNumber;
     private String shipAddress;
+    /** 买家确认上门取件时间 */
+    private LocalDateTime pickupAt;
+    /** 模拟取件单号 */
+    private String pickupNo;
+    /** 商家补发快递公司 */
+    private String shipCourier;
+    /** 商家补发快递单号 */
+    private String shipTrackingNumber;
+    /** 商家补发时间 */
+    private LocalDateTime shipAt;
     private LocalDateTime reviewAt;
     private LocalDateTime returnAt;
     private LocalDateTime exchangeAt;

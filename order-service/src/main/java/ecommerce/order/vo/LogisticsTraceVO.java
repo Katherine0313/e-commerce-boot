@@ -16,7 +16,7 @@ import lombok.NoArgsConstructor;
 public class LogisticsTraceVO {
     @Schema(description = "轨迹时间")
     private String time;
-    @Schema(description = "轨迹状态（已揽件/运输中/派送中/已签收）")
+    @Schema(description = "轨迹状态（待揽件/已揽件/运输中/派送中/已签收）")
     private String status;
     @Schema(description = "轨迹描述")
     private String desc;

@@ -14,6 +14,7 @@
 
     <select id="findByAfterSaleId" resultType="ecommerce.aftersale.entity.AfterSaleExchangeReturn">
         SELECT id, after_sale_id, return_way, return_time_slot, return_courier, return_tracking_number, ship_address,
+               pickup_at, pickup_no, ship_courier, ship_tracking_number, ship_at,
                review_at, return_at,
                exchange_at, exchanged_at, rejected_at, is_deleted, created_at, updated_at
         FROM after_sale_exchange_returns
@@ -31,6 +32,21 @@
     <update id="updateTracking">
         UPDATE after_sale_exchange_returns
         SET return_courier = #{courier}, return_tracking_number = #{trackingNumber}, return_at = #{returnAt}, updated_at = #{updatedAt}
+        WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
+    </update>
+
+    <!-- 买家确认上门取件 -->
+    <update id="updatePickup">
+        UPDATE after_sale_exchange_returns
+        SET pickup_at = #{pickupAt}, pickup_no = #{pickupNo}, return_at = #{pickupAt}, updated_at = #{updatedAt}
+        WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
+    </update>
+
+    <!-- 商家补发信息（选填） -->
+    <update id="updateShipInfo">
+        UPDATE after_sale_exchange_returns
+        SET ship_courier = #{shipCourier}, ship_tracking_number = #{shipTrackingNumber},
+            ship_at = #{shipAt}, updated_at = #{updatedAt}
         WHERE after_sale_id = #{afterSaleId} AND is_deleted = 0
     </update>
 

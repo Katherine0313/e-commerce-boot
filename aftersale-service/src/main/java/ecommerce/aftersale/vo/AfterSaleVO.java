@@ -75,6 +75,22 @@ public class AfterSaleVO {
     private LocalDateTime payAt;
     @Schema(description = "实付金额")
     private BigDecimal payAmount;
+    @Schema(description = "退款金额（申请时快照）")
+    private BigDecimal refundAmount;
+    @Schema(description = "模拟退款单号")
+    private String refundNo;
+    @Schema(description = "退款渠道（取支付方式）")
+    private String refundChannel;
+    @Schema(description = "买家确认上门取件时间")
+    private LocalDateTime pickupAt;
+    @Schema(description = "模拟取件单号")
+    private String pickupNo;
+    @Schema(description = "换货补发快递公司")
+    private String shipCourier;
+    @Schema(description = "换货补发快递单号")
+    private String shipTrackingNumber;
+    @Schema(description = "换货补发时间")
+    private LocalDateTime shipAt;
     @Schema(description = "快递公司 code")
     private String courier;
     @Schema(description = "快递公司中文")

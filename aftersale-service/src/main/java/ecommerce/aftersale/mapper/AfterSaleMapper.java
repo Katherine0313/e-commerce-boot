@@ -33,6 +33,19 @@ public interface AfterSaleMapper {
     // 按订单查最新一条售后（重复申请校验用，不含软删除）
     AfterSale findByOrderId(@Param("orderId") Long orderId);
 
+    // 某订单项当前是否存在进行中的售后（reviewing/returning/refunding/exchanging）
+    int countActiveByOrderItem(@Param("orderItemId") Long orderItemId);
+
+    // 某订单当前是否存在进行中的售后（整单售后校验用）
+    int countActiveByOrder(@Param("orderId") Long orderId);
+
+    // 退款信息回落（金额快照 / 模拟退款单号 / 渠道）
+    int updateRefund(@Param("id") Long id,
+                     @Param("refundAmount") java.math.BigDecimal refundAmount,
+                     @Param("refundNo") String refundNo,
+                     @Param("refundChannel") String refundChannel,
+                     @Param("updatedAt") LocalDateTime updatedAt);
+
     // 更新售后状态（主表只动 status + updated_at）
     int updateStatus(@Param("id") Long id,
                      @Param("status") String status, @Param("updatedAt") LocalDateTime updatedAt);

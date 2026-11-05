@@ -5,14 +5,14 @@
 <mapper namespace="ecommerce.aftersale.mapper.OrderMapper">
 
     <select id="findById" resultType="ecommerce.aftersale.entity.Order">
-        SELECT id, user_id, order_no, order_status
+        SELECT id, user_id, order_no, order_status, original_amount, pay_amount
         FROM orders
         WHERE id = #{id} AND is_deleted = 0
     </select>
 
     <select id="listItems" resultType="ecommerce.aftersale.entity.OrderItem">
         SELECT id, order_id, product_id, product_name, image, sales_price,
-               quantity, sub_total, insurance_detail, insurance_fee
+               quantity, sub_total, insurance_detail, insurance_fee, after_sale_status, after_sale_id
         FROM order_items
         WHERE order_id = #{orderId} AND is_deleted = 0
         ORDER BY id ASC
@@ -20,9 +20,37 @@
 
     <select id="findItemById" resultType="ecommerce.aftersale.entity.OrderItem">
         SELECT id, order_id, product_id, product_name, image, sales_price,
-               quantity, sub_total, insurance_detail, insurance_fee
+               quantity, sub_total, insurance_detail, insurance_fee, after_sale_status, after_sale_id
         FROM order_items
         WHERE id = #{orderItemId} AND order_id = #{orderId} AND is_deleted = 0
     </select>
+
+    <!-- 回写订单项售后标记 -->
+    <update id="updateItemAfterSale">
+        UPDATE order_items
+        SET after_sale_status = #{status}, after_sale_id = #{afterSaleId}
+        WHERE id = #{orderItemId} AND is_deleted = 0
+    </update>
+
+    <!-- 统计订单里未处于指定售后标记的订单项数量 -->
+    <select id="countItemsNotStatus" resultType="int">
+        SELECT COUNT(1)
+        FROM order_items
+        WHERE order_id = #{orderId} AND is_deleted = 0 AND after_sale_status != #{status}
+    </select>
+
+    <!-- 回补商品库存 -->
+    <update id="restoreStock">
+        UPDATE products
+        SET stock = stock + #{quantity}
+        WHERE id = #{productId}
+    </update>
+
+    <!-- 更新订单主状态 -->
+    <update id="updateOrderStatus">
+        UPDATE orders
+        SET order_status = #{status}, updated_at = #{now}
+        WHERE id = #{orderId} AND is_deleted = 0
+    </update>
 
 </mapper>

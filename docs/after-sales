@@ -1,991 +1,141 @@
-# 售后审核改造 + 操作日志审计（方案 v3）
+# 售后闭环方案（精简版 v4）
 
-> **2026-11-03 v3 改写**：
-> ① 删除 `refund_confirming` 状态（「确认退款」是操作，不是状态；项目不接真实支付，无「等款到账」时刻）；
-> ② 售后操作类型枚举按「一次操作 = 一个 operate_type + 一个 after_status」一一对应重写；
-> ③ 补上漏掉的 `ecommerce-mall`（PC 商城）端；
-> ④ 订正 SQL 从 1 条增加到 2 条（`only_refund+returning` 遗留单 + `refund_confirming`）。
->
-> **2026-11-03 v2 改写**：并入 `task_plan.md` 阶段 18 P1 的「操作日志审计（AOP）」，不再只做售后专属日志；
-> 修正 Boot 4.1 的 starter 改名、补状态机历史数据订正、买家侧备注脱敏、DB 本地↔生产同步口径。
-> 本文档只定方案，实现另起。
->
-> **2026-11-05 v4 追加（讨论稿）**：v3 解决的是「审核动作 + 操作日志」，售后仍然只闭环了**状态**，没有闭环**货、钱、单、通知**。
-> 本文第 9 节专门梳理售后闭环问题与改造方案，只讨论、不写代码；v3 已上线内容不回改。
+> 项目数据都是 mock：不接真实支付、不接真实物流、不做短信通知。
+> 目标是把“申请 → 商家处理 → 买家动作 → 退款/换货 → 订单/库存联动”跑通，不按真实交易平台的标准做。
+> v3 的审核动作 + 操作日志已上线，本文不再重复。
 
----
+## 1. 核心问题与方案
 
-## 0. 本次范围
-
-三条线，一次做完：
-
-| 线 | 交付物 | 落地位置 | 机制 | 谁能看 |
-|---|---|---|---|---|
-| **线 1** | 通用操作日志 `operation_log` | `common`（跨服务共用） | **AOP 注解 + 切面，异步写** | 仅管理员 |
-| **线 2** | 售后变更流水 `after_sale_log` | `aftersale-service` | **AOP 注解 + 切面，同步同事务** | 商家 + 买家（脱敏） |
-| **线 3** | 审核按钮改造 + 状态流转校验 | `aftersale-service` + 后台前端 + 小程序 + PC 商城 | 状态机白名单 | — |
-
-**线 1 = 阶段 18 P1 提前落地**（`task_plan.md:69` / `:284`）。本来就要做，这次基建一次做对，后面改价、库存调整、删除直接打标即可。
-
-**线 2 是线 1 的业务特化，不是重复**：字段语义不同（`before_status` / `after_status` / `operate_type`），可见性不同（买家可见），写入时机必须准（状态变了日志必须在）。所以两张表、两套注解，但**采集与异步那部分下沉到 common 复用**。
-
----
-
-## 1. 为什么用 AOP（回答"为什么不用 AOP"）
-
-原方案我建议过「显式 Service 调用」，理由是售后只有 3 个写入点。**这个判断是局部的，忽略了全局**：
-
-1. **AOP 基建迟早要做** —— 阶段 18 P1 已经规划了通用 `operation_log`，那时再单独造一套，等于同一件事做两遍。
-2. **通用审计字段天然通用**（谁 / 何时 / 哪个 IP / 哪个接口 / 什么参数），AOP 能自动采集；业务代码只管打标。
-3. **售后流水的字段不通用**（状态 A→B、操作类型、说明），通用切面拿不到 —— 但它只 3 个写入点，切面里直连业务 Mapper 完全够用，比 SpEL + `instanceof` 扫参数干净。
-
-结论：**都用 AOP**。线 1 的切面放 `common`（一次做，全服务可用）；线 2 的切面放 `aftersale-service`（业务专属），但从 common 复用「操作人 / IP / 耗时 / JSON 序列化」这些采集工具。
-
----
-
-## 2. 线 1：通用操作日志 `operation_log`（common）
-
-### 2.1 表结构
-
-```sql
-CREATE TABLE IF NOT EXISTS `operation_log` (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '操作日志ID',
-  `user_id` bigint DEFAULT NULL COMMENT '操作人ID（admin.id 或 user.id）',
-  `user_type` varchar(16) DEFAULT NULL COMMENT '操作人类型：admin / user / anonymous',
-  `module` varchar(64) NOT NULL COMMENT '业务模块：aftersales / product / order …',
-  `action` varchar(64) NOT NULL COMMENT '动作：REVIEW / DELETE / UPDATE_PRICE …',
-  `biz_id` bigint DEFAULT NULL COMMENT '业务对象ID',
-  `detail` varchar(255) DEFAULT NULL COMMENT '补充说明（SpEL 求值）',
-  `method` varchar(16) DEFAULT NULL COMMENT 'HTTP 方法',
-  `uri` varchar(255) DEFAULT NULL COMMENT '请求路径',
-  `ip` varchar(64) DEFAULT NULL COMMENT '客户端 IP（取 X-Forwarded-For 首段）',
-  `params` varchar(2000) DEFAULT NULL COMMENT '请求参数（JSON，超长截断）',
-  `success` tinyint NOT NULL DEFAULT 1 COMMENT '是否成功：1成功 0失败',
-  `error_msg` varchar(512) DEFAULT NULL COMMENT '失败原因',
-  `cost_ms` bigint DEFAULT NULL COMMENT '耗时毫秒',
-  `created_at` datetime DEFAULT NULL COMMENT '创建时间',
-  PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_operation_log_module`(`module`) USING BTREE,
-  INDEX `idx_operation_log_user`(`user_id`) USING BTREE,
-  INDEX `idx_operation_log_created`(`created_at`) USING BTREE
-) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='操作日志审计表' ROW_FORMAT=DYNAMIC;
-```
-
-> **不用 `is_deleted`**：审计日志只增不删（要删也走归档），加软删列反而没人用。
-> `collate utf8mb4_general_ci`：生产 MySQL 5.7，不支持 `utf8mb4_0900_ai_ci`。
-> **时间戳由 Java 传参**，SQL 脚本里不写 `NOW()`（服务器时区是 UTC，差 8 小时，见 `docs/sql/promotion/01-promotion-schema.sql:8`）。
-
-### 2.2 common 基建
-
-新增包 `ecommerce/log/`（common 模块内，与 `ecommerce/utils`、`ecommerce/interceptor` 同级）：
-
-| 类 | 职责 |
-|---|---|
-| `OperationLog` | 注解：`module` / `action` / `bizId`(SpEL) / `detail`(SpEL) / `recordParams`(是否记录请求参数) |
-| `OperationLogEntry` | 日志条目模型（上述表字段） |
-| `OperationLogRecorder` | SPI：`void save(OperationLogEntry entry)`；实现者决定同步/异步、写到哪张表 |
-| `OperationLogAspect` | 通用切面：采集 → 组装 entry → 交给 recorder |
-| `OperationLogCollector` | 采集工具：操作人（UserContext）、IP（XFF 优先）、参数 JSON、耗时 |
-| `JdbcOperationLogRecorder` | 默认实现：`JdbcTemplate` 直写 `operation_log`，**自带线程池，异步** |
-| `LogAsyncConfig` | 线程池配置（core 2 / max 8 / queue 2000 / 拒绝策略 CallerRuns） |
-
-**关键设计：切面只管「采集 + 分发」，写库交给 `OperationLogRecorder`。**
-
-- 写库失败、线程池满 → 记 warn 日志，**绝不影响业务**（审计语义）
-- 异步 → 天然脱离业务事务（业务回滚了日志已写，属正常审计行为）
-- 将来某个服务想同步写、或写自己的表，只要换一个 `OperationLogRecorder` 实现即可
-
-> ⚠️ **`JdbcOperationLogRecorder` 用 `ObjectProvider<JdbcTemplate>` 注入，不是直接注入 `JdbcTemplate`。**
-> 原因：`file-service` 依赖 common 但**没有 JDBC 依赖**，直接注入会让它启动失败。
-> 用 `ObjectProvider` 后，运行时 `getIfAvailable()` 取不到就跳过写日志（记 warn），服务照常启动。
->
-> ⚠️ **本项目不用 `@ConditionalOnMissingBean`。** 各服务都是 `@SpringBootApplication(scanBasePackages = "ecommerce")` **包扫描**装配，common 没有 `META-INF/spring/*.imports`，不是自动配置 jar —— `@ConditionalOnMissingBean` 在普通 `@Component` 上不可靠（求值时机在自动配置阶段，普通 bean 还没注册）。要用「可替换」语义，只能让业务服务自己声明一个 `OperationLogRecorder` bean 覆盖默认实现。
-
-### 2.3 common 侧要动的地方
-
-| 改动 | 说明 |
-|---|---|
-| `common/pom.xml` 加 `spring-boot-starter-aspectj` | **Boot 4.1 已把 `spring-boot-starter-aop` 改名成 `spring-boot-starter-aspectj`**（本地 m2 只有 `spring-boot-starter-aspectj:4.1.0`；原方案写的 `spring-boot-starter-aop` 在 Boot 4 下不存在，会构建失败） |
-| `common/pom.xml` 加 `org.springframework:spring-jdbc` | 默认 recorder 用 `JdbcTemplate`；各服务已通过 mybatis starter 传递 `spring-boot-starter-jdbc`，但 common 自身编译需显式声明 |
-| `UserContext` 加 `userType` | 加 `CURRENT_TYPE` ThreadLocal + `setUserType/getUserType`，记录 admin / user / anonymous |
-| `JwtInterceptor` 写入 userType | 解析出的 `actualType`（`admin`/`user`）顺手 `UserContext.setUserType(actualType)` |
-
-> `UserContext` 的 userType 与 `JwtInterceptor` 按路径分流（`/api/admin/**` → admin）是同一套判断，不新增第二处口径。
-> 改 `UserContext` 时注意：`remove()` 必须一起清 `CURRENT_TYPE`，否则 Tomcat 线程复用会串号（与现有 `CURRENT_ID` 同理）。
-
-### 2.4 打标点（本次）
-
-| 服务 | 位置 | module / action |
-|---|---|---|
-| aftersale-service | `AdminAfterSaleServiceImpl#review` | `aftersales` / `REVIEW` |
-| aftersale-service | `AdminAfterSaleServiceImpl#delete` | `aftersales` / `DELETE` |
-
-改价、库存调整等在 product-service，本次不打标（阶段 18 后续补）。
-
-### 2.5 后台只读页面
-
-**本次不做**，列为阶段 18 P1 的下一项。原因：还要加 `admin_menu` 菜单 + 权限码 + 角色授权 + 前端页面，是独立一块，与本次「审核按钮改造」耦合会拖慢主线。
-表和基建先落地、数据先攒起来，页面后补时只需回填历史数据。
-
-> ⚠️ 代价：`operation_log` 这一阶段「只写不读」。如果希望本次就能在后台看到，需要额外做：菜单 SQL + 权限码 `system:operation-log:list` + 前端列表页（筛选：模块 / 操作人 / 时间 / 结果）。
-
----
-
-## 3. 线 2：售后变更流水 `after_sale_log`（aftersale-service）
-
-### 3.1 表结构
-
-```sql
-CREATE TABLE IF NOT EXISTS `after_sale_log` (
-  `id` bigint NOT NULL AUTO_INCREMENT COMMENT '售后变更日志ID',
-  `after_sale_id` bigint NOT NULL COMMENT '售后单ID（不加外键，软删不影响日志留存）',
-  `user_id` bigint NOT NULL DEFAULT 0 COMMENT '操作人ID（admin.id 或 user.id）',
-  `user_type` tinyint NOT NULL DEFAULT 1 COMMENT '操作人类型：1买家 2后台管理员',
-  `before_status` varchar(64) DEFAULT NULL COMMENT '变更前状态（新建时 NULL）',
-  `after_status` varchar(64) NOT NULL COMMENT '变更后状态',
-  `operate_type` tinyint NOT NULL COMMENT '操作类型：见 AfterSaleOperateTypeEnum',
-  `content` varchar(255) NOT NULL COMMENT '公开说明（买家可见）',
-  `merchant_remark` varchar(512) DEFAULT NULL COMMENT '商家内部备注（仅后台可见，买家接口不返回）',
-  `created_at` datetime DEFAULT NULL COMMENT '创建时间',
-  `updated_at` datetime DEFAULT NULL COMMENT '更新时间',
-  `is_deleted` tinyint NOT NULL DEFAULT 0 COMMENT '软删除：0正常 1删除',
-  PRIMARY KEY (`id`) USING BTREE,
-  INDEX `idx_after_sale_log_as_id`(`after_sale_id`) USING BTREE
-) ENGINE=InnoDB CHARACTER SET=utf8mb4 COLLATE=utf8mb4_general_ci COMMENT='售后变更流水日志表' ROW_FORMAT=DYNAMIC;
-```
-
-**与原方案的关键差异：`content` 与 `merchant_remark` 分成两列。**
-
-原方案把商家备注拼进 `content`（「商家审核，备注：xxx」），买家端一读就泄露内部备注。改成：
-
-- `content` = 面向买家的公开说明，由「操作类型」枚举的 `logContent` 直接给出
-- `merchant_remark` = 商家内部备注原文，**只有后台接口返回，买家接口不出**
-
-顺带修掉已存在的泄露：`AfterSaleServiceImpl.toVO` 是 C 端 / 后台共用的一段，`AfterSaleVO.merchantRemark` 现在 **C 端也返回**（`GET /api/after-sales/{id}` 能拿到商家内部备注）。本次改为：**C 端组装 VO 时不填 `merchantRemark`，后台保留**。
-
-### 3.2 枚举
-
-**设计原则：一次操作 = 一个 `operate_type` + 一个 `after_status`，二者一一对应。**
-
-`operate_type` 由 **(售后类型, 当前状态, 目标状态)** 三元组唯一定义 —— 定义在 `support/AfterSaleTransitions`（见 4.2），枚举里**不再重复写目标状态**，避免第二份真相漂移。
-
-`enums/AfterSaleOperateTypeEnum`（4 字段结构：code / tag / desc / logContent，分别对应「DB 存储 / 代码判断 / 后台下拉筛选 / 买家可见文案」）：
-
-```java
-package ecommerce.aftersale.enums;
-
-import lombok.Getter;
-
-/**
- * 售后操作类型枚举 AfterSaleOperateTypeEnum
- * <p>
- * 一次操作 = 一个 operate_type + 一个 after_status，二者一一对应。
- * 目标状态不在本枚举里定义 —— 状态跃迁的唯一真相是 support/AfterSaleTransitions。
- */
-@Getter
-public enum AfterSaleOperateTypeEnum {
-
-    /** 1 用户提交售后申请（目标状态 reviewing） */
-    USER_SUBMIT(1, "USER_SUBMIT", "用户提交售后申请", "用户提交售后申请"),
-
-    /** 2 商家审核-拒绝售后（目标状态 rejected） */
-    ADMIN_AUDIT_REJECT(2, "ADMIN_AUDIT_REJECT", "商家审核-拒绝售后", "商家已拒绝售后申请"),
-
-    /** 3 商家审核-同意仅退款（目标状态 refunding） */
-    ADMIN_AUDIT_AGREE_REFUND(3, "ADMIN_AUDIT_AGREE_REFUND", "商家审核-同意仅退款",
-            "商家已同意【仅退款】售后申请，退款处理中"),
-
-    /** 4 商家审核-同意退货退款（目标状态 returning） */
-    ADMIN_AUDIT_AGREE_RETURN(4, "ADMIN_AUDIT_AGREE_RETURN", "商家审核-同意退货退款",
-            "商家已同意【退货退款】售后申请，请买家填写退货物流"),
-
-    /** 5 商家审核-同意换货（目标状态 returning） */
-    ADMIN_AUDIT_AGREE_EXCHANGE(5, "ADMIN_AUDIT_AGREE_EXCHANGE", "商家审核-同意换货",
-            "商家已同意【换货】售后申请，请买家填写退货物流"),
-
-    /** 6 买家填写退货物流（目标状态：退货退款 → refunding；换货 → returning 不变） */
-    USER_FILL_LOGISTICS(6, "USER_FILL_LOGISTICS", "买家填写退货物流", "买家已填写退货物流"),
-
-    /** 7 商家确认退款完成（目标状态 refunded） */
-    ADMIN_CONFIRM_REFUND(7, "ADMIN_CONFIRM_REFUND", "商家确认退款完成", "商家已确认退款，退款处理完成"),
-
-    /** 8 商家确认收到退货，开始换货（目标状态 exchanging） */
-    ADMIN_START_EXCHANGE(8, "ADMIN_START_EXCHANGE", "商家开始换货", "商家已确认收到退货，开始换货"),
-
-    /** 9 换货完成（目标状态 exchanged） */
-    ADMIN_FINISH_EXCHANGE(9, "ADMIN_FINISH_EXCHANGE", "换货完成", "换货已完成");
-
-    /** 数据库存储编码 */
-    private final Integer code;
-    /** 英文标识（代码里判断用） */
-    private final String tag;
-    /** 操作名称（后台下拉、筛选用） */
-    private final String desc;
-    /** 审计日志默认文案（买家可见） */
-    private final String logContent;
-
-    AfterSaleOperateTypeEnum(Integer code, String tag, String desc, String logContent) {
-        this.code = code;
-        this.tag = tag;
-        this.desc = desc;
-        this.logContent = logContent;
-    }
-
-    /** 根据 code 反查枚举 */
-    public static AfterSaleOperateTypeEnum getByCode(Integer code) {
-        if (code == null) {
-            return null;
-        }
-        for (AfterSaleOperateTypeEnum e : values()) {
-            if (e.getCode().equals(code)) {
-                return e;
-            }
-        }
-        return null;
-    }
-}
-```
-
-**与初稿枚举的差异（已剔除的项）**：
-
-| 剔除项 | 原因 |
-|---|---|
-| `ADMIN_REVIEW_REJECT / _AGREE_REFUND / _AGREE_RETURN / _AGREE_EXCHANGE`（复审 4 个） | 项目**没有复审概念** —— 只有一个 `review` 接口、单一审核人，没有初审/复审两级。真要做主管复核，是另一个功能，届时从本枚举扩。 |
-| `ADMIN_CONFIRM_RECEIVE`（商家确认签收退货） | 项目里退货退款**没有这一步**：买家填完物流系统自动 `returning → refunding`，不需要商家签收。只有换货有「确认收到退货」，即 `ADMIN_START_EXCHANGE`。 |
-| `USER_CANCEL`（买家撤销售后申请） | 无写入点（当前没有撤销售后接口）。 |
-| `REFUND_SUCCESS`（资金侧回调触发） | **项目不接真实支付，没有资金回调**；退款完成是商家手动点的，改名 `ADMIN_CONFIRM_REFUND`。 |
-| `CLOSE`（售后关闭） | 无写入点。 |
-| `exchange_returning` 状态码 | **不存在**。退货退款和换货共用 `returning`，靠 `after_sale_type` 区分。 |
-
-### 3.3 AOP 实现
-
-**注解** `annotation/AfterSaleLogRecord`：`operateType` / `userType` / `afterSaleId`(SpEL，默认 `#p0`) / `idFromResult`。
-
-**切面** `aspect/AfterSaleLogAspect`：
-
-| 场景 | before | after | operate_type |
-|---|---|---|---|
-| `create` | `null` | `reviewing` | 1 USER_SUBMIT |
-| `submitReturn` | 查库 | `refunding`（退货退款）/ `returning`（换货，状态不变） | 6 USER_FILL_LOGISTICS |
-| `review` | 查库 | 查库（目标状态从 DTO 取，比再查一次库省一次 SELECT） | 由 (type, before, after) 三元组查 Transitions 得出 |
-
-> **删除售后单不写 `after_sale_log`**（已拍板）：买家可见的变更流水只记状态流转，删除动作只在 `operation_log` 留痕（`aftersales` / `DELETE`）。
-
-**事务顺序**（原方案这块是对的，保留）：
-
-- 启动类 `@EnableTransactionManagement(order = Ordered.HIGHEST_PRECEDENCE)` → 事务切面最外层
-- 切面 `@Order(Ordered.LOWEST_PRECEDENCE)` → 日志切面在事务内层
-- 结果：日志与状态变更同事务，一起提交 / 一起回滚
-
-> 顺序反了会出现「状态变了但日志没写」或「日志写了但状态回滚」。切面 `@Around` 里 `pjp.proceed()` 抛异常就不写日志，事务回滚不留脏日志。
-
-**content 生成**：不扫参数、不用 `instanceof`，直接取枚举的 `logContent`：
-
-| operate_type | 触发点 | after_status | content（买家可见） |
-|---|---|---|---|
-| 1 USER_SUBMIT | create | reviewing | 用户提交售后申请 |
-| 2 ADMIN_AUDIT_REJECT | review | rejected | 商家已拒绝售后申请 |
-| 3 ADMIN_AUDIT_AGREE_REFUND | review | refunding | 商家已同意【仅退款】售后申请，退款处理中 |
-| 4 ADMIN_AUDIT_AGREE_RETURN | review | returning | 商家已同意【退货退款】售后申请，请买家填写退货物流 |
-| 5 ADMIN_AUDIT_AGREE_EXCHANGE | review | returning | 商家已同意【换货】售后申请，请买家填写退货物流 |
-| 6 USER_FILL_LOGISTICS | submitReturn | refunding / returning | 买家已填写退货物流 |
-| 7 ADMIN_CONFIRM_REFUND | review | refunded | 商家已确认退款，退款处理完成 |
-| 8 ADMIN_START_EXCHANGE | review | exchanging | 商家已确认收到退货，开始换货 |
-| 9 ADMIN_FINISH_EXCHANGE | review | exchanged | 换货已完成 |
-
-`merchant_remark` 从 `AdminAfterSaleDTO.merchantRemark` 取（切面里判 `instanceof AdminAfterSaleDTO` 只此一处，可接受）。
-
-### 3.4 查询接口
-
-| 接口 | 权限 | 返回 |
-|---|---|---|
-| `GET /api/after-sales/{id}/logs` | C 端，先 `getOwnedAfterSale(id)` 校验归属 | `List<AfterSaleLogVO>`，**不含 `merchantRemark`** |
-| `GET /api/admin/after-sales/{id}/logs` | 后台 | `List<AfterSaleLogVO>`，含 `merchantRemark` |
-
-VO：`id / afterSaleId / userType / userTypeDesc / beforeStatus / beforeStatusDesc / afterStatus / afterStatusDesc / operateType / operateTypeDesc / content / merchantRemark(仅后台) / createdAt`。
-
----
-
-## 4. 线 3：审核按钮改造 + 状态流转校验
-
-### 4.1 状态机
-
-#### 4.1.1 删除 `refund_confirming`（确认退款是操作，不是状态）
-
-**结论：`refund_confirming` 状态删除。**
-
-三条依据：
-
-1. **项目不接真实支付**（见 memory `payment-mock-only`）—— 没有「资金回调」，也就没有「款已发起、等款到账」这个真实时刻。`refund_confirming`（"确认退款中"）是从 Node 版照搬的虚构状态。
-2. **项目内已有反例证明它是多余的** —— 订单取消的自动退款是**一步到位**写 `only_refund + refunded`，且 `refund_at = refunded_at = 取消时间`（`order-service/.../AfterSaleRefundMapper.java:28,46`）。也就是说「发起退款」和「退款到账」在这个项目里本来就是同一时刻。
-3. **现状是伪操作** —— 后台审核弹窗的下拉把一个动作拆成三段（`OnlyRefundReview.vue:173-178`：`approve→refunding`、`refund→refund_confirming`、`refunded→refunded`），商家要点三次走完一单；且**没有任何校验，从 `reviewing` 可以直接选「已退款」跳到终态**。
-
-去掉后，「确认退款」从**状态**降为**操作**（`operate_type = 7 ADMIN_CONFIRM_REFUND`），状态直接落到 `refunded`。
-
-#### 4.1.2 新的状态流转
-
-```
-仅退款 only_refund:
-  reviewing ──同意退款──▶ refunding ──确认退款──▶ refunded
-     └──拒绝售后──▶ rejected
-
-退货退款 return_refund:
-  reviewing ──同意退货退款──▶ returning ──(买家填物流，系统自动)──▶ refunding ──确认退款──▶ refunded
-     └──拒绝售后──▶ rejected
-
-换货 exchange:
-  reviewing ──同意换货──▶ returning ──确认收到退货──▶ exchanging ──换货完成──▶ exchanged
-     └──拒绝售后──▶ rejected
-```
-
-- 终态：`refunded` / `rejected` / `exchanged` → 不可再操作
-- **`returning` 有两个出口，靠 `return_at`（买家填物流的时间戳）是否有值区分**：
-  - `return_at` 为空 → 买家还没填物流 → **管理员无动作**，等买家
-  - `return_at` 非空 → 买家已填物流：
-    - 退货退款：系统已自动置 `refunding`，管理员无动作，等确认退款
-    - 换货：管理员可点「确认收到退货，开始换货」→ `exchanging`
-- 换货的 `returning → exchanging` 要求 `return_at` 非空，否则 400「买家尚未填写退货物流」
-
-### 4.2 后端：一份规则，两处使用
-
-新增 `ecommerce/aftersale/support/AfterSaleTransitions.java`（参照 `order-service/.../support/CouponConstants.java` 的先例）：
-
-```
-(售后类型, 当前状态, 目标状态[, 附加条件]) -> { operateType, label, kind }
-```
-
-`kind`：`PRIMARY`（正向）/ `DANGER`（拒绝）。
-
-**规则表**（本次唯一真相）：
-
-| 售后类型 | 当前状态 | 目标状态 | operate_type | 按钮文案 | 附加条件 |
-|---|---|---|---|---|---|
-| only_refund | reviewing | refunding | 3 AGREE_REFUND | 同意退款 | — |
-| only_refund | reviewing | rejected | 2 REJECT | 拒绝售后 | 备注必填 |
-| only_refund | refunding | refunded | 7 CONFIRM_REFUND | 确认退款 | — |
-| return_refund | reviewing | returning | 4 AGREE_RETURN | 同意退货退款 | — |
-| return_refund | reviewing | rejected | 2 REJECT | 拒绝售后 | 备注必填 |
-| return_refund | refunding | refunded | 7 CONFIRM_REFUND | 确认退款 | — |
-| exchange | reviewing | returning | 5 AGREE_EXCHANGE | 同意换货 | — |
-| exchange | reviewing | rejected | 2 REJECT | 拒绝售后 | 备注必填 |
-| exchange | returning | exchanging | 8 START_EXCHANGE | 确认收到退货，开始换货 | `return_at` 非空 |
-| exchange | exchanging | exchanged | 9 FINISH_EXCHANGE | 换货完成 | — |
-
-**两个用途**：
-
-1. **校验**：`AdminAfterSaleServiceImpl#review` 命中白名单才放行，否则 400「不允许从『商家审核中』变更为『已退款』」
-2. **下发**：后台详情接口 `GET /api/admin/after-sales/{id}` 的 `AfterSaleVO` 加字段 `availableActions: [{status,label,kind}]`
-
-> **为什么下发而不是前端硬编码**：原方案里前端 `primaryActions` 和后端 `TRANSITION_RULES` 是同一件事的两份拷贝，必然漂移 —— 「`only_refund` 遗留 `returning` 单后台一个按钮都不显示」就是漂移出来的。后端下发只有一份真相，前端纯渲染。
-
-**附加校验**：
-- 拒绝售后（`to = rejected`）时 `merchantRemark` 必填 → 400「拒绝售后必须填写备注原因」
-- 命中不了规则 → 400，错误文案带中文状态名
-
-### 4.3 前端：审核弹窗改成按钮
-
-改动文件（后台前端 `e-commerce`）：
-
-```
-src/pages/after-sales/only-refund/OnlyRefundReview.vue
-src/pages/after-sales/return_refund/ReturnRefundReview.vue
-src/pages/after-sales/exchange/ExchangeReview.vue
-```
-
-**模板**：移除 `a-form-item label="售后审核"` 的下拉框；`a-modal` 去掉 `@ok="submitReview"` 和 `okText`，改用 `#footer` 插槽：
-
-```html
-<template #footer>
-  <a-space>
-    <a-button v-if="primaryAction" type="primary" :loading="submitting"
-              @click="submitReview(primaryAction.status)">{{ primaryAction.label }}</a-button>
-    <a-button v-if="rejectAction" danger :loading="submitting"
-              @click="submitReview(rejectAction.status)">{{ rejectAction.label }}</a-button>
-    <a-button @click="visible = false">取消</a-button>
-  </a-space>
-</template>
-```
-
-`primaryAction` / `rejectAction` 从 `currentOrder.availableActions` 里按 `kind` 挑（**不再前端维护状态表**）。
-
-**`submitReview(targetStatus)`**：
-
-- `targetStatus === 'rejected'` 且备注为空 → `message.warning('拒绝售后必须填写备注原因')`，直接 return
-- 成功后 `confirmForm.value = { result: undefined, merchantRemark: '' }`（**原代码 `= []` 是 bug**）
-- 打开弹窗时重置 `confirmForm`；`availableActions` 为空数组时，弹窗里提示「当前状态无可执行操作」而不是空白
-
-**进度条同步改**（3 个 `*Review.vue` + 3 个 `*Detail.vue` 都要改）：删掉所有 `refund_confirming` 分支，`refunding` 直接对应到「退款中」步。
-
-### 4.4 历史数据订正（2 条 SQL，本地 + 生产同一份）
-
-#### ① `only_refund` + `returning` 遗留单
-
-生产库与本地库都存在 **`only_refund` + `returning`** 的历史单（各 1 条，生产已核实）。该组合在新状态机里无出路（`only_refund` 只有 `reviewing` 能出发），会卡死在后台。
-
-**订正为 `reviewing`**（数据语义回归正常，不改状态机代码、不留长期债务）：
-
-```sql
--- 订正：仅退款不应处于「退货中」；回到「商家审核中」走标准审核流程
--- 注意：服务器时区是 UTC，updated_at 不用 NOW()，用 +8h 换算成本地时间
-UPDATE after_sales
-SET status = 'reviewing',
-    updated_at = DATE_ADD(NOW(), INTERVAL 8 HOUR)
-WHERE after_sale_type = 'only_refund'
-  AND status = 'returning'
-  AND is_deleted = 0;
-```
-
-> 为什么选订正而不是给 `only_refund` 加 `returning → refunding` 特判：特判会永久留在代码里，且前端也会多出一条「仅退款退货中」的诡异路径；订正后数据与新订单完全一致，代码零负担。
-
-#### ② `refund_confirming` 遗留单
-
-生产 2 条、本地 1 条（均 `only_refund`，已核实）。删除该状态后这批单会卡在字典里查不到状态名，**必须一起订正**。
-
-**先订正子表、后订正主表**（顺序不能反：主表状态一改，子表语句就定位不到这批单了）：
-
-```sql
--- 步骤 1：子表补 refunded_at（refund_at 已有值 = 当初「确认退款」的时刻，取它作为到账时刻）
-UPDATE after_sale_only_refunds o
-JOIN after_sales a ON a.id = o.after_sale_id AND a.is_deleted = 0
-SET o.refunded_at = COALESCE(o.refund_at, a.updated_at)
-WHERE a.status = 'refund_confirming'
-  AND a.after_sale_type = 'only_refund'
-  AND o.is_deleted = 0
-  AND o.refunded_at IS NULL;
-
-UPDATE after_sale_returns o
-JOIN after_sales a ON a.id = o.after_sale_id AND a.is_deleted = 0
-SET o.refunded_at = COALESCE(o.refund_at, a.updated_at)
-WHERE a.status = 'refund_confirming'
-  AND a.after_sale_type = 'return_refund'
-  AND o.is_deleted = 0
-  AND o.refunded_at IS NULL;
-
--- 步骤 2：主表状态订正
-UPDATE after_sales
-SET status = 'refunded',
-    updated_at = DATE_ADD(NOW(), INTERVAL 8 HOUR)
-WHERE status = 'refund_confirming'
-  AND is_deleted = 0;
-```
-
-> `refund_at` **不删列**：新流程里 `refunding → refunded` 这一步同时写 `refund_at` 与 `refunded_at`（同一时刻，因为没有真实资金流转），与订单取消路径（`refund_at = refunded_at = 取消时间`）口径一致。删列要动 3 张子表的 DDL + 5 个实体的字段 + 4 个 mapper XML，收益为零。
-
-**执行范围：本地 + 生产同一份**（生产执行前先 `./deploy/backup-prod-db.sh` 备份）。
-
----
-
-## 5. 顺带修的缺陷
-
-| # | 位置 | 问题 | 处理 |
-|---|---|---|---|
-| 1 | 三个 `*Review.vue` | 提交成功后 `confirmForm.value = []`（对象被赋成数组） | 改为 `{ result: undefined, merchantRemark: '' }` |
-| 2 | 三个 `*Review.vue` + 三个 `*Detail.vue` | `done = ['refunded','exchanged','returned']` 引用已废弃的 `returned` | 删 `'returned'` |
-| 3 | `ExchangeReview.vue` | 引用了枚举里不存在的 `returning_exchange` / `exchange_shipping` | 删死分支 |
-| 4 | `AfterSaleServiceImpl.toVO` | C 端返回 `merchantRemark`（商家内部备注泄露给买家） | C 端不填，后台保留 |
-| 5 | `AfterSaleStatusConstantsVO` | 仍返回死状态 `'returned'` | 后端删掉，前后端口径一致 |
-| 6 | `AfterSaleStatusEnum` / `statusConstants()` / `STATUS_COLUMN_MAP` / `AdminAfterSaleDTO` | 死状态 `refund_confirming` | 本次删除（见 4.1.1） |
-| 7 | 后台「发放优惠券」 | 手填用户 ID，填错就发给错人 | **本次不修**，单独列（见下） |
-
-> #7 说明：后台发券是手填 `user.id` 的 textarea（`CouponList.vue:158`），没有选人控件，填手机号/订单号都会静默发给错误的人。这次不顺手动后台优惠券模块，另开一个任务改造成「输入手机号/昵称搜索 → 选中带出 id」。
-
----
-
-## 6. 改动文件清单
-
-### 后端 `common`（新增包 `ecommerce/log/`）
-
-| 操作 | 文件 |
-|---|---|
-| 改 | `pom.xml`（+ `spring-boot-starter-aspectj`、`spring-jdbc`） |
-| 改 | `utils/UserContext.java`（+ `userType`） |
-| 改 | `interceptor/JwtInterceptor.java`（写 userType） |
-| 新增 | `log/OperationLog.java`、`log/OperationLogEntry.java`、`log/OperationLogRecorder.java`、`log/OperationLogAspect.java`、`log/OperationLogCollector.java`、`log/JdbcOperationLogRecorder.java`、`log/LogAsyncConfig.java` |
-
-### 后端 `aftersale-service`
-
-| 操作 | 文件 |
-|---|---|
-| 改 | `pom.xml`（+ `spring-boot-starter-aspectj`） |
-| 改 | `AftersaleServiceApplication.java`（`@EnableTransactionManagement(order = HIGHEST_PRECEDENCE)`） |
-| 改 | `enums/AfterSaleStatusEnum.java`（删 `REFUND_CONFIRMING`） |
-| 改 | `service/impl/AfterSaleServiceImpl.java`（create / submitReturn 打标；C 端不返回 merchantRemark；`statusConstants()` 删 `refund_confirming` 与 `returned`） |
-| 改 | `service/impl/AdminAfterSaleServiceImpl.java`（review 打标 + 状态流转校验 + 拒绝备注必填；`STATUS_COLUMN_MAP` 删 `refund_confirming`，`refunded` 同时写 `refund_at`+`refunded_at`；delete 打标） |
-| 改 | `service/AfterSaleService.java`、`service/AdminAfterSaleService.java`（+ `listLogs`） |
-| 改 | `controller/AfterSaleController.java`、`controller/AdminAfterSaleController.java`（+ 日志接口） |
-| 改 | `dto/AdminAfterSaleDTO.java`（Schema 注释删 `refund_confirming`） |
-| 改 | `vo/AfterSaleVO.java`（+ `availableActions`）、新增 `vo/AfterSaleLogVO.java`、`vo/AfterSaleActionVO.java` |
-| 改 | `entity/AfterSaleReturn.java`、`entity/AfterSaleOnlyRefund.java`（`refundAt` 语义注释：无真实资金流转，与 `refundedAt` 同刻） |
-| 新增 | `entity/AfterSaleLog.java`、`enums/AfterSaleOperateTypeEnum.java`、`support/AfterSaleTransitions.java` |
-| 新增 | `mapper/AfterSaleLogMapper.java` + `resources/mappers/aftersale/AfterSaleLogMapper.xml` |
-| 新增 | `annotation/AfterSaleLogRecord.java`、`aspect/AfterSaleLogAspect.java` |
-
-### 后台前端 `e-commerce`
-
-| 操作 | 文件 |
-|---|---|
-| 改 | `src/pages/after-sales/only-refund/OnlyRefundReview.vue` |
-| 改 | `src/pages/after-sales/return_refund/ReturnRefundReview.vue` |
-| 改 | `src/pages/after-sales/exchange/ExchangeReview.vue` |
-| 改 | 三个 `*Detail.vue`（加「变更记录」时间线；进度条删 `refund_confirming` 分支；顺带修 `returning_exchange`/`exchange_shipping` 死状态与蛇形字段名 `exchange_at`→`exchangeAt`） |
-| 改 | `src/api/afterSale.js`（+ `getAfterSaleLogs(id)`） |
-| 新增 | `src/components/AfterSaleLogTimeline.vue`（变更记录时间线，三个详情页共用） |
-
-### 小程序 `e-commerce-uniapp`
-
-| 操作 | 文件 |
-|---|---|
-| 改 | `pages/after-sales/only-refund-detail.vue`（加「处理进度」变更记录） |
-| 改 | `pages/after-sales/return-refund-detail.vue`（加「处理进度」变更记录） |
-| 改 | `pages/after-sales/exchange-detail.vue`（加「处理进度」变更记录） |
-| 改 | `api/after-sale.js` 新增 `getAfterSaleLogs(id)` |
-| 新增 | `components/after-sale-log-list/after-sale-log-list.vue`（变更记录纵向时间线，三个详情页共用） |
-
-> 小程序**没有硬编码 `refund_confirming`**，状态全走 `/api/after-sales/status-constants` 字典接口，删字典项不会白屏。
-
-### PC 商城 `ecommerce-mall`（v3 补上，v2 漏了）
-
-| 操作 | 文件 |
-|---|---|
-| 改 | `src/views/aftersales/AfterSaleDetail.vue`（加「变更记录」时间线） |
-| 改 | `src/api/aftersale.js`（+ `getAfterSaleLogs(id)`） |
-
-> **为什么必须补**：PC 商城 `AfterSaleDetail.vue:41` 的 `needSubmitReturn` 判断 `status === 'returning'` —— **买家能在 PC 商城填退货物流**，会触发同一个 `submitReturn` 接口。后台只改了小程序的话，PC 商城这条路径虽然能跑通，但买家在 PC 上看不到「商家已同意/已确认退款」的过程 —— 三端体验不一致。
-
-### SQL
-
-| 操作 | 文件 |
-|---|---|
-| 新增 | `docs/sql/log/01-operation-log-schema.sql` |
-| 新增 | `docs/sql/after-sale/01-after-sale-log-schema.sql` |
-| 新增 | `docs/sql/after-sale/02-fix-only-refund-returning.sql`（历史数据订正 ①） |
-| 新增 | `docs/sql/after-sale/03-fix-refund-confirming.sql`（历史数据订正 ②） |
-
-> 按项目 `docs/sql/<模块>/NN-xxx.sql` 分目录风格（参照 `docs/sql/rbac/`、`docs/sql/coupon/`），不用单文件。
-
----
-
-## 7. 发布顺序（铁律：DB 先于代码）
-
-> **执行状态（2026-11-03）**：第 1~5 步已完成并验证，第 6 步（小程序）待人工。
-
-1. [x] **备份生产库**：`./deploy/backup-prod-db.sh` → `/www/backup/e_commerce_db_2026-11-03_1008.sql`（校验通过）
-2. [x] **生产执行 SQL**（scp 到 `/www/java/sql/`，`bash /www/java/run-sql-prod.sh <文件>`）：
-   - `docs/sql/after-sale/01-after-sale-log-schema.sql`（建表）—— **由杰米手动建好**，脚本核对过结构与 mapper 完全一致
-   - `docs/sql/log/01-operation-log-schema.sql`（建表）✅ 已执行
-   - `docs/sql/after-sale/02-fix-only-refund-returning.sql`（订正历史数据 ①）✅ 已执行，生产 1 行
-   - `docs/sql/after-sale/03-fix-refund-confirming.sql`（订正历史数据 ②）✅ 已执行，生产 2 行
-   - **本地同样执行了这四份**（本地 `refund_confirming` 1 条、`only_refund+returning` 1 条，均已订正）
-   - 生产订正后状态分布已复核：`refund_confirming` 归零、`refunded` 4→6、`returning` 5→4、`reviewing` 13→14
-3. [x] **发后端**：common 是依赖库不能单独发 → `./deploy/release.sh product-service order-service aftersale-service user-service file-service auth-service`
-   - common 改了 `UserContext`（+`CURRENT_TYPE`）与 `JwtInterceptor`，**所有依赖 common 的服务都要重发**（`remove()` 不清 `CURRENT_TYPE` 会导致 Tomcat 线程复用串号）
-   - `auth-service` 必须排在最后（它停止签发 shopId，旧版本服务会拒绝新 token）
-   - `gateway` 不依赖 common，本次不用重发
-   - ✅ 镜像 tag `20261103-00c8111-dirty`，6 个容器全部 running，启动日志无 error/exception
-4. [x] **发后台前端**：`./deploy/release-web.sh` → ✅ `index-bc9b658c.js`
-5. [x] **发 PC 商城**：`./deploy/release-mall.sh` → ✅
-6. [ ] **发小程序**：HBuilderX 重新构建 → 微信开发者工具上传（**小程序是本次唯一必须重新发版的端**，因为买家侧时间线是新页面）
-
-> ⚠️ 建表必须在发版之前：代码先上、表后建，`review` 一调就报表不存在。
-
----
-
-## 8. 边界与坑
-
-1. **`UserContext.userType`**：`remove()` 里必须一起清，否则 Tomcat 线程复用会串号。
-2. **`operation_log` 异步写**：线程池满 / DB 不可达 → 只记 warn，不抛给业务。表是审计用途，丢了比业务失败严重性低。
-3. **`after_sale_log` 同步写**：切面必须在事务内层（`@EnableTransactionManagement(HIGHEST_PRECEDENCE)` + 切面 `LOWEST_PRECEDENCE`）。**买家看到的时间线不能缺条**。
-4. **切面依赖 CGLIB 代理**：Boot 默认 `proxyTargetClass=true`，注解打在实现类方法上能被匹配。若将来某服务改成 JDK 代理，注解会静默失效 —— 所以线 2 的注解只打在**实现类**（`AfterSaleServiceImpl` / `AdminAfterSaleServiceImpl`）上，不打在接口上。
-5. **`content` 长度**：切面里统一截断（`content` 255 / `params` 2000），防 `Data too long`。
-6. **状态流转校验只在 admin review**：C 端 `submitReturn` 的 `returning → refunding` 由买家操作自动完成，不走白名单；`create` 固定 `reviewing`。
-7. **`AfterSaleStatusConstantsVO` 删 `'returned'` 和 `'refund_confirming'`**：前端小程序、PC 商城、后台都按状态名取值，删之前要 grep 全端确认没有硬编码依赖（已 grep：`returned` 仅三个 `*Detail.vue` 的 `done` 数组 + 字典接口本身；`refund_confirming` 仅三个 `*Review.vue` + 三个 `*Detail.vue` + 后端 4 处）。
-8. **`operation_log.params` 可能含敏感字段**：不要把密码类参数打标；当前只给售后审核/删除打标，这两个接口的参数是 `status` / `merchantRemark`，安全。以后给别的接口打标时注意甄别。
-9. **`returning` 的两个出口靠 `return_at` 区分**：`return_at` 为空 = 买家还没填物流（管理员无动作）；非空 = 已填。换货的「确认收到退货」按钮必须要求 `return_at` 非空才下发，否则商家会对还没寄出的单点「确认收到退货」。
-10. **状态字典是三端共享的**：`statusConstants()` 一改，小程序 + PC 商城 + 后台三端同时受影响。本次删两个状态项，三端都已 grep 确认无硬编码，但**以后任何状态增删都要三端一起验**。
-
----
-
-## 9. 售后闭环问题梳理（v4 讨论稿，2026-11-05）
-
-> 本节只梳理问题与方案，不写代码。所有结论都基于 v3 当前代码（后端 `aftersale-service`、后台 `e-commerce`、小程序 `e-commerce-uniapp`、PC 商城 `ecommerce-mall`）。
->
-> 一句话结论：**当前售后是一条“审核状态流水”，不是一笔完整的售后业务。**
-> 状态改完了，但货没回来/没补发、钱没记录、订单没变化、买家没通知，所以换货会在“商家同意”之后断掉。
-
-### 9.1 问题总览
-
-| 编号 | 严重度 | 环节 | 问题 | 直接后果 |
-| --- | --- | --- | --- | --- |
-| P0-1 | 致命 | 订单联动 | 售后终态不回写订单 | 退款后订单仍“待发货”，可能钱退了货还发 |
-| P0-2 | 致命 | 退货退款 | 商家没确认收货就能退款 | 货未到、少件、损坏也可能退款 |
-| P0-3 | 致命 | 换货 | 没有“补发”环节和补发物流 | 商家点“换货完成”是空动作，买家不知道货在哪 |
-| P0-4 | 致命 | 换货 | 换货完成由商家单方决定，买家不能确认收货 | 买家没收到也终态，只能再走一次售后 |
-| P0-5 | 致命 | 库存 | 退款/换货都不碰库存 | 退款不回补、换货新件不出库，库存失真 |
-| P0-6 | 致命 | 申请规则 | 一个订单只允许一张售后单，拒绝后不能重来 | 多商品订单第二个商品永远无法售后 |
-| P0-7 | 致命 | 金额 | 退款金额只按商品小计，没有落库和对账 | 运费/优惠/保障费算不清，财务无法对账 |
-| P1-1 | 高 | 退货 | 自行寄回没有商家退货地址，上门取件是假流程 | 买家不知道寄给谁；取件没人执行 |
-| P1-2 | 高 | 沟通 | 拒绝原因只写内部备注，买家看不到 | 买家只看到“已拒绝”，不知道怎么改 |
-| P1-3 | 高 | 通知 | 状态变化不通知买家，后台没有待办/超时提醒 | 买家不主动看详情就永远不知道 |
-| P1-4 | 高 | 时效 | 没有申请期限、超时关闭、自动确认、买家撤销 | 审核中/退货中可永久挂起 |
-| P1-5 | 高 | 风控 | 后台可删除任意状态的售后单 | 进行中的售后被删，买家记录消失 |
-| P1-6 | 高 | 风控 | 后台可以替买家提交退货物流 | 可伪造买家寄回，审计失效 |
-| P1-7 | 高 | 并发 | 状态更新没有 CAS/版本号 | 两个管理员同时操作会互相覆盖 |
-| P1-8 | 高 | 申请规则 | 已完成订单不能“仅退款” | 少发配件、补差价等场景走不了系统 |
-| P2-1 | 中 | 文案 | 换货详情显示“换货金额/退款金额” | 换货不涉及退款，语义错误 |
-| P2-2 | 中 | 真实感 | C 端写死“退到建设银行储蓄卡 6667”，多处“联系商家/再次申请”是占位 toast | 演示/上线即穿帮 |
-| P2-3 | 中 | 一致性 | 三端进度条各自硬编码，文案已不一致 | 同一状态三端看到不同说法 |
-| P2-4 | 中 | 后台 | 售后列表无分页，一次全量返回 | 数据量上来后卡顿 |
-| P2-5 | 中 | 风控 | 售后凭证图片全可选，无数量/大小约束 | 质量问题举证不足 |
-| P2-6 | 低 | 物流 | 只有快递单号，没有物流轨迹 | 买家只能自己拿单号去查 |
-
-### 9.2 P0 问题（先解决，否则售后永远闭不了环）
-
-#### P0-1 售后终态不回写订单：退款后仍可能发货
-
-现状：
-- `aftersale-service` 对 `orders` / `order_items` 只有只读查询，没有任何写操作；`AdminAfterSaleServiceImpl.review()` 只更新 `after_sales` 和对应子表。
-- `order-service` 的“订单是否售后”只是 `EXISTS(after_sale_items)`（`OrderMapper.xml:26`、`:57`、`:149`），不区分进行中和已拒绝。
-- 未发货订单走“仅退款”到 `refunded` 后，`orders.order_status` 仍然是 `3 待发货`，后台发货列表照样能发。
-- 退货退款/换货完成后，订单仍然显示“已完成”，订单项没有任何售后标记。
-
-后果：
-- 钱退了，货还可能发出去（直接资损）。
-- 订单、售后两套状态互不知道，客服无法从订单判断这笔交易到底结束了没有。
-- 已退款订单仍可能出现在销量/营业额统计里。
-
-方案：
-- 售后终态由 `aftersale-service` 同步给 `order-service`（内部接口或事件，见 9.5.3）。
-- 订单增加订单项级售后状态，而不是只用一个订单级布尔值。
-- 全单退款且未发货 → 复用现有“取消订单”逻辑（改状态 + 回补库存）；部分退款 → 订单保留，但订单项标记“已退款”，发货时跳过该商品。
-- 换货完成 → 订单项标记“已换货”，订单主状态不变。
-
-#### P0-2 退货退款：商家没确认收货就能退款
-
-现状：
-- 买家填完退货物流后，`AfterSaleServiceImpl.submitReturn()` 对 `return_refund` **直接**把状态改成 `refunding`（`AfterSaleServiceImpl.java:305`）。
-- `refunding → refunded` 只要求后台点“确认退款”（`AfterSaleTransitions.java:77-78`），中间没有“商家确认收到退货/验货”的强制动作。
-- 子表只有 `return_at`，没有 `received_at`、验货结果、异常处理字段。
-
-后果：
-- 物流显示“已签收”不代表商家收到的是对的货；少件、空包、损坏、调包都可能直接退款。
-- 商家唯一的自我保护手段是拖到线下确认，系统里没有痕迹。
-
-方案（推荐强制）：
-- `returning` + `return_at` 非空后，后台必须执行“确认收到退货并验货”，才允许进入 `refunding`。
-- 验货结果分“正常 / 异常”；正常 → `refunding`；异常 → 拒收/退回（可先用 `rejected` + 买家可见原因，后续再考虑 `return_abnormal`）。
-- 新增 `received_at`、`inspect_result`、`inspect_remark`，后台详情展示，买家端只展示“商家已收到退货/验货异常”。
-
-#### P0-3 换货只改状态，没有补发
-
-这就是“商家同意换货之后没有下一步”的根因。
-
-现状：
-- `after_sale_exchange_returns` 只有退货侧字段：`return_courier`、`return_tracking_number`、`ship_address`、`return_at`、`exchange_at`、`exchanged_at`，**没有任何补发快递/补发单号/补发时间字段**。
-- 后台“换货完成”只提交 `status=exchanged + merchantRemark`（`ExchangeReview.vue:191-194`），不采集任何补发信息。
-- 后台进度条却直接把 `exchanging/exchanged` 文案写成“已发货”（`ExchangeReview.vue:167`、`ExchangeDetail.vue:182`），属于“没有数据却说已发货”。
-- 买家端 `exchanging` 阶段没有任何展示补发物流的位置。
-
-后果：
-- 商家点“换货完成”就可以结束，买家既看不到补发物流，也不知道货有没有发。
-- 一旦买家没收到，只能重新发起一次售后，流程从头再来。
-- 平台无法判断商家到底有没有补发。
-
-方案：
-- 把“换货完成”拆成两个真实动作：
-  1. 商家确认收到退货 → 进入 `exchanging`；
-  2. 商家填写**补发承运商 + 补发单号 + 发货时间** → 仍是 `exchanging`，但买家可见“换货商品已发出”。
-- 新增字段：`ship_courier`、`ship_tracking_number`、`ship_at`、`buyer_received_at`、`auto_confirm_at`。
-- 买家确认收到换货商品后才进入 `exchanged`；超时未确认可自动确认（天数见 9.7 待拍板）。
-- 后台不能再直接点“换货完成”。
-
-#### P0-4 换货没有买家确认收货
-
-现状：
-- `exchanging → exchanged` 只由后台触发；小程序换货详情在 `exchanging` 状态没有任何按钮（只有 `returning + 自行寄回 + 未填物流` 才显示“回填物流”，`exchange-detail.vue:171-174`）；PC 商城同样没有确认入口。
-- `exchanged` 是终态，之后没有“未收到货/少件/错件”的反馈入口。
-
-后果：
-- 商家单方宣布完成，买家没有交接确认，闭环只闭在商家一侧。
-- 换货商品出问题只能重新走售后，且旧单已终态。
-
-方案：
-- `exchanged` 由买家确认（或超时自动确认），后台只负责“已补发”。
-- 买家端在 `exchanging` 且已有补发单号时展示“确认收到换货商品”；确认后 `exchanged`。
-- 若买家反馈未收到/少件，允许在该售后单内发起“异常反馈”，不要新开一张售后单。
-
-#### P0-5 售后完成不处理库存
-
-现状：
-- 下单时已经扣库存（`OrderServiceImpl.java:241`）；用户取消订单会回补库存（`AdminOrderServiceImpl.java:281-286`）。
-- 但售后的退款、退货退款、换货三条路径全部不碰库存：`aftersale-service` 全模块没有 stock/库存相关调用。
-- 换货完成也不记录“旧件回库/新件出库”。
-
-后果：
-- 退款成功后库存少一件，可售库存虚低。
-- 换货补发的新件没有出库，库存虚高；退回的旧件也没有回库记录。
-- 库存流水与售后流水对不上，盘点必出问题。
-
-方案：
-- 由 `order-service` 提供内部库存方法（它已经持有 `restoreStock` / `deductStock`），售后终态调用：
-  - 仅退款/退货退款 → 回补库存（按退款数量）。
-  - 换货 → 旧件回库 + 新件出库；同 SKU 可做净变动 0，但必须留一条换货库存流水。
-- 所有调用幂等（按 `afterSaleId + 动作` 去重），失败可重试。
-
-#### P0-6 一个订单只能有一张售后单，拒绝后不能重来
-
-现状：
-- `create()` 只要同一订单存在任意未删除售后单就直接拒绝（`AfterSaleServiceImpl.java:140-143`），`findByOrderId` 不看状态。
-- 前端申请页明明支持按 `orderItemId` 单商品申请（小程序 `exchange.vue:116-160`、`apply.vue:90-131`），但后端规则是订单级。
-- 被拒绝后 `rejected` 仍算“已存在”，买家无法再申请；小程序“再次申请售后”只是 toast 占位（`only-refund-detail.vue:192-194`）。
-
-后果：
-- 多商品订单：商品 A 退过一次，商品 B 永远不能售后。
-- 被拒绝一次就“判死刑”，只能找客服手工处理。
-- 售后单列表也会出现“同一订单永远只有一张”的假象。
-
-方案：
-- 唯一性从“订单级”改为“订单项级”：同一 `order_item_id` 同时只允许一张进行中的售后单；终态后可再申请。
-- 新增“每项最多申请次数”（例如 3 次）和“申请有效期”（例如订单完成后 15 天）。
-- 拒绝后允许在有效期内重新提交，复用原订单项，不新建订单。
-- 订单项增加 `after_sale_status`，列表/详情直接按项展示。
-
-#### P0-7 退款金额口径缺失、没有资金流水
-
-现状：
-- 售后申请时 `refundAmount = order_items.sub_total`（`AfterSaleServiceImpl.java:194`），只等于商品小计。
-- 订单实际支付包含优惠、优惠券、运费等（`Order` 有 `originalAmount/discountAmount/couponAmount/payAmount`），售后完全没有参与计算。
-- `after_sales` 主表没有 `refund_amount`，子表只有 `refund_at/refunded_at` 时间戳；没有退款单号、渠道、操作人、失败状态。
-- 营业额退款统计同样按 `after_sale_items.refund_amount`（商品小计，`OrderMapper.xml:220-221`、`:240-241`）。
-
-后果：
-- 多商品 + 优惠订单退款金额可能高于实付或低于应退。
-- 运费、增值保障费退不退没有定义，客服只能拍脑袋。
-- 没有任何“退给谁、退了多少、走什么渠道”的账，出了问题无法追。
-
-方案：
-- 先定义口径（建议默认）：
-  - 可退商品金额 = 商品实付金额（按订单优惠/优惠券按项分摊后）。
-  - 运费：整单未发货退款退；已发货因质量问题退；买家原因不退（可配置）。
-  - 增值保障费：未使用可退，已使用不退。
-  - 单项退款金额 ≤ 该订单项实付金额，整单累计 ≤ 订单实付 `payAmount`。
-- 申请时把退款金额快照到售后单（`refund_amount`），后续不可改。
-- 新增退款流水（金额、渠道、退款单号、状态、操作人、时间）。项目不接真实支付就明确写“模拟退款”，但流水仍要落库。
-- 退款统计改读退款流水，不再读商品小计。
-
-### 9.3 P1 问题（闭环体验与风控）
-
-#### P1-1 自行寄回没有商家退货地址，上门取件是假流程
-
-- `after_sale_returns` / 换货子表只有买家地址和 `ship_address`，没有商家收件人/电话/地址。
-- 买家选择“自行寄回”后，系统不告诉他寄到哪里；只能线下问客服。
-- `ship_address` 是买家填的“商家寄新货地址”，语义相反，且小程序还强制必填（`exchange.vue:213`）。
-- “上门取件”只保存了 `return_way=pickup` 和时段文本，没有承运商下单、没有取件任务、没有短信通知；页面上的“短信通知”是静态文案。
-
-方案：
-- 后台配置商家退货地址（单店铺先做一条配置，快照到售后单，买家端可见）。
-- `ship_address` 改为结构化地址（收件人/电话/省市区/详细地址），默认复用订单地址，允许修改。
-- 上门取件要么接真实承运商，要么明确改文案为“商家联系你安排取件”，不要假装系统已通知。
-
-#### P1-2 拒绝原因买家看不到
-
-- 后台拒绝时 `merchantRemark` 必填（`AdminAfterSaleServiceImpl.java` 审核校验），但 C 端 VO 和变更记录明确不返回 `merchantRemark`（v3 §5 #4，`listLogs` 传 `false`）。
-- 买家只看到“售后已拒绝”，看不到“为什么拒绝、需要补什么”。
-
-方案：
-- 拆两个字段：`merchant_remark`（内部，仅后台可见）、`buyer_reply`（公开，买家可见）。
-- 拒绝、验货异常、要求补凭证等动作必须写 `buyer_reply`，C 端详情和变更记录展示。
-
-#### P1-3 没有通知、没有待办
-
-- 状态变化只写 `after_sale_log`，不发站内信/微信订阅消息/短信。
-- 小程序“联系商家”“钱款去向”“再次申请”多处是 toast 占位（`only-refund-detail.vue:189-194`、`return-refund-detail.vue:190-192`）。
-- 后台没有“待审核/待确认收货/超时”工作台，商家不主动刷列表就漏单。
-
-方案：
-- 售后事件统一发消息：提交成功、商家同意/拒绝、买家填物流、商家确认收货、退款完成、换货补发、换货完成。
-- 渠道优先级：站内消息中心 → 微信订阅消息（需用户授权）→ 短信（可选）。
-- 后台售后首页增加“待我处理 / 即将超时”计数和筛选。
-
-#### P1-4 没有时效、超时、撤销
-
-- 已完成订单永久可申请售后，没有“确认收货后 15 天”之类的窗口。
-- `reviewing` 没有商家审核 SLA；`returning` 买家不填物流会永久挂起；`exchanging` 没有自动确认。
-- 买家不能主动撤销售后（v3 明确把 `USER_CANCEL` 删了），只能等商家拒绝。
-- `aftersale-service` 全模块没有定时任务（无 `@Scheduled`）。
-
-方案：
-- 申请有效期：订单完成后 N 天（建议 15 天）内可申请。
-- `reviewing`：24 小时提醒、48 小时后台标红/升级（不自动同意，避免资损）。
-- `returning`：同意后 7 天未填物流 → 自动关闭（买家可在有效期内重新申请）。
-- `exchanging`：商家补发后 10 天买家未确认 → 自动确认收货。
-- 新增“买家撤销”：`reviewing` 状态允许买家撤销，进入 `closed`（或复用 `rejected` 但要区分来源；建议新增 `closed`，见 9.5.1）。
-
-#### P1-5 后台可删除任意状态的售后单
-
-- `AdminAfterSaleServiceImpl.delete()` 只校验存在，任何状态直接软删；没有状态限制、没有原因、没有通知买家。
-- 删除后进行中的售后从买家列表消失，但日志仍在，状态机数据还在。
-
-方案：
-- 只允许终态（`refunded/exchanged/rejected/closed`）删除，且必须填原因。
-- 进行中只能走“拒绝/关闭”，不能物理或逻辑删除。
-- 删除动作通知买家（或至少在买家侧标记“商家已关闭”）。
-
-#### P1-6 后台可以替买家提交退货物流
-
-- 后台换货/退货退款详情页 footer 有“提交退货”按钮，直接调用 C 端同一个 `submitReturn`（`ReturnRefundDetail.vue:118-124`、`ExchangeDetail.vue:118-124`）。
-- 管理员可以以买家身份选择退货方式、填快递单号。
-
-后果：审计上无法区分“买家寄回”还是“商家代填”，可伪造物流。
-
-方案：
-- 后台只读展示退货方式/物流；快递单号只能买家填或由物流回调写入。
-- 后台唯一的货物流转动作是“确认收到退货/验货”，单独接口、单独审计。
-
-#### P1-7 状态更新没有并发保护
-
-- `updateStatus` / `updateStatusAndRemark` 的 WHERE 只有 `id + is_deleted`（`AfterSaleMapper.xml:85-96`），没有 `status` 条件或版本号。
-- 两个管理员同时点“同意”和“拒绝”，后写覆盖先写；重复点击也会重复记日志。
-
-方案：
-- 更新条件带当前状态（CAS）：`WHERE id=? AND status=?`，失败返回 409“状态已变化，请刷新”。
-- 审核接口加幂等键（前端一次点击一个 requestId，后端去重）。
-- 关键动作（退款、确认收货、补发）单独接口，不共用一个大 `review`。
-
-#### P1-8 已完成订单不能“仅退款”
-
-- `create()` 对 `only_refund` 只允许订单状态 3（待发货）/4（已发货）（`AfterSaleServiceImpl.java:134-136`）。
-- 已完成订单只能退货退款/换货，无法处理“少发一个配件，只退差价”“协商补偿”等场景。
-
-方案：
-- 已完成订单允许 `only_refund`，但强制商家审核，并允许商家填写协商退款金额（≤该商品实付上限）。
-- 前端“仅退款”在已完成订单也展示，文案说明“需商家同意”。
-
-### 9.4 P2 问题（真实感、一致性、性能）
-
-- **P2-1 金额文案错误**：换货详情展示“换货金额/退款金额”（`ExchangeDetail.vue:35`、`exchange-detail.vue:58-59`），换货不产生退款，应改为“换货商品价值（参考）”，并且不参与金额统计。
-- **P2-2 假数据/占位**：C 端写死“已退到建设银行储蓄卡 6667”（`only-refund-detail.vue:14`、`return-refund-detail.vue:14`）；“联系商家”“钱款去向”“再次申请”是 toast；后台还有“待接入”文案。上线前必须改为真实数据或明确标注“模拟”。
-- **P2-3 三端进度条重复硬编码**：后台、小程序、PC 各自维护 step 数组，`exchanging` 在后台写“已发货”、在小程序写“商家换货”，同一状态三种说法。建议后端下发 `timeline`（节点、时间、操作方、是否完成），三端只渲染。
-- **P2-4 后台列表无分页**：`AdminAfterSaleService.list` 返回全量 List；售后单多后会拖慢页面。建议分页 + 按状态/类型/超时筛选。
-- **P2-5 凭证无约束**：`images` 全可选，无最少张数/大小/格式校验。质量类、破损类原因建议至少 1 张；统一在申请页限制数量与大小。
-- **P2-6 无物流轨迹**：只存快递单号和承运商，没有轨迹查询；买家只能自己拿单号去查。若不做对接，至少在文案上说明“仅记录单号”。
-
-### 9.5 建议的闭环设计（方案，不写代码）
-
-#### 9.5.1 状态机 v4
-
-保留现有 7 个状态，新增 `closed`（买家撤销/超时关闭），必要时再加 `return_abnormal`（验货异常，Phase 2）。
-
-| 售后类型 | 当前状态 | 动作 | 目标状态 | 执行方 | 前置条件 |
-| --- | --- | --- | --- | --- | --- |
-| 仅退款 | reviewing | 同意退款 | refunding | 商家 | — |
-| 仅退款 | refunding | 确认退款 | refunded | 商家/系统 | 退款流水已生成 |
-| 仅退款 | reviewing | 撤销售后 | closed | 买家 | 商家未审核 |
-| 退货退款 | reviewing | 同意退货退款 | returning | 商家 | — |
-| 退货退款 | returning | 填退货物流 | returning（写 return_at） | 买家 | 已选退货方式 |
-| 退货退款 | returning | 确认收到退货并验货 | refunding | 商家 | `return_at` 非空 |
-| 退货退款 | returning | 验货异常，拒收/退回 | rejected 或 return_abnormal | 商家 | 必须写买家可见原因 |
-| 退货退款 | refunding | 确认退款 | refunded | 商家/系统 | 退款流水已生成 |
-| 换货 | reviewing | 同意换货 | returning | 商家 | — |
-| 换货 | returning | 填退货物流 | returning（写 return_at） | 买家 | 已选退货方式 |
-| 换货 | returning | 确认收到退货 | exchanging | 商家 | `return_at` 非空 |
-| 换货 | exchanging | 填写补发物流并发出 | exchanging（写 ship_at/单号） | 商家 | 已有退货收货确认 |
-| 换货 | exchanging | 买家确认收到换货 | exchanged | 买家 | 已有补发单号 |
-| 换货 | exchanging | 超时自动确认 | exchanged | 系统 | 补发后 N 天 |
-| 换货 | exchanging | 无货可换，协商转退款 | refunding | 商家 | 写买家可见说明 |
-| 任意进行中 | reviewing | 超时关闭 | closed | 系统 | 配置的 SLA |
-
-关键规则：
-1. **退货退款不再自动进入 refunding**：必须商家确认收到退货并验货。
-2. **换货完成不再是商家一个按钮**：商家只负责“已补发”，买家负责“已收到”。
-3. **退款必须有金额快照和退款流水**，不能只改状态。
-4. **所有终态必须回写订单项状态并处理库存**。
-5. 状态增删仍需三端同步（v3 第 10 条）。
-
-#### 9.5.2 数据模型补齐
-
-| 表 | 新增字段 | 用途 |
+| 编号 | 问题 | 方案 |
 | --- | --- | --- |
-| `after_sales` | `refund_amount`、`refund_no`、`refund_channel`、`closed_at`、`close_reason`、`buyer_reply`、`version` | 退款金额/流水号/渠道、关闭原因、买家可见回复、并发版本 |
-| `after_sale_returns` | 商家退货地址快照、`received_at`、`inspect_result`、`inspect_remark` | 买家知道寄给谁；商家确认收货/验货 |
-| `after_sale_exchange_returns` | `ship_courier`、`ship_tracking_number`、`ship_at`、`buyer_received_at`、`auto_confirm_at`、商家退货地址快照 | 换货补发与买家确认 |
-| `order_items` | `after_sale_status`、`after_sale_id`、`refunded_quantity` | 订单项级售后标记，支持多商品、发货跳过退款项 |
-| 新增 `after_sale_refund` | 售后单、金额、渠道、退款单号、状态、操作人、时间 | 退款流水与对账（模拟支付也落库） |
-| 新增 `after_sale_sync_task`（可选） | 售后单、动作、重试次数、状态 | 跨服务同步的 outbox，保证最终一致 |
-| 商家配置 | 退货收件人/电话/地址 | 自行寄回地址，后续可扩展多店铺/多仓 |
+| P0-2 | 退货退款商家同意后，买家端没有取件确认，卡在 `returning` | 买家点「已上门取件」→ `refunding`；商家点「确认收到退货并退款」→ `refunded` |
+| P0-3 | 换货商家同意后没有收尾 | 商家「确认收到退货」→ `exchanging`；补发信息选填；商家「换货完成」→ `exchanged` |
+| P0-1 | 售后终态不回写订单 | 回写订单项售后状态；整单退款→订单“已退款”；发货跳过已退款商品 |
+| P0-5 | 退款/换货不处理库存 | 退款回补；换货旧件回库、新件出库 |
+| P0-6 | 一单只能一张售后单 | 改为订单项级唯一，同单其他商品仍可申请 |
+| P0-7 | 退款金额无快照 | 申请时快照 `refund_amount`，落 `refund_no/refund_channel/refund_at` |
 
-说明：如果不想新增表，最少也要在 `after_sales` 上补 `refund_amount/refund_no/refund_channel`，并在 `order_items` 上补售后状态；否则 P0-1/P0-7 无法闭环。
+## 2. 三条主流程
 
-#### 9.5.3 跨服务联动（aftersale-service ↔ order-service）
+### 2.1 仅退款（未发货）
 
-当前是单向读：售后读订单，订单不知道售后。需要补一条回写链路：
+申请 → 商家同意 → 模拟退款 `refunded` → 订单项标记“已退款” → 库存回补；整单退款时订单变“已退款”。
 
-- `aftersale-service` 在终态/关键节点调用 `order-service` 内部接口，例如：
-  - `syncItemAfterSale(orderId, itemIds, status, afterSaleId)`：更新订单项售后状态。
-  - `closeOrderAfterRefund(orderId, afterSaleId, refundAmount)`：全单退款且未发货时取消订单、回补库存。
-  - `recordExchangeStock(orderId, itemId, afterSaleId)`：换货旧件回库/新件出库，写库存流水。
-- 接口必须幂等（`afterSaleId + 动作` 唯一），重复调用不产生二次退款/二次库存。
-- 建议用本地 outbox + 定时重试，而不是在审核事务里直接发 HTTP：售后状态先提交，同步失败由任务补，避免“退款成功但订单没更新”。
-- 内部接口不要走网关公网路径，只允许服务间调用。
+### 2.2 退货退款
 
-#### 9.5.4 三端改造点
+1. 申请 → 商家同意 → `returning`。
+2. 买家二选一：
+   - 上门取件：点「已上门取件」→ 写 `pickup_at/pickup_no` → `refunding`；
+   - 自行寄回：填物流单号 → 写 `return_at` → `refunding`。
+3. 商家收到货后点「确认收到退货并退款」→ `refunded`。
+4. 退款落库、订单项回写、库存回补。
 
-**后台（e-commerce）**
-- 换货审核：新增“确认收到退货并填写补发物流”弹窗（承运商 + 单号 + 发货时间），去掉“换货完成”单按钮。
-- 退货退款审核：新增“确认收到退货/验货”动作，异常必须填买家可见原因；之后才出现“确认退款”。
-- 删除后台“提交退货”入口，退货物流只读。
-- 退款详情展示金额构成（商品/运费/优惠/保障费）和退款流水号。
-- 列表增加分页、待处理/超时筛选。
+- 不自动退款，必须商家手动点。
+- 不做商家验货（后续可选）。
 
-**小程序（e-commerce-uniapp）**
-- 换货详情：`exchanging` 展示补发物流 + “确认收到换货”按钮；`returning` 展示商家退货地址。
-- 售后详情：退款金额构成、退款渠道/流水号（去掉写死的银行卡）。
-- 增加“撤销售后”“再次申请”；拒绝原因用 `buyer_reply` 展示。
-- 上门取件文案与实现对齐（不接真实取件就明确人工联系）。
+### 2.3 换货
 
-**PC 商城（ecommerce-mall）**
-- 与小程序同能力：补发物流、确认收货、撤销/重申请、退款明细、拒绝原因。
-- 进度时间线改为后端下发，避免三端文案漂移。
+1. 申请 → 商家同意 → `returning`。
+2. 买家同上：点「已上门取件」或填退货物流。
+3. 商家点「确认收到退货」→ `exchanging`。
+4. 商家可填补发快递/单号/时间（选填）。
+5. 商家点「换货完成」→ `exchanged`；旧件回库、新件出库。
 
-### 9.6 分期落地建议
+- 不做买家确认收货，不做超时自动确认。
 
-**Phase 1（先闭环，解决 P0）**
-1. 退货退款强制“商家确认收货/验货”后才可退款。
-2. 换货增加补发物流 + 买家确认收货（或超时自动确认）。
-3. 售后终态回写订单项状态；全单未发货退款复用取消订单逻辑；退款回补库存、换货记录库存流水。
-4. 退款金额口径 + 快照 + 退款流水。
-5. 售后唯一性改订单项级，允许拒绝后重申请。
+## 3. 状态机
 
-**Phase 2（体验与风控，解决 P1）**
-1. 商家退货地址 + 上门取件真实/降级文案。
-2. 买家可见拒绝原因、消息通知、后台待办/超时。
-3. 申请有效期、审核 SLA、退货超时关闭、换货自动确认、买家撤销。
-4. 后台删除限制、禁止代填物流、状态 CAS。
-5. 已完成订单支持仅退款（协商金额）。
+| 当前 | 动作 | 下一步 | 操作方 |
+| --- | --- | --- | --- |
+| reviewing | 同意仅退款 | refunded | 商家 |
+| reviewing | 同意退货退款 | returning | 商家 |
+| reviewing | 同意换货 | returning | 商家 |
+| reviewing | 拒绝 | rejected | 商家 |
+| returning | 买家「已上门取件」或填退货物流 | refunding（退货退款）/ returning（换货） | 买家 |
+| refunding | 确认收到退货并退款 | refunded | 商家 |
+| exchanging | 确认收到退货 | exchanging（写补发信息） | 商家 |
+| exchanging | 换货完成 | exchanged | 商家 |
+| exchanging | 无货可换，转退款 | refunding | 商家 |
 
-**Phase 3（一致性与打磨，解决 P2）**
-1. 后端统一 timeline，三端只渲染。
-2. 后台分页、超时筛选、统计口径改退款流水。
-3. 清理金额文案、假银行卡、占位 toast。
-4. 凭证数量/大小约束、物流轨迹（可选）。
+规则：
 
-### 9.7 需要拍板的业务选择
+- 状态只能按上表流转，越级直接提示“状态已变化”。
+- 所有终态回写订单项；`refunded/exchanged` 不可再操作。
+- 买家动作仅本人可调；商家动作仅后台可调。
 
-1. **退货退款是否必须商家确认收货后才能退款？** 推荐：是；否则 P0-2 风险无法消除。
-2. **换货是否必须“补发物流 + 买家确认收货”？** 推荐：是；自动确认天数建议 10 天。
-3. **退款金额是否退运费/增值保障费？** 推荐：未发货退运费；已发货质量问题退运费；买家原因不退；保障费未使用可退。
-4. **优惠券/满减怎么退？** 推荐：按订单项实付占比分摊，退款不超过实付；优惠券本身不返还。
-5. **全单退款后的订单终态**：复用“已取消（6）”，还是新增“已退款（7）”？推荐新增“已退款”，语义更清晰，但三端状态字典要同步。
-6. **买家能否撤销/拒绝后重申请？** 推荐：审核中可撤销；拒绝后在有效期内可重申请，每项最多 3 次。
-7. **通知渠道**：只做站内消息，还是接微信订阅消息/短信？推荐先站内 + 订阅消息，短信后置。
-8. **是否接真实支付退款？** 若本期不接，明确“模拟退款”，但退款金额、流水号、渠道仍落库。
+## 4. 后端改动
 
-### 9.8 验收场景（闭环是否真的闭合）
+### 4.1 新增接口
 
-1. **换货全链路**：申请 → 商家同意 → 买家填退货物流 → 商家确认收到退货 → 商家填补发物流 → 买家看到补发单号 → 买家确认收货 → `exchanged`；订单项显示“已换货”，库存有回库/出库流水。
-2. **退货退款全链路**：申请 → 同意 → 买家寄回 → 商家确认收货/验货 → 退款 → `refunded`；订单项显示“已退款”，库存回补，退款流水金额与实付一致。
-3. **仅退款（未发货）**：同意 → 退款 → 订单变“已取消/已退款”，库存回补，后台发货列表不再出现。
-4. **多商品部分售后**：商品 A 退款完成后，商品 B 仍可申请；发货时跳过 A；订单金额/退款金额不串。
-5. **拒绝后重申请**：买家看到拒绝原因，可在有效期内对同一订单项再次申请，生成新的售后单。
-6. **并发操作**：两个管理员同时点“同意”和“拒绝”，只有一个成功，另一个提示状态已变化，日志不重复。
-7. **超时**：审核中超时、退货未寄回超时、换货未确认超时都能按配置自动关闭/自动确认。
-8. **通知**：上述每个节点买家都能收到消息或在订单列表看到状态变化，不需要主动猜。
+- `POST /api/after-sales/{id}/pickup-complete`：买家确认上门取件。
+  - 校验：本人、`return_way=pickup`、`status=returning`、未确认过；
+  - 写入 `pickup_at=now`、`pickup_no=PU+售后单号`、`return_at=now`；
+  - 退货退款 → `refunding`；换货 → 保持 `returning`（表示旧件已取走）；
+  - 幂等：重复调用直接返回成功。
+
+### 4.2 表字段（不新增表）
+
+| 表 | 新增字段 |
+| --- | --- |
+| `after_sales` | `refund_amount`、`refund_no`、`refund_channel` |
+| `after_sale_returns` | `pickup_at`、`pickup_no` |
+| `after_sale_exchange_returns` | `pickup_at`、`pickup_no`、`ship_courier`、`ship_tracking_number`、`ship_at` |
+| `order_items` | `after_sale_status`、`after_sale_id`、`refunded_quantity` |
+
+### 4.3 订单联动
+
+- 售后终态更新订单项的 `after_sale_status`。
+- 整单商品全部退款 → 订单状态新增“已退款（7）”；部分退款不改订单主状态。
+- 发货时跳过已退款订单项；已退款订单不允许发货。
+
+### 4.4 库存
+
+- 退款：按数量回补 `product.stock`。
+- 换货：旧件回库、新件出库；同商品净变化 0，不同商品按各自数量调整。
+- 直接改库存字段，不建库存流水表。
+
+### 4.5 金额
+
+- 申请时把该订单项实付快照到 `refund_amount`，后续按快照退。
+- 退款只看买家**实际支付**的钱：订单实付 80，最多退 80；不按原价、不按优惠前金额。
+- 多商品部分退款：按订单项实付占比分摊，单笔退款不超过该项实付。
+- 优惠券不退、不返还、不折现。例：满 100 减 20，订单实付 80；退其中一半商品退 40，券不退，也不会额外退 20。
+- 订单本身包邮、没有运费字段，退款不单独退运费。
+- 模拟退款，不调支付；`refund_no/refund_channel/refund_at` 照常落库。
+
+### 4.6 申请规则
+
+- 唯一性从“订单”改为“订单项”：同一订单项同时只能有一张进行中的售后单。
+- 已退款/已换货的订单项不再允许申请；同单其他商品不受影响。
+
+## 5. 三端改动
+
+### 小程序 / PC 商城
+
+- 退货退款详情：`returning + pickup` 显示「已上门取件」，点击即生效；`returning + self` 显示「回填物流单号」。
+- 换货详情：`returning + pickup` 同样显示「已上门取件」；`exchanging` 有补发信息就展示。
+- 售后详情展示：状态、退款金额、退款渠道/流水号（去掉写死的银行卡）。
+- 订单详情/列表展示订单项售后标记（已退款/已换货）。
+
+### 后台
+
+- 退货退款：`refunding` 显示「确认收到退货并退款」，详情展示取件时间/单号。
+- 换货：`returning` 显示「确认收到退货」；`exchanging` 显示补发信息（选填）和「换货完成」。
+- 售后详情展示退款金额与流水号。
+- 只读展示买家物流，不允许后台代填。
+
+## 6. 验收场景
+
+1. 仅退款：申请 → 同意 → 已退款；订单项已退款，库存 +N。
+2. 退货退款/上门取件：申请 → 同意 → 买家点「已上门取件」 → 退款中 → 商家点「确认收到退货并退款」 → 已退款；订单项/库存/退款字段正确。
+3. 退货退款/自行寄回：填单号 → 退款中 → 商家确认 → 已退款。
+4. 换货：同意 → 买家取件/填单号 → 商家确认收到退货 → 换货中 → 换货完成；库存旧件 +1、新件 -1。
+5. 多商品：商品 A 退款后，商品 B 仍可申请；发货跳过 A。
+6. 三端一致：同一售后单在小程序、PC、后台看到的状态和按钮一致。
+
+## 7. 本期不做（后续可选）
+
+- 真实支付退款、真实快递取件、短信通知。
+- 商家验货、买家确认收货、自动退款/自动确认/超时关闭。
+- 退款流水表、库存流水表、跨服务 outbox。
+- 买家撤销、拒绝原因展示、退货地址、后台待办、分页、并发 CAS。
