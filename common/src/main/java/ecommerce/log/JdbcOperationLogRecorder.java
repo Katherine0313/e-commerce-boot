@@ -24,8 +24,8 @@ public class JdbcOperationLogRecorder implements OperationLogRecorder {
 
     private static final String INSERT_SQL = """
             INSERT INTO operation_log
-              (user_id, user_type, module, action, biz_id, detail, method, uri, ip, params, success, error_msg, cost_ms, created_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+              (user_id, user_type, username, module, action, biz_id, detail, method, uri, ip, params, success, error_msg, cost_ms, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """;
 
     private final ObjectProvider<JdbcTemplate> jdbcTemplateProvider;
@@ -61,6 +61,7 @@ public class JdbcOperationLogRecorder implements OperationLogRecorder {
             jdbcTemplate.update(INSERT_SQL,
                     entry.getUserId(),
                     entry.getUserType(),
+                    entry.getUsername(),
                     entry.getModule(),
                     entry.getAction(),
                     entry.getBizId(),

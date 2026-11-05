@@ -2,6 +2,9 @@ package ecommerce.order.service.impl;
 
 import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.log.LogDetail;
+import ecommerce.log.LogDiff;
+import ecommerce.log.OperationLog;
 import ecommerce.order.dto.AdminOrderDTO;
 import ecommerce.order.dto.DeliveryCreateDTO;
 import ecommerce.order.entity.Order;
@@ -128,8 +131,9 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     }
 
     @Override
+    @OperationLog(module = "order", action = "ORDER_UPDATE", bizId = "#id")
     public OrderVO updateOrder(Long id, AdminOrderDTO dto) {
-        requireOrder(id);
+        Order old = requireOrder(id);
         Order o = new Order();
         o.setId(id);
         o.setConsignee(dto.getConsignee());
@@ -139,6 +143,8 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         o.setRemark(dto.getRemark());
         o.setUpdatedAt(LocalDateTime.now());
         orderMapper.update(o);
+        // 变更文案：old 是改之前的订单，逐字段比只记真正变了的
+        recordOrderDiff(old, dto);
         return getOrder(id);
     }
 
@@ -156,6 +162,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
 
     @Override
     @Transactional
+    @OperationLog(module = "order", action = "ORDER_CANCEL", bizId = "#id")
     public OrderVO cancelOrder(Long id) {
         Order order = requireOrder(id);
         checkTransition(order, OrderStatusEnum.CANCEL);
@@ -165,25 +172,36 @@ public class AdminOrderServiceImpl implements AdminOrderService {
             autoRefundOnCancel(order);
         }
         orderMapper.updateStatus(id, OrderStatusEnum.CANCEL.getCode(), null, null, null, LocalDateTime.now());
+        // 变更文案：状态码翻成后台文案（待付款 → 已取消）
+        LogDetail.add(LogDiff.of("订单状态", order.getOrderStatus(), OrderStatusEnum.CANCEL.getCode(),
+                value -> orderStatusDesc(value == null ? null : Integer.valueOf(String.valueOf(value)))));
         return getOrder(id);
     }
 
     @Override
+    @OperationLog(module = "order", action = "ORDER_REMOVE", bizId = "#id")
     public void deleteOrder(Long id) {
         requireOrder(id);
         orderMapper.delete(id, LocalDateTime.now());
+        // 软删不是物理删除，日志里点明一下，避免审计时误以为数据消失
+        LogDetail.add("删除订单（软删）");
     }
 
     @Override
+    @OperationLog(module = "order", action = "ORDER_BATCH_REMOVE")
     public void batchDelete(List<Long> ids) {
         if (ids == null || ids.isEmpty()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "ids 必须是非空数组");
         }
+        int deleted = 0;
         for (Long id : ids) {
             if (orderMapper.findById(id) != null) {
                 orderMapper.delete(id, LocalDateTime.now());
+                deleted++;
             }
         }
+        // 批量删除记条数：ids 里可能有已删/不存在的，实际删掉的才是有效操作
+        LogDetail.add("批量删除订单（软删），共 " + deleted + " 条");
     }
 
     @Override
@@ -192,6 +210,57 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     }
 
     // ==================== 内部工具 ====================
+
+    /**
+     * 记录订单信息变更文案（只记真正变了的字段）。
+     * <p>
+     * 为什么只比 DTO 传了的字段：orderMapper.update 是动态 set，DTO 里为 null 的字段根本不会落库，
+     * 若也拿来比较，日志会写成「从【张三】修改为【空】」，属于假变更。
+     * <p>
+     * 手机号：比较用原值（否则只有中间位不同的号码会被误判成没变），写进 detail 用脱敏后的值。
+     */
+    private void recordOrderDiff(Order old, AdminOrderDTO dto) {
+        if (dto.getConsignee() != null) {
+            LogDetail.add(LogDiff.of("收货人", old.getConsignee(), dto.getConsignee()));
+        }
+        if (dto.getPhone() != null) {
+            LogDetail.add(LogDiff.of("手机号", old.getPhone(), dto.getPhone(),
+                    value -> maskPhone(String.valueOf(value))));
+        }
+        if (dto.getRegion() != null) {
+            LogDetail.add(LogDiff.of("地区", old.getRegion(), dto.getRegion()));
+        }
+        if (dto.getDetailAddress() != null) {
+            LogDetail.add(LogDiff.of("详细地址", old.getDetailAddress(), dto.getDetailAddress()));
+        }
+        if (dto.getRemark() != null) {
+            LogDetail.add(LogDiff.of("备注", old.getRemark(), dto.getRemark()));
+        }
+    }
+
+    /**
+     * 手机号脱敏：保留前 3 后 4（138****5678）。
+     * <p>
+     * 号码不足 11 位时按比例截取，保证完整号码绝不出现在操作日志里。
+     */
+    private String maskPhone(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return "空";
+        }
+        String value = phone.trim();
+        if (value.length() <= 4) {
+            return "****";
+        }
+        int head = Math.min(3, value.length() - 1);
+        int tail = Math.min(4, value.length() - head);
+        return value.substring(0, head) + "****" + value.substring(value.length() - tail);
+    }
+
+    /** 订单状态 code → 后台中文文案 */
+    private String orderStatusDesc(Integer code) {
+        OrderStatusEnum status = OrderStatusEnum.fromCode(code);
+        return status == null ? String.valueOf(code) : status.getAdminDesc();
+    }
 
     private Order requireOrder(Long id) {
         Order order = orderMapper.findById(id);

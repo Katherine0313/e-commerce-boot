@@ -24,6 +24,9 @@ public class OperationLogEntry {
     /** 操作人类型：admin / user / null（未登录） */
     private String userType;
 
+    /** 操作人账号快照（账号可能被改名或软删，只靠 user_id 认不出人） */
+    private String username;
+
     /** 业务模块 */
     private String module;
 

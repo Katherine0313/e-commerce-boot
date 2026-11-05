@@ -1,6 +1,9 @@
 package ecommerce.product.service.impl;
 
 import ecommerce.exception.BusinessException;
+import ecommerce.log.LogDetail;
+import ecommerce.log.LogDiff;
+import ecommerce.log.OperationLog;
 import ecommerce.product.dto.AdminStockDTO;
 import ecommerce.product.entity.StockAlert;
 import ecommerce.product.mapper.StockAlertMapper;
@@ -43,6 +46,7 @@ public class AdminStockServiceImpl implements AdminStockService {
     }
 
     @Override
+    @OperationLog(module = "product", action = "STOCK_ALERT", bizId = "#dto.productId")
     public void create(AdminStockDTO dto) {
         validate(dto);
         StockAlert existing = stockAlertMapper.findByProductId(dto.getProductId());
@@ -50,12 +54,20 @@ public class AdminStockServiceImpl implements AdminStockService {
         if (!Integer.valueOf(1).equals(dto.getAlertEnabled())) {
             if (existing != null) {
                 stockAlertMapper.deleteByProductId(dto.getProductId());
+                // 关闭预警等于把配置删掉，日志里记开关的变化
+                LogDetail.add(LogDiff.of("预警开关", existing.getAlertEnabled(), 0,
+                        AdminStockServiceImpl::alertEnabledText));
             }
             return;
         }
         LocalDateTime now = LocalDateTime.now();
         if (existing != null) {
             // product_id 重复 → 更新（动态 set，null 字段保留原值）
+            // 变更内容：开关 + 上下限阈值，值没变就不记
+            LogDetail.add(LogDiff.of("预警开关", existing.getAlertEnabled(), dto.getAlertEnabled(),
+                    AdminStockServiceImpl::alertEnabledText));
+            LogDetail.add(LogDiff.of("最小库存阈值", existing.getMinStock(), dto.getMinStock()));
+            LogDetail.add(LogDiff.of("最大库存阈值", existing.getMaxStock(), dto.getMaxStock()));
             StockAlert update = new StockAlert();
             update.setId(existing.getId());
             update.setAlertEnabled(dto.getAlertEnabled());
@@ -64,6 +76,9 @@ public class AdminStockServiceImpl implements AdminStockService {
             update.setUpdateTime(now);
             stockAlertMapper.update(update);
         } else {
+            // 新增没有「改前值」，直接记下这次开的配置
+            LogDetail.add("新增库存预警：预警开关【已开启】、最小库存阈值【" + dto.getMinStock()
+                    + "】、最大库存阈值【" + dto.getMaxStock() + "】");
             StockAlert s = new StockAlert();
             s.setProductId(dto.getProductId());
             s.setAlertEnabled(dto.getAlertEnabled());
@@ -73,6 +88,14 @@ public class AdminStockServiceImpl implements AdminStockService {
             s.setUpdateTime(now);
             stockAlertMapper.insert(s);
         }
+    }
+
+    /** 预警开关翻译：1 已开启 / 0 已关闭 */
+    private static String alertEnabledText(Object value) {
+        if (value instanceof Integer enabled) {
+            return enabled == 1 ? "已开启" : "已关闭";
+        }
+        return String.valueOf(value);
     }
 
     // 校验：alertEnabled ∈ {0,1}；min/max 非空时 >= 0；开启预警时 min/max 必填且 min <= max

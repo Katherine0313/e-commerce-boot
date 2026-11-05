@@ -15,6 +15,8 @@ public class UserContext {
     private static final ThreadLocal<Long> CURRENT_ID = new ThreadLocal<>();
     /** 当前登录人身份类型：admin（后台）/ user（小程序、PC 商城）/ null（未登录） */
     private static final ThreadLocal<String> CURRENT_TYPE = new ThreadLocal<>();
+    /** 当前登录人账号快照：admin 令牌带 username claim，顾客令牌没有 */
+    private static final ThreadLocal<String> CURRENT_USERNAME = new ThreadLocal<>();
     /** 后台角色标识（如 admin/operator/service/warehouse） */
     private static final ThreadLocal<List<String>> CURRENT_ROLES = new ThreadLocal<>();
     /** 后台权限标识（如 product:product:list） */
@@ -45,6 +47,16 @@ public class UserContext {
         return CURRENT_TYPE.get();
     }
 
+    /** 保存当前登录人账号（快照），由 JwtInterceptor 从令牌 claims 写入 */
+    public static void setUsername(String username) {
+        CURRENT_USERNAME.set(username);
+    }
+
+    /** 获取当前登录人账号快照，未登录返回 null */
+    public static String getUsername() {
+        return CURRENT_USERNAME.get();
+    }
+
     /** 保存后台角色与权限，由 JwtInterceptor 从令牌 claims 写入 */
     public static void setAuth(List<String> roles, List<String> permissions) {
         CURRENT_ROLES.set(roles == null ? List.of() : roles);
@@ -65,6 +77,7 @@ public class UserContext {
     public static void remove() {
         CURRENT_ID.remove();
         CURRENT_TYPE.remove();
+        CURRENT_USERNAME.remove();
         CURRENT_ROLES.remove();
         CURRENT_PERMISSIONS.remove();
     }

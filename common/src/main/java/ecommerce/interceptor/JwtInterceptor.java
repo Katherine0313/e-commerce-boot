@@ -90,6 +90,11 @@ public class JwtInterceptor implements HandlerInterceptor {
         UserContext.setUserId(userId);
         // 身份类型：admin / user，操作日志要区分「后台管理员」与「买家」
         UserContext.setUserType(actualType);
+        // 账号快照：admin 令牌带 username claim，操作日志要留操作人账号（账号可能被改名/软删）
+        String username = claims.get("username", String.class);
+        if (username != null && !username.isBlank()) {
+            UserContext.setUsername(username);
+        }
         // 后台令牌里带了 roles/permissions，后续 PermissionInterceptor 直接读上下文
         UserContext.setAuth(readStringList(claims.get("roles")), readStringList(claims.get("permissions")));
         return true;

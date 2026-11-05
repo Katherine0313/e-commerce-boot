@@ -25,6 +25,8 @@ import ecommerce.aftersale.vo.AfterSaleItemVO;
 import ecommerce.aftersale.vo.AfterSaleLogVO;
 import ecommerce.aftersale.vo.AfterSaleVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.log.LogDetail;
+import ecommerce.log.LogDiff;
 import ecommerce.log.OperationLog;
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.http.HttpStatus;
@@ -342,6 +344,10 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                 updateSubTimestamp(afterSale.getAfterSaleType(), id, column, now);
             }
         }
+        // 3. 变更文案：状态码翻译成中文，写进 operation_log.detail
+        //    afterSale 是审核前查出来的旧对象，dto.getStatus() 是新状态
+        LogDetail.add(LogDiff.of("售后状态", afterSale.getStatus(), dto.getStatus(),
+                value -> statusDesc(String.valueOf(value))));
     }
 
     @Override
@@ -356,6 +362,8 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
         afterSaleMapper.softDelete(id, now);
         afterSaleItemMapper.softDelete(id, now);
         softDeleteSub(afterSale.getAfterSaleType(), id, now);
+        // 软删不是物理删除，日志里点明一下，避免审计时误以为数据消失
+        LogDetail.add("删除售后单（软删）");
     }
 
     /** 状态 code → 中文名，用于报错文案 */

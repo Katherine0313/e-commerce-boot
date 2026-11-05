@@ -2,6 +2,9 @@ package ecommerce.order.service.impl;
 
 import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.log.LogDetail;
+import ecommerce.log.LogDiff;
+import ecommerce.log.OperationLog;
 import ecommerce.order.dto.AdminCouponDTO;
 import ecommerce.order.dto.AdminCouponGrantDTO;
 import ecommerce.order.entity.CouponScope;
@@ -65,16 +68,22 @@ public class AdminCouponServiceImpl implements AdminCouponService {
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "COUPON_ADD")
     public Long create(AdminCouponDTO dto) {
         validate(dto);
         CouponTemplate template = buildTemplate(null, dto, LocalDateTime.now());
         couponMapper.insertTemplate(template);
         saveScopes(template.getId(), dto);
+        // 新建没有「旧值」，按纯文本记关键信息（券名 / 面额 / 发放数量）
+        LogDetail.add("券名：" + template.getName());
+        LogDetail.add("面额：" + faceValueText(template));
+        LogDetail.add("发放数量：" + template.getTotalQuantity());
         return template.getId();
     }
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "COUPON_EDIT", bizId = "#id")
     public void update(Long id, AdminCouponDTO dto) {
         CouponTemplate existing = requireTemplate(id);
         assertStatus(existing, CouponConstants.TEMPLATE_PENDING, "只有未开始发放的券可以编辑");
@@ -83,9 +92,12 @@ public class AdminCouponServiceImpl implements AdminCouponService {
         couponMapper.updateTemplate(template);
         couponMapper.deleteScopes(id);
         saveScopes(id, dto);
+        // 变更文案：existing 是改之前的券，逐字段比只记真正变了的
+        recordCouponDiff(existing, template);
     }
 
     @Override
+    @OperationLog(module = "promotion", action = "COUPON_STOP", bizId = "#id")
     public void stop(Long id) {
         CouponTemplate template = requireTemplate(id);
         String status = templateStatus(template, LocalDateTime.now());
@@ -94,9 +106,13 @@ public class AdminCouponServiceImpl implements AdminCouponService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "该券已结束或已停止");
         }
         couponMapper.stopNow(id, LocalDateTime.now());
+        // 变更文案：券状态从旧状态改成「已停止」
+        LogDetail.add(LogDiff.of("优惠券状态", status, CouponConstants.TEMPLATE_STOPPED,
+                value -> statusDesc(String.valueOf(value))));
     }
 
     @Override
+    @OperationLog(module = "promotion", action = "COUPON_REMOVE", bizId = "#id")
     public void delete(Long id) {
         CouponTemplate template = requireTemplate(id);
         assertStatus(template, CouponConstants.TEMPLATE_PENDING, "只有未开始发放的券可以删除");
@@ -104,10 +120,13 @@ public class AdminCouponServiceImpl implements AdminCouponService {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "已有用户领取，不能删除，请改为停止发放");
         }
         couponMapper.softDelete(id, LocalDateTime.now());
+        // 软删不是物理删除，日志里点明一下，避免审计时误以为券不见了
+        LogDetail.add("删除优惠券（软删）：" + template.getName());
     }
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "COUPON_GRANT", bizId = "#id")
     public CouponGrantResultVO grant(Long id, AdminCouponGrantDTO dto) {
         CouponTemplate template = requireTemplate(id);
         LocalDateTime now = LocalDateTime.now();
@@ -155,11 +174,14 @@ public class AdminCouponServiceImpl implements AdminCouponService {
             }
         }
         CouponTemplate latest = couponMapper.findTemplateById(id);
-        return CouponGrantResultVO.builder()
+        CouponGrantResultVO result = CouponGrantResultVO.builder()
                 .granted(granted)
                 .skipped(skipped)
                 .remainQuantity(latest == null ? 0 : latest.getRemainQuantity())
                 .build();
+        // 变更文案：记实际发放数量（跳过的没发出去，不算变更）
+        LogDetail.add("发放优惠券 " + result.getGranted() + " 张（跳过 " + result.getSkipped() + " 张）");
+        return result;
     }
 
     @Override
@@ -320,12 +342,12 @@ public class AdminCouponServiceImpl implements AdminCouponService {
                 .scopeType(t.getScopeType())
                 .scopeTypeDesc(scopeDesc(t.getScopeType()))
                 .targetGroup(t.getTargetGroup())
-                .targetGroupDesc(CouponConstants.TARGET_NEW_USER.equals(t.getTargetGroup()) ? "新用户专享" : "全部用户")
+                .targetGroupDesc(targetGroupDesc(t.getTargetGroup()))
                 .minMemberLevel(t.getMinMemberLevel())
                 .receiveStart(t.getReceiveStart())
                 .receiveEnd(t.getReceiveEnd())
                 .validType(t.getValidType())
-                .validTypeDesc(CouponConstants.VALID_RECEIVE_DAYS.equals(t.getValidType()) ? "领取后 N 天" : "固定时段")
+                .validTypeDesc(validTypeDesc(t.getValidType()))
                 .validStart(t.getValidStart())
                 .validEnd(t.getValidEnd())
                 .validDays(t.getValidDays())
@@ -458,6 +480,73 @@ public class AdminCouponServiceImpl implements AdminCouponService {
             case CouponConstants.SCOPE_PRODUCT -> "指定商品";
             default -> "全场通用";
         };
+    }
+
+    /** 目标人群文案 */
+    private String targetGroupDesc(String targetGroup) {
+        return CouponConstants.TARGET_NEW_USER.equals(targetGroup) ? "新用户专享" : "全部用户";
+    }
+
+    /** 有效期类型文案 */
+    private String validTypeDesc(String validType) {
+        return CouponConstants.VALID_RECEIVE_DAYS.equals(validType) ? "领取后 N 天" : "固定时段";
+    }
+
+    /**
+     * 券面额文案：满减券看面额，折扣券看折扣率（顺带写清是否封顶）。
+     * <p>
+     * 新建券时日志只有「新值」，没有旧值可比，所以按纯文本记。
+     */
+    private String faceValueText(CouponTemplate template) {
+        if (CouponConstants.TYPE_DISCOUNT.equals(template.getType())) {
+            String max = template.getMaxDiscount() == null
+                    ? "不封顶" : "最高优惠 " + template.getMaxDiscount() + " 元";
+            return "折扣率 " + template.getDiscountRate() + "（" + max + "）";
+        }
+        return "满减 " + template.getFaceValue() + " 元";
+    }
+
+    /**
+     * 记录券的字段变更（只记真正变了的）。
+     * <p>
+     * edit 是整单覆盖式更新（updateTemplate 把所有列都刷一遍），所以每个字段都要跟旧券比。
+     */
+    private void recordCouponDiff(CouponTemplate old, CouponTemplate now) {
+        LogDetail.add(LogDiff.of("券名", old.getName(), now.getName()));
+        addDecimalDiff("面额", old.getFaceValue(), now.getFaceValue());
+        addDecimalDiff("折扣率", old.getDiscountRate(), now.getDiscountRate());
+        addDecimalDiff("最高优惠", old.getMaxDiscount(), now.getMaxDiscount());
+        addDecimalDiff("使用门槛", old.getThresholdAmount(), now.getThresholdAmount());
+        LogDetail.add(LogDiff.of("适用范围", old.getScopeType(), now.getScopeType(),
+                value -> scopeDesc(String.valueOf(value))));
+        LogDetail.add(LogDiff.of("目标人群", old.getTargetGroup(), now.getTargetGroup(),
+                value -> targetGroupDesc(String.valueOf(value))));
+        LogDetail.add(LogDiff.of("会员等级门槛", old.getMinMemberLevel(), now.getMinMemberLevel()));
+        LogDetail.add(LogDiff.of("发行总量", old.getTotalQuantity(), now.getTotalQuantity()));
+        LogDetail.add(LogDiff.of("领取开始时间", old.getReceiveStart(), now.getReceiveStart()));
+        LogDetail.add(LogDiff.of("领取结束时间", old.getReceiveEnd(), now.getReceiveEnd()));
+        LogDetail.add(LogDiff.of("有效期类型", old.getValidType(), now.getValidType(),
+                value -> validTypeDesc(String.valueOf(value))));
+        LogDetail.add(LogDiff.of("固定有效期开始", old.getValidStart(), now.getValidStart()));
+        LogDetail.add(LogDiff.of("固定有效期结束", old.getValidEnd(), now.getValidEnd()));
+        LogDetail.add(LogDiff.of("领取后有效天数", old.getValidDays(), now.getValidDays()));
+        LogDetail.add(LogDiff.of("使用说明", old.getDescription(), now.getDescription()));
+    }
+
+    /**
+     * 金额/比率类字段的变更比较。
+     * <p>
+     * 为什么不用 LogDiff 自带的比较：BigDecimal 的 equals 比的是「值 + 小数位」，
+     * 10.00 与 10.0 用 equals 判不相等，直接丢给 LogDiff 会写出「从【10.00】修改为【10.0】」这种假变更。
+     */
+    private void addDecimalDiff(String label, BigDecimal oldValue, BigDecimal newValue) {
+        if (oldValue == null && newValue == null) {
+            return;
+        }
+        if (oldValue != null && newValue != null && oldValue.compareTo(newValue) == 0) {
+            return;
+        }
+        LogDetail.add(LogDiff.of(label, oldValue, newValue));
     }
 
     private String statusDesc(String status) {

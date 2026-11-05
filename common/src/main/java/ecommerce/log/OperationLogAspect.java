@@ -68,6 +68,9 @@ public class OperationLogAspect {
                 // 兜底：切面里绝不能因为写日志失败而影响业务返回值
                 log.warn("操作日志组装失败: module={}, action={}, err={}",
                         operationLog.module(), operationLog.action(), e.getMessage());
+            } finally {
+                // 变更文案是 ThreadLocal，必须在这里清掉，否则线程复用会串到下一个请求
+                LogDetail.clear();
             }
         }
     }
@@ -78,10 +81,15 @@ public class OperationLogAspect {
         HttpServletRequest request = currentRequest();
         Long bizId = toLong(evaluate(operationLog.bizId(), joinPoint));
         String detail = toText(evaluate(operationLog.detail(), joinPoint));
+        if (detail == null || detail.isBlank()) {
+            // 注解里没写 detail 时，回退取 Service 里用 LogDetail 攒的变更文案
+            detail = LogDetail.join();
+        }
 
         return OperationLogEntry.builder()
                 .userId(collector.currentUserId())
                 .userType(collector.currentUserType())
+                .username(collector.currentUsername())
                 .module(operationLog.module())
                 .action(operationLog.action())
                 .bizId(bizId)

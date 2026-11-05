@@ -2,6 +2,9 @@ package ecommerce.product.service.impl;
 
 import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.log.LogDetail;
+import ecommerce.log.LogDiff;
+import ecommerce.log.OperationLog;
 import ecommerce.product.dto.AdminArticleDTO;
 import ecommerce.product.entity.Article;
 import ecommerce.product.mapper.ArticleMapper;
@@ -13,6 +16,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Objects;
 
 /**
  * 后台文章管理实现。
@@ -48,6 +52,7 @@ public class AdminArticleServiceImpl implements AdminArticleService {
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "ARTICLE_ADD")
     public Long create(AdminArticleDTO dto) {
         validate(dto, null);
         Article article = Article.builder()
@@ -67,14 +72,19 @@ public class AdminArticleServiceImpl implements AdminArticleService {
                 .createTime(LocalDateTime.now())
                 .build();
         articleMapper.insert(article);
+        // 新增没有「改前值」，只记关键识别信息，方便在日志里定位是哪篇文章
+        LogDetail.add("新增文章：标题【" + article.getTitle() + "】");
         return article.getId();
     }
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "ARTICLE_EDIT", bizId = "#id")
     public void update(Long id, AdminArticleDTO dto) {
-        requireArticle(id);
+        Article old = requireArticle(id);
         validate(dto, id);
+        // 变更内容必须在覆盖之前算，否则「改前值」就被冲掉了
+        recordDiff(old, dto);
         Article article = Article.builder()
                 .id(id)
                 .categoryId(dto.getCategoryId() == null ? 0L : dto.getCategoryId())
@@ -95,19 +105,77 @@ public class AdminArticleServiceImpl implements AdminArticleService {
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "ARTICLE_STATUS", bizId = "#id")
     public void updateStatus(Long id, Integer status) {
-        requireArticle(id);
+        Article article = requireArticle(id);
         if (status == null || (status != 0 && status != 1)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "状态只能是 0（禁用）或 1（启用）");
         }
+        // 上下架单独一条日志，能直接看出是上架还是下架
+        LogDetail.add(LogDiff.of("状态", article.getStatus(), status,
+                AdminArticleServiceImpl::contentStatusText));
         articleMapper.updateStatus(id, status, LocalDateTime.now());
     }
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "ARTICLE_REMOVE", bizId = "#id")
     public void delete(Long id) {
-        requireArticle(id);
+        Article article = requireArticle(id);
+        LogDetail.add("删除文章：标题【" + article.getTitle() + "】");
         articleMapper.softDelete(id, LocalDateTime.now());
+    }
+
+    /**
+     * 记录文章变更内容（写进 operation_log.detail）。
+     * <p>
+     * 文章是整体覆盖式更新：DTO 里没传的字段也会被写成默认值，
+     * 所以这里比较的是「实际落库的值」，而不是 DTO 的原始值。
+     * <p>
+     * 正文是长 HTML，整段进日志会超长（detail 只有 1024），只记「改过」。
+     */
+    private void recordDiff(Article old, AdminArticleDTO dto) {
+        LogDetail.add(LogDiff.of("标题", old.getTitle(),
+                dto.getTitle() == null ? null : dto.getTitle().trim()));
+        LogDetail.add(LogDiff.of("作者", old.getAuthor(),
+                dto.getAuthor() == null ? "" : dto.getAuthor().trim()));
+        LogDetail.add(LogDiff.of("封面图", old.getCover(),
+                dto.getCover() == null ? "" : dto.getCover().trim()));
+        LogDetail.add(LogDiff.of("简介", old.getIntroduction(),
+                dto.getIntroduction() == null ? "" : dto.getIntroduction().trim()));
+        LogDetail.add(LogDiff.of("所属分类", old.getCategoryId(),
+                dto.getCategoryId() == null ? 0L : dto.getCategoryId()));
+        LogDetail.add(LogDiff.of("排序", old.getSortOrder(),
+                dto.getSortOrder() == null ? 0 : dto.getSortOrder()));
+        LogDetail.add(LogDiff.of("状态", old.getStatus(),
+                dto.getStatus() == null ? 0 : dto.getStatus(), AdminArticleServiceImpl::contentStatusText));
+        LogDetail.add(LogDiff.of("是否热门", old.getRecommendHot(),
+                dto.getRecommendHot() == null ? 0 : dto.getRecommendHot(),
+                AdminArticleServiceImpl::yesNoText));
+        LogDetail.add(LogDiff.of("是否轮播", old.getRecommendBanner(),
+                dto.getRecommendBanner() == null ? 0 : dto.getRecommendBanner(),
+                AdminArticleServiceImpl::yesNoText));
+        LogDetail.add(LogDiff.of("关联商品", old.getSpuId(),
+                dto.getSpuId() == null ? 0L : dto.getSpuId()));
+        if (!Objects.equals(old.getContent(), dto.getContent())) {
+            LogDetail.add("正文内容已修改");
+        }
+    }
+
+    /** 展示状态翻译：1 已上架 / 0 已下架 */
+    private static String contentStatusText(Object value) {
+        if (value instanceof Integer status) {
+            return status == 1 ? "已上架" : "已下架";
+        }
+        return String.valueOf(value);
+    }
+
+    /** 是否类字段翻译：1 是 / 0 否 */
+    private static String yesNoText(Object value) {
+        if (value instanceof Integer flag) {
+            return flag == 1 ? "是" : "否";
+        }
+        return String.valueOf(value);
     }
 
     private Article requireArticle(Long id) {

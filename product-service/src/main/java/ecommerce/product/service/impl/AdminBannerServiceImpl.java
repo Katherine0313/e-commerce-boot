@@ -2,6 +2,9 @@ package ecommerce.product.service.impl;
 
 import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.log.LogDetail;
+import ecommerce.log.LogDiff;
+import ecommerce.log.OperationLog;
 import ecommerce.product.constants.BannerConstants;
 import ecommerce.product.dto.AdminBannerDTO;
 import ecommerce.product.entity.Banner;
@@ -50,6 +53,7 @@ public class AdminBannerServiceImpl implements AdminBannerService {
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "BANNER_ADD")
     public Long create(AdminBannerDTO dto) {
         validate(dto, null);
         String imagesJson = bannerImagesCodec.encode(dto.getImages());
@@ -67,16 +71,22 @@ public class AdminBannerServiceImpl implements AdminBannerService {
                 .createTime(LocalDateTime.now())
                 .build();
         bannerMapper.insert(banner);
+        // 新增没有「改前值」，只记关键识别信息，方便在日志里定位是哪条 Banner
+        LogDetail.add("新增 Banner：标题【" + banner.getTitle() + "】、展示位置【"
+                + positionDesc(banner.getPosition()) + "】");
         return banner.getId();
     }
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "BANNER_EDIT", bizId = "#id")
     public void update(Long id, AdminBannerDTO dto) {
         Banner banner = requireBanner(id);
         validate(dto, id);
         String imagesJson = bannerImagesCodec.encode(dto.getImages());
         List<String> images = bannerImagesCodec.decode(imagesJson, null);
+        // 变更内容必须在覆盖 banner 之前算，否则「改前值」就被冲掉了
+        recordDiff(banner, dto, images.size());
         banner.setId(id);
         banner.setTitle(dto.getTitle().trim());
         banner.setImage(images.get(0));
@@ -92,19 +102,79 @@ public class AdminBannerServiceImpl implements AdminBannerService {
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "BANNER_STATUS", bizId = "#id")
     public void updateStatus(Long id, Integer status) {
-        requireBanner(id);
+        Banner banner = requireBanner(id);
         if (status == null || (status != 0 && status != 1)) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "状态只能是 0（禁用）或 1（启用）");
         }
+        // 上下架单独一条日志，能直接看出是上架还是下架
+        LogDetail.add(LogDiff.of("状态", banner.getStatus(), status,
+                AdminBannerServiceImpl::contentStatusText));
         bannerMapper.updateStatus(id, status, LocalDateTime.now());
     }
 
     @Override
     @Transactional
+    @OperationLog(module = "promotion", action = "BANNER_REMOVE", bizId = "#id")
     public void delete(Long id) {
-        requireBanner(id);
+        Banner banner = requireBanner(id);
+        LogDetail.add("删除 Banner：标题【" + banner.getTitle() + "】");
         bannerMapper.softDelete(id, LocalDateTime.now());
+    }
+
+    /**
+     * 记录 Banner 变更内容（写进 operation_log.detail）。
+     * <p>
+     * Banner 是整体覆盖式更新：DTO 里没传的字段也会被写成默认值，
+     * 所以这里比较的是「实际落库的值」，而不是 DTO 的原始值。
+     * <p>
+     * 图片只记数量，不把整串图片地址塞进日志。
+     */
+    private void recordDiff(Banner old, AdminBannerDTO dto, int newImageCount) {
+        LogDetail.add(LogDiff.of("标题", old.getTitle(),
+                dto.getTitle() == null ? null : dto.getTitle().trim()));
+        LogDetail.add(LogDiff.of("展示位置", old.getPosition(), dto.getPosition(), this::positionText));
+        LogDetail.add(LogDiff.of("跳转类型", old.getLinkType(), dto.getLinkType(), this::linkTypeText));
+        LogDetail.add(LogDiff.of("跳转目标", old.getLinkValue(),
+                dto.getLinkValue() == null ? "" : dto.getLinkValue().trim()));
+        LogDetail.add(LogDiff.of("排序", old.getSortOrder(),
+                dto.getSortOrder() == null ? 0 : dto.getSortOrder()));
+        LogDetail.add(LogDiff.of("状态", old.getStatus(),
+                dto.getStatus() == null ? 1 : dto.getStatus(), AdminBannerServiceImpl::contentStatusText));
+        LogDetail.add(LogDiff.of("图片数量",
+                bannerImagesCodec.decode(old.getImages(), old.getImage()).size(), newImageCount));
+    }
+
+    /** 展示状态翻译：1 已上架 / 0 已下架 */
+    private static String contentStatusText(Object value) {
+        if (value instanceof Integer status) {
+            return status == 1 ? "已上架" : "已下架";
+        }
+        return String.valueOf(value);
+    }
+
+    /** 广告位置翻译（复用列表里展示的位置名） */
+    private String positionText(Object value) {
+        if (value instanceof Integer position) {
+            String desc = positionDesc(position);
+            return desc.isEmpty() ? String.valueOf(position) : desc;
+        }
+        return String.valueOf(value);
+    }
+
+    /** 跳转类型翻译 */
+    private String linkTypeText(Object value) {
+        if (value instanceof Integer linkType) {
+            return switch (linkType) {
+                case BannerConstants.LINK_NONE -> "不跳转";
+                case BannerConstants.LINK_PRODUCT -> "商品详情";
+                case BannerConstants.LINK_ARTICLE -> "文章详情";
+                case BannerConstants.LINK_URL -> "外部链接";
+                default -> String.valueOf(linkType);
+            };
+        }
+        return String.valueOf(value);
     }
 
     private Banner requireBanner(Long id) {
