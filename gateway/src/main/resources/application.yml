@@ -78,7 +78,7 @@ spring:
             - id: order-service
               uri: lb://order-service
               predicates:
-                - Path=/api/cart,/api/cart/**,/api/orders,/api/orders/**,/api/address,/api/address/**,/api/coupons,/api/coupons/**,/api/admin/orders,/api/admin/orders/**,/api/admin/coupons,/api/admin/coupons/**,/api/admin/report,/api/admin/report/**,/api/admin/reviews,/api/admin/reviews/**,/api/reviews,/api/reviews/**,/api/admin/deliveries,/api/admin/deliveries/**,/api/admin/expresses,/api/admin/expresses/**
+                - Path=/api/cart,/api/cart/**,/api/orders,/api/orders/**,/api/address,/api/address/**,/api/coupons,/api/coupons/**,/api/admin/orders,/api/admin/orders/**,/api/admin/coupons,/api/admin/coupons/**,/api/admin/report,/api/admin/report/**,/api/admin/reviews,/api/admin/reviews/**,/api/reviews,/api/reviews/**,/api/admin/deliveries,/api/admin/deliveries/**,/api/admin/expresses,/api/admin/expresses/**,/api/admin/finance,/api/admin/finance/**
             # 售后 → aftersale-service；放在 /api/** 通配之前（操作需登录，鉴权由下游 JwtInterceptor 承担）
             - id: aftersale-service
               uri: lb://aftersale-service
