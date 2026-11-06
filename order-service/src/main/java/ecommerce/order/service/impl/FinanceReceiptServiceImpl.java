@@ -150,7 +150,7 @@ public class FinanceReceiptServiceImpl implements FinanceReceiptService {
             Sheet sheet = excel.createSheet("收款单");
             CellStyle headerStyle = buildHeaderStyle(excel);
             String[] headers = {"收款单号", "订单号", "买家ID", "买家", "渠道", "收款账户", "收款金额",
-                    "收款时间", "状态", "审核人", "审核时间", "是否退款", "退款金额", "备注"};
+                    "收款时间", "状态", "审核人", "审核时间", "是否退款", "退款金额", "退款时间", "备注"};
             Row header = sheet.createRow(0);
             for (int i = 0; i < headers.length; i++) {
                 Cell cell = header.createCell(i);
@@ -174,7 +174,8 @@ public class FinanceReceiptServiceImpl implements FinanceReceiptService {
                 setCell(row, 10, item.getAuditTime() == null ? null : item.getAuditTime().format(DATE_FMT));
                 setCell(row, 11, Boolean.TRUE.equals(item.getRefunded()) ? "已退款" : "否");
                 setCell(row, 12, item.getRefundAmount());
-                setCell(row, 13, item.getRemark());
+                setCell(row, 13, item.getRefundedAt() == null ? null : item.getRefundedAt().format(DATE_FMT));
+                setCell(row, 14, item.getRemark());
             }
 
             // 中文文件名按 RFC 5987 编码，避免浏览器乱码

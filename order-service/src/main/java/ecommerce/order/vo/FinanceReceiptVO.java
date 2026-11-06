@@ -47,4 +47,6 @@ public class FinanceReceiptVO {
     private Boolean refunded;
     /** 已退款金额 */
     private BigDecimal refundAmount;
+    /** 退款完成时间（取自 after_sale_only_refunds / after_sale_returns 的 refunded_at） */
+    private LocalDateTime refundedAt;
 }

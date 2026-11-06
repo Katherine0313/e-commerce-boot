@@ -20,7 +20,12 @@
         EXISTS (SELECT 1 FROM after_sales s
                 WHERE s.order_id = r.order_id AND s.status = 'refunded' AND s.is_deleted = 0) AS refunded,
         (SELECT COALESCE(SUM(s2.refund_amount), 0) FROM after_sales s2
-         WHERE s2.order_id = r.order_id AND s2.status = 'refunded' AND s2.is_deleted = 0) AS refund_amount
+         WHERE s2.order_id = r.order_id AND s2.status = 'refunded' AND s2.is_deleted = 0) AS refund_amount,
+        (SELECT COALESCE(MAX(COALESCE(r2.refunded_at, r1.refunded_at)), NULL)
+         FROM after_sales a
+         LEFT JOIN after_sale_only_refunds r1 ON r1.after_sale_id = a.id AND r1.is_deleted = 0
+         LEFT JOIN after_sale_returns r2 ON r2.after_sale_id = a.id AND r2.is_deleted = 0
+         WHERE a.order_id = r.order_id AND a.status = 'refunded' AND a.is_deleted = 0) AS refunded_at
     </sql>
 
     <sql id="receiptJoins">
