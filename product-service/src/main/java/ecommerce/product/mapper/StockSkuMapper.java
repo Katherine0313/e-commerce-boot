@@ -1,6 +1,6 @@
 package ecommerce.product.mapper;
 
-import ecommerce.product.entity.ProductSku;
+import ecommerce.product.vo.StockSkuVO;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 
@@ -8,13 +8,12 @@ import java.util.List;
 
 /**
  * 给库存模块 StockSkuController 用的 SKU 查询 Mapper。
- * 只做分页查询（SKU 级库存列表 + 低库存过滤）和 UPDATE min_stock/max_stock。
  */
 @Mapper
 public interface StockSkuMapper {
 
-    /** SKU 库存列表，支持商品名模糊搜索、低库存过滤 */
-    List<ProductSku> pageList(@Param("search") String search,
+    /** SKU 库存列表，支持商品名/SKU编码模糊搜索、低库存过滤 */
+    List<StockSkuVO> pageList(@Param("search") String search,
                               @Param("lowStockOnly") boolean lowStockOnly,
                               @Param("offset") int offset,
                               @Param("size") int size);
@@ -22,7 +21,10 @@ public interface StockSkuMapper {
                   @Param("lowStockOnly") boolean lowStockOnly);
 
     /** 看板：低库存 TOP N SKU */
-    List<ProductSku> lowStockTopN(@Param("limit") int limit);
+    List<StockSkuVO> lowStockTopN(@Param("limit") int limit);
+
+    /** 看板：低库存 SKU 总数 */
+    int countLowStock();
 
     /** 看板：SKU 总数 */
     int totalCount();

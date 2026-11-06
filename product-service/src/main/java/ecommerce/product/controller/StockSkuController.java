@@ -4,8 +4,8 @@ import ecommerce.common.PageVO;
 import ecommerce.common.Result;
 import ecommerce.common.annotation.RequirePerm;
 import ecommerce.product.dto.StockSkuAlertDTO;
-import ecommerce.product.entity.ProductSku;
 import ecommerce.product.mapper.StockSkuMapper;
+import ecommerce.product.vo.StockSkuVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.*;
@@ -29,15 +29,15 @@ public class StockSkuController {
 
     @Operation(summary = "SKU 库存列表（分页 + 搜索 + 低库存过滤）")
     @GetMapping
-    public Result<PageVO<ProductSku>> list(
+    public Result<PageVO<StockSkuVO>> list(
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String search,
             @RequestParam(defaultValue = "false") boolean lowStockOnly) {
         int offset = (page - 1) * size;
         int total = skuMapper.pageCount(search, lowStockOnly);
-        List<ProductSku> list = skuMapper.pageList(search, lowStockOnly, offset, size);
-        PageVO<ProductSku> vo = new PageVO<>(list, total, page, size);
+        List<StockSkuVO> list = skuMapper.pageList(search, lowStockOnly, offset, size);
+        PageVO<StockSkuVO> vo = new PageVO<>(list, total, page, size);
         return Result.success(vo);
     }
 

@@ -2,9 +2,9 @@ package ecommerce.product.controller;
 
 import ecommerce.common.Result;
 import ecommerce.common.annotation.RequirePerm;
-import ecommerce.product.entity.ProductSku;
 import ecommerce.product.mapper.StockSkuMapper;
 import ecommerce.product.mapper.StockTransactionMapper;
+import ecommerce.product.vo.StockSkuVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -40,13 +40,13 @@ public class StockDashboardController {
         data.put("todayIn", txMapper.todayTotalIn());
         data.put("todayOut", txMapper.todayTotalOut());
         // 低库存 SKU 数 = min_stock > 0 AND stock < min_stock AND status = 1
-        data.put("lowStockSku", skuMapper.lowStockTopN(100000).size());  // 先拉全量数，够用
+        data.put("lowStockSku", skuMapper.countLowStock());
         return Result.success(data);
     }
 
     @Operation(summary = "低库存 TOP N SKU")
     @GetMapping("/low-stock")
-    public Result<List<ProductSku>> lowStock(@RequestParam(defaultValue = "20") int limit) {
+    public Result<List<StockSkuVO>> lowStock(@RequestParam(defaultValue = "20") int limit) {
         return Result.success(skuMapper.lowStockTopN(limit));
     }
 

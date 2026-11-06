@@ -94,6 +94,12 @@ monitor:
   dynamic-task:
     enabled: true
 
+# 库存扣减/回补：委托 product-service 的内部接口（唯一出入库入口）
+# 生产 Docker 内网用容器名 product-service；本地开发用 localhost:9003
+stock:
+  internal:
+    url: ${STOCK_INTERNAL_URL:http://localhost:9003/internal/stock-write}
+
 logging:
   level:
     ecommerce.order.mapper: ${SQL_DEBUG:INFO}

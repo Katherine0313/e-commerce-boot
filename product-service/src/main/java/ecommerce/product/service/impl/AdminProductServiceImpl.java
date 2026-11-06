@@ -124,6 +124,11 @@ public class AdminProductServiceImpl implements AdminProductService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
         validateSkuPayload(dto, old);
+        // 库存不再允许在商品编辑里手改，必须走库存模块（入库单/出库单/调整单）留流水
+        if (dto.getStock() != null && !Objects.equals(old.getStock(), dto.getStock())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST,
+                "商品库存不能在此处修改，请到【库存管理 → 入库单/出库单/调整单】操作");
+        }
         Product p = new Product();
         p.setId(id);
         applyDto(p, dto);
@@ -238,7 +243,18 @@ public class AdminProductServiceImpl implements AdminProductService {
             target.setPrice(row.getPrice());
             target.setMarketPrice(row.getMarketPrice());
             target.setCostPrice(row.getCostPrice());
-            target.setStock(row.getStock());
+            if (row.getId() != null) {
+                // 编辑已有 SKU：库存不允许手改，保持库中原值
+                ProductSku prev = existingById.get(row.getId());
+                if (row.getStock() != null && !Objects.equals(prev.getStock(), row.getStock())) {
+                    throw new BusinessException(HttpStatus.BAD_REQUEST,
+                        "SKU「" + row.getSkuCode() + "」库存不能在此处修改，请到【库存管理 → 入库单/出库单/调整单】操作");
+                }
+                target.setStock(prev.getStock());
+            } else {
+                // 新增 SKU：允许填初始库存
+                target.setStock(row.getStock() == null ? 0 : row.getStock());
+            }
             target.setStatus(row.getStatus() == null ? 1 : row.getStatus());
             target.setSort(i);
             target.setUpdateTime(now);
@@ -280,8 +296,18 @@ public class AdminProductServiceImpl implements AdminProductService {
                 : product.getMarketPrice());
         target.setCostPrice(row != null && row.getCostPrice() != null ? row.getCostPrice()
                 : product.getCostPrice());
-        target.setStock(row != null && row.getStock() != null ? row.getStock()
-                : (product.getStock() != null ? product.getStock() : 0));
+        if (def != null) {
+            // 已有默认 SKU：库存不允许手改，保持库中原值
+            if (row != null && row.getStock() != null && !Objects.equals(def.getStock(), row.getStock())) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST,
+                    "SKU 库存不能在此处修改，请到【库存管理 → 入库单/出库单/调整单】操作");
+            }
+            target.setStock(def.getStock());
+        } else {
+            // 新建默认 SKU：允许填初始库存
+            target.setStock(row != null && row.getStock() != null ? row.getStock()
+                    : (product.getStock() != null ? product.getStock() : 0));
+        }
         target.setSkuCode(row != null ? row.getSkuCode() : product.getProductCode());
         target.setStatus(1);
         target.setSort(0);

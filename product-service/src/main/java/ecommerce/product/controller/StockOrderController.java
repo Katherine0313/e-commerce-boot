@@ -45,6 +45,20 @@ public class StockOrderController {
         return (name != null ? name : "admin") + (uid != null ? "(" + uid + ")" : "");
     }
 
+    /** 按单据类型分别校验权限（一个 Controller 承载三种单据） */
+    private void checkCreatePerm(String type) {
+        List<String> perms = UserContext.getPermissions();
+        if (perms.contains("*:*:*")) return;
+        String required = switch (type) {
+            case "RECEIPT" -> "stock:receipt:manage";
+            case "ADJUST" -> "stock:adjust:manage";
+            default -> throw new BusinessException("出库单由订单自动生成，不支持手动创建");
+        };
+        if (!perms.contains(required)) {
+            throw new BusinessException(org.springframework.http.HttpStatus.FORBIDDEN, "无权创建该类型单据");
+        }
+    }
+
     @Operation(summary = "单据列表（分页 + 类型/状态/时间过滤）")
     @GetMapping
     @RequirePerm("stock:transaction:view")
@@ -92,15 +106,15 @@ public class StockOrderController {
 
     @Operation(summary = "创建单据（创建即已完成，一个事务里逐行写 stock_transaction + 更新 product_sku.stock）")
     @PostMapping
-    @RequirePerm("stock:receipt:*")
     public Result<StockOrder> create(@RequestBody StockOrderCreateDTO dto) {
+        checkCreatePerm(dto.getType());
         StockOrder order = orderService.createAndComplete(dto, UserContext.getUserId(), currentOperator());
         return Result.success(order);
     }
 
     @Operation(summary = "取消单据")
     @PostMapping("/{id}/cancel")
-    @RequirePerm("stock:receipt:*")
+    @RequirePerm("stock:receipt:manage")
     public Result<Void> cancel(@PathVariable Long id) {
         orderService.cancel(id);
         return Result.success();

@@ -5,6 +5,7 @@ import ecommerce.exception.BusinessException;
 import ecommerce.log.LogDetail;
 import ecommerce.log.LogDiff;
 import ecommerce.log.OperationLog;
+import ecommerce.order.client.StockInternalClient;
 import ecommerce.order.dto.AdminOrderDTO;
 import ecommerce.order.dto.DeliveryCreateDTO;
 import ecommerce.order.entity.Order;
@@ -57,12 +58,14 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private final OrderDeliveryService orderDeliveryService;
     private final DeliveryExpressService deliveryExpressService;
     private final LogisticsBuilder logisticsBuilder;
+    private final StockInternalClient stockClient;
 
     public AdminOrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper,
                                  ProductMapper productMapper, AfterSaleRefundMapper afterSaleRefundMapper,
                                  OrderDeliveryService orderDeliveryService,
                                  DeliveryExpressService deliveryExpressService,
-                                 LogisticsBuilder logisticsBuilder) {
+                                 LogisticsBuilder logisticsBuilder,
+                                 StockInternalClient stockClient) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
@@ -70,6 +73,7 @@ public class AdminOrderServiceImpl implements AdminOrderService {
         this.orderDeliveryService = orderDeliveryService;
         this.deliveryExpressService = deliveryExpressService;
         this.logisticsBuilder = logisticsBuilder;
+        this.stockClient = stockClient;
     }
 
     @Override
@@ -281,7 +285,13 @@ public class AdminOrderServiceImpl implements AdminOrderService {
     private void restoreStock(Long orderId) {
         List<OrderItem> items = orderItemMapper.listByOrderId(orderId);
         for (OrderItem item : items) {
-            productMapper.restoreStock(item.getProductId(), item.getQuantity());
+            if (item.getSkuId() != null) {
+                // SKU 级回补 → 委托 product-service 写流水
+                stockClient.write(item.getSkuId(), item.getSkuCode(), "IN", "订单取消回补", item.getQuantity(), item.getId());
+            } else {
+                // 无 SKU 旧数据兜底
+                productMapper.restoreStock(item.getProductId(), item.getQuantity());
+            }
         }
     }
 

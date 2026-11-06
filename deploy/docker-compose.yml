@@ -82,6 +82,8 @@ services:
       - "host.docker.internal:host-gateway"
     environment:
       JAVA_OPTS: "-Xms128m -Xmx384m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -Xss256k -XX:+UseSerialGC -Duser.timezone=Asia/Shanghai"
+      # 库存扣减委托 product-service 内部接口（Docker 内网容器名）
+      STOCK_INTERNAL_URL: "http://product-service:9003/internal/stock-write"
     networks:
       - my-net
 
@@ -95,6 +97,9 @@ services:
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    environment:
+      # 售后退款回补库存委托 product-service 内部接口（Docker 内网容器名）
+      STOCK_INTERNAL_URL: "http://product-service:9003/internal/stock-write"
     networks:
       - my-net
 

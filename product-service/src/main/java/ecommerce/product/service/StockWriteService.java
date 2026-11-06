@@ -48,8 +48,10 @@ public class StockWriteService {
             default: throw new BusinessException("未知库存类型: " + dto.getType());
         }
         int newStock = sku.getStock() + delta;
-        if ("OUT".equals(dto.getType()) && newStock < 0) {
-            throw new BusinessException("SKU " + sku.getSkuCode() + " 库存不足，当前 " + sku.getStock() + "，需扣 " + dto.getQty());
+        // 出库与负向调整都可能导致结存为负，统一拦截
+        if (newStock < 0) {
+            throw new BusinessException("SKU " + sku.getSkuCode() + " 库存不足，当前 " + sku.getStock()
+                    + "，本次变动 " + delta);
         }
 
         // 3. UPDATE product_sku（直接赋值）

@@ -2,9 +2,15 @@
 <!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="ecommerce.product.mapper.StockSkuMapper">
 
-    <!-- SKU 分页：JOIN products 拿商品名和图，支持商品名模糊搜索 -->
-    <select id="pageList" resultType="ecommerce.product.entity.ProductSku">
-        SELECT s.*
+    <sql id="skuColumns">
+        s.id, s.product_id AS productId, p.name AS productName, p.image AS productImage,
+        s.sku_code AS skuCode, s.spec_json AS specJson, s.stock,
+        s.min_stock AS minStock, s.max_stock AS maxStock, s.status, s.price
+    </sql>
+
+    <!-- SKU 分页：JOIN products 拿商品名和主图，支持商品名/SKU编码模糊搜索 -->
+    <select id="pageList" resultType="ecommerce.product.vo.StockSkuVO">
+        SELECT <include refid="skuColumns"/>
         FROM product_sku s
         INNER JOIN products p ON p.id = s.product_id
         <where>
@@ -13,7 +19,7 @@
                      OR p.name LIKE CONCAT('%', #{search}, '%'))
             </if>
             <if test="lowStockOnly">
-                AND s.min_stock > 0 AND s.stock < s.min_stock AND s.status = 1
+                AND s.min_stock > 0 AND s.stock &lt; s.min_stock AND s.status = 1
             </if>
         </where>
         ORDER BY s.stock ASC, s.id ASC
@@ -29,17 +35,24 @@
                      OR p.name LIKE CONCAT('%', #{search}, '%'))
             </if>
             <if test="lowStockOnly">
-                AND s.min_stock > 0 AND s.stock < s.min_stock AND s.status = 1
+                AND s.min_stock > 0 AND s.stock &lt; s.min_stock AND s.status = 1
             </if>
         </where>
     </select>
 
-    <!-- 看板：低库存 TOP N（stock < min_stock 且 min_stock > 0） -->
-    <select id="lowStockTopN" resultType="ecommerce.product.entity.ProductSku">
-        SELECT s.* FROM product_sku s
-        WHERE s.min_stock > 0 AND s.stock < s.min_stock AND s.status = 1
+    <!-- 看板：低库存 TOP N -->
+    <select id="lowStockTopN" resultType="ecommerce.product.vo.StockSkuVO">
+        SELECT <include refid="skuColumns"/>
+        FROM product_sku s
+        INNER JOIN products p ON p.id = s.product_id
+        WHERE s.min_stock > 0 AND s.stock &lt; s.min_stock AND s.status = 1
         ORDER BY s.stock ASC, s.id ASC
         LIMIT #{limit}
+    </select>
+
+    <select id="countLowStock" resultType="int">
+        SELECT COUNT(1) FROM product_sku s
+        WHERE s.min_stock > 0 AND s.stock &lt; s.min_stock AND s.status = 1
     </select>
 
     <!-- 看板：SKU 总数（启用状态） -->
