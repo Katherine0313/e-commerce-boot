@@ -5,6 +5,7 @@ import ecommerce.product.vo.DashboardVO;
 import org.apache.ibatis.annotations.Param;
 
 import java.math.BigDecimal;
+import java.time.LocalDateTime;
 import java.util.List;
 
 public interface ProductMapper {
@@ -59,6 +60,9 @@ public interface ProductMapper {
 
     // 更新商品（动态 set，只更新非 null 字段，支持局部更新如上架开关）
     int update(Product product);
+
+    // 清空商品的分类关联（category_id 置 NULL；常规 update 的 null=不修改语义做不到这件事）
+    int clearCategory(@Param("id") Long id, @Param("updateTime") LocalDateTime updateTime);
 
     // 删除商品
     int delete(@Param("id") Long id);

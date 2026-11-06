@@ -214,6 +214,10 @@
              #{specs}, #{skuType}, #{skuSpecs}, #{createTime}, #{updateTime})
     </insert>
 
+    <update id="clearCategory">
+        UPDATE products SET category_id = NULL, update_time = #{updateTime} WHERE id = #{id}
+    </update>
+
     <!-- 更新商品：动态 set，只更新非 null 字段（上架开关只传 listing_status 即可）；update_time 用 Java 传参 -->
     <update id="update">
         UPDATE products

@@ -17,6 +17,21 @@ import java.time.LocalDateTime;
 
 @Service
 public class StockOrderService {
+
+    /** 流水 reason 统一存中文标签，和订单/售后链路（"销售出库" 等）保持同一套词汇，便于流水页按原因筛选 */
+    private static String resolveReason(String type, String bizType) {
+        if (bizType == null) return "手工补录";
+        return switch (bizType) {
+            case "PURCHASE" -> "采购入库";
+            case "RETURN" -> "退货归还";
+            case "ORDER_SHIP" -> "订单发货";
+            case "LOSS" -> "盘亏出库";
+            case "ADJUST" -> "盘点调整";
+            // MANUAL 在入库单里是手工补录、在出库单里是手工出库
+            case "MANUAL" -> "SHIPMENT".equals(type) ? "手工出库" : "手工补录";
+            default -> bizType;
+        };
+    }
     private final StockOrderMapper orderMapper;
     private final StockOrderItemMapper itemMapper;
     private final StockWriteService writeService;
@@ -45,6 +60,7 @@ public class StockOrderService {
             .orderNo(noGenerator.generate(dto.getType()))
             .type(dto.getType())
             .bizType(dto.getBizType())
+            .relatedNo(dto.getRelatedNo())
             .status(1)  // 创建即已完成（P0 无草稿）
             .totalQty(0) // 稍后 refreshTotal
             .remark(dto.getRemark())
@@ -105,7 +121,7 @@ public class StockOrderService {
                 .skuName(item.getSkuName())
                 .specText(item.getSpecText())
                 .type(writeType)
-                .reason(dto.getBizType() != null ? dto.getBizType() : "手工补录")
+                .reason(resolveReason(dto.getType(), dto.getBizType()))
                 .qty(writeQty)
                 .stockOrderId(order.getId())
                 .operatorId(operatorId)
@@ -118,11 +134,35 @@ public class StockOrderService {
         return order;
     }
 
-    /** 取消单据（已完成不能取消） */
+    /** 取消单据：同一事务里对每行明细做反向出入库冲销，再置状态为已取消 */
+    @Transactional(rollbackFor = Exception.class)
     public void cancel(Long id) {
         StockOrder order = orderMapper.findById(id);
         if (order == null) throw new BusinessException("单据不存在");
         if (order.getStatus() == 0) throw new BusinessException("单据已取消");
+
+        for (StockOrderItem item : itemMapper.findByOrderId(id)) {
+            String writeType;
+            int qty;
+            switch (order.getType()) {
+                // 入库取消 = 把入的货再出掉；出库取消 = 退回库存；调整取消 = 差异取反
+                case "RECEIPT" -> { writeType = "OUT"; qty = item.getQty(); }
+                case "SHIPMENT" -> { writeType = "IN"; qty = item.getQty(); }
+                case "ADJUST" -> { writeType = "ADJUST"; qty = -item.getQty(); }
+                default -> throw new BusinessException("未知单据类型: " + order.getType());
+            }
+            writeService.write(StockWriteDTO.builder()
+                .skuId(item.getSkuId())
+                .skuCode(item.getSkuCode())
+                .skuName(item.getSkuName())
+                .specText(item.getSpecText())
+                .type(writeType)
+                .reason("单据取消冲销")
+                .qty(qty)
+                .stockOrderId(order.getId())
+                .remark("冲销 " + order.getOrderNo())
+                .build());
+        }
         orderMapper.updateStatus(id, 0);
     }
 }

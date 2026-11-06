@@ -13,8 +13,9 @@ import java.util.List;
 @NoArgsConstructor
 @AllArgsConstructor
 public class StockOrderCreateDTO {
-    private String type;        // RECEIPT / ADJUST (SHIPMENT 一般自动生成)
+    private String type;        // RECEIPT / SHIPMENT / ADJUST
     private String bizType;
+    private String relatedNo;
     private String remark;
     private List<StockOrderItemDTO> items;
 

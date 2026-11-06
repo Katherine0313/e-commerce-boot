@@ -13,30 +13,38 @@
 
     <!-- 流水分页查询，支持多条件过滤 -->
     <select id="pageList" resultType="ecommerce.product.entity.StockTransaction">
-        SELECT id, sku_id, sku_code, sku_name, spec_text, order_item_id, stock_order_id,
-               type, reason, qty, balance_after, operator_id, operator_name, remark, create_time
-        FROM stock_transaction
+        SELECT t.id, t.sku_id, t.sku_code, t.sku_name, t.spec_text, t.order_item_id, t.stock_order_id,
+               t.type, t.reason, t.qty, t.balance_after, t.operator_id, t.operator_name, t.remark, t.create_time,
+               o.order_no AS orderNo
+        FROM stock_transaction t
+        LEFT JOIN stock_order o ON o.id = t.stock_order_id
         <where>
-            <if test="skuId != null">AND sku_id = #{skuId}</if>
-            <if test="type != null and type != ''">AND type = #{type}</if>
-            <if test="reason != null and reason != ''">AND reason = #{reason}</if>
-            <if test="orderItemId != null">AND order_item_id = #{orderItemId}</if>
-            <if test="startTime != null and startTime != ''">AND create_time >= #{startTime}</if>
-            <if test="endTime != null and endTime != ''">AND create_time &lt; DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
+            <if test="skuId != null">AND t.sku_id = #{skuId}</if>
+            <if test="search != null and search != ''">
+                AND (t.sku_code LIKE CONCAT('%', #{search}, '%') OR t.sku_name LIKE CONCAT('%', #{search}, '%'))
+            </if>
+            <if test="type != null and type != ''">AND t.type = #{type}</if>
+            <if test="reason != null and reason != ''">AND t.reason = #{reason}</if>
+            <if test="orderItemId != null">AND t.order_item_id = #{orderItemId}</if>
+            <if test="startTime != null and startTime != ''">AND t.create_time >= #{startTime}</if>
+            <if test="endTime != null and endTime != ''">AND t.create_time &lt; DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
         </where>
-        ORDER BY id DESC
+        ORDER BY t.id DESC
         LIMIT #{offset}, #{size}
     </select>
 
     <select id="pageCount" resultType="int">
-        SELECT COUNT(1) FROM stock_transaction
+        SELECT COUNT(1) FROM stock_transaction t
         <where>
-            <if test="skuId != null">AND sku_id = #{skuId}</if>
-            <if test="type != null and type != ''">AND type = #{type}</if>
-            <if test="reason != null and reason != ''">AND reason = #{reason}</if>
-            <if test="orderItemId != null">AND order_item_id = #{orderItemId}</if>
-            <if test="startTime != null and startTime != ''">AND create_time >= #{startTime}</if>
-            <if test="endTime != null and endTime != ''">AND create_time &lt; DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
+            <if test="skuId != null">AND t.sku_id = #{skuId}</if>
+            <if test="search != null and search != ''">
+                AND (t.sku_code LIKE CONCAT('%', #{search}, '%') OR t.sku_name LIKE CONCAT('%', #{search}, '%'))
+            </if>
+            <if test="type != null and type != ''">AND t.type = #{type}</if>
+            <if test="reason != null and reason != ''">AND t.reason = #{reason}</if>
+            <if test="orderItemId != null">AND t.order_item_id = #{orderItemId}</if>
+            <if test="startTime != null and startTime != ''">AND t.create_time >= #{startTime}</if>
+            <if test="endTime != null and endTime != ''">AND t.create_time &lt; DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
         </where>
     </select>
 

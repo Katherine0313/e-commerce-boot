@@ -124,6 +124,11 @@ public class AdminProductServiceImpl implements AdminProductService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
         validateSkuPayload(dto, old);
+        // categoryId=0 是「清空分类」哨兵：局部更新语义下 null 表示不修改，解除分类关联只能靠显式哨兵
+        if (dto.getCategoryId() != null && dto.getCategoryId() == 0) {
+            productMapper.clearCategory(id, LocalDateTime.now());
+            dto.setCategoryId(null); // 置空，避免走常规更新分支和操作日志误报
+        }
         // 库存不再允许在商品编辑里手改，必须走库存模块（入库单/出库单/调整单）留流水
         if (dto.getStock() != null && !Objects.equals(old.getStock(), dto.getStock())) {
             throw new BusinessException(HttpStatus.BAD_REQUEST,

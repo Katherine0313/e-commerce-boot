@@ -10,6 +10,7 @@ import java.util.List;
 public interface StockTransactionMapper {
     void insert(StockTransaction tx);
     List<StockTransaction> pageList(@Param("skuId") Long skuId,
+                                    @Param("search") String search,
                                     @Param("type") String type,
                                     @Param("reason") String reason,
                                     @Param("orderItemId") Long orderItemId,
@@ -18,6 +19,7 @@ public interface StockTransactionMapper {
                                     @Param("offset") int offset,
                                     @Param("size") int size);
     int pageCount(@Param("skuId") Long skuId,
+                  @Param("search") String search,
                   @Param("type") String type,
                   @Param("reason") String reason,
                   @Param("orderItemId") Long orderItemId,

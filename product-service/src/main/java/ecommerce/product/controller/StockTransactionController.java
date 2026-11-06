@@ -31,14 +31,15 @@ public class StockTransactionController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) Long skuId,
+            @RequestParam(required = false) String search,
             @RequestParam(required = false) String type,
             @RequestParam(required = false) String reason,
             @RequestParam(required = false) Long orderItemId,
             @RequestParam(required = false) String startTime,
             @RequestParam(required = false) String endTime) {
         int offset = (page - 1) * size;
-        int total = transactionMapper.pageCount(skuId, type, reason, orderItemId, startTime, endTime);
-        List<StockTransaction> list = transactionMapper.pageList(skuId, type, reason, orderItemId, startTime, endTime, offset, size);
+        int total = transactionMapper.pageCount(skuId, search, type, reason, orderItemId, startTime, endTime);
+        List<StockTransaction> list = transactionMapper.pageList(skuId, search, type, reason, orderItemId, startTime, endTime, offset, size);
         return Result.success(new PageVO<>(list, total, page, size));
     }
 }

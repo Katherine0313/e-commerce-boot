@@ -19,6 +19,7 @@ public class StockTransaction {
     private String specText;
     private Long orderItemId;
     private Long stockOrderId;
+    private String orderNo;     // 展示用：关联库存单据号（pageList 联表 stock_order 带出）
     private String type;        // IN / OUT / ADJUST
     private String reason;      // 销售出库/采购入库/退货归还/盘点调整/手工补录
     private Integer qty;        // 正数

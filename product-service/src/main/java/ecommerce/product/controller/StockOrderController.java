@@ -52,7 +52,8 @@ public class StockOrderController {
         String required = switch (type) {
             case "RECEIPT" -> "stock:receipt:manage";
             case "ADJUST" -> "stock:adjust:manage";
-            default -> throw new BusinessException("出库单由订单自动生成，不支持手动创建");
+            case "SHIPMENT" -> "stock:shipment:view";
+            default -> throw new BusinessException("未知单据类型: " + type);
         };
         if (!perms.contains(required)) {
             throw new BusinessException(org.springframework.http.HttpStatus.FORBIDDEN, "无权创建该类型单据");
@@ -66,6 +67,7 @@ public class StockOrderController {
             @RequestParam(defaultValue = "1") int page,
             @RequestParam(defaultValue = "20") int size,
             @RequestParam(required = false) String type,
+            @RequestParam(required = false) String bizType,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String relatedNo,
             @RequestParam(required = false) String startTime,
@@ -74,6 +76,7 @@ public class StockOrderController {
         StringBuilder where = new StringBuilder("WHERE 1=1");
         java.util.List<Object> args = new java.util.ArrayList<>();
         if (type != null && !type.isBlank()) { where.append(" AND o.type = ?"); args.add(type); }
+        if (bizType != null && !bizType.isBlank()) { where.append(" AND o.biz_type = ?"); args.add(bizType); }
         if (status != null && !status.isBlank()) { where.append(" AND o.status = ?"); args.add(Integer.parseInt(status)); }
         if (relatedNo != null && !relatedNo.isBlank()) { where.append(" AND o.related_no LIKE ?"); args.add("%" + relatedNo + "%"); }
         if (startTime != null && !startTime.isBlank()) { where.append(" AND o.create_time >= ?"); args.add(startTime); }
@@ -87,9 +90,29 @@ public class StockOrderController {
         args.add(size);
         List<Map<String, Object>> rows = jdbc.queryForList(
             "SELECT o.* FROM stock_order o " + where + " ORDER BY o.id DESC LIMIT ?, ?",
-            args.toArray());
+            args.toArray()).stream()
+            // JdbcTemplate 行 Map 的 key 是数据库列名（snake_case），前端按 camelCase 取值，统一转换
+            .map(StockOrderController::toCamelRow)
+            .toList();
 
         return Result.success(new PageVO<>(rows, total != null ? total : 0, page, size));
+    }
+
+    private static Map<String, Object> toCamelRow(Map<String, Object> row) {
+        Map<String, Object> out = new java.util.LinkedHashMap<>();
+        row.forEach((k, v) -> out.put(snakeToCamel(k), v));
+        return out;
+    }
+
+    private static String snakeToCamel(String s) {
+        StringBuilder sb = new StringBuilder(s.length());
+        boolean upper = false;
+        for (char c : s.toCharArray()) {
+            if (c == '_') { upper = true; }
+            else if (upper) { sb.append(Character.toUpperCase(c)); upper = false; }
+            else { sb.append(c); }
+        }
+        return sb.toString();
     }
 
     @Operation(summary = "单据详情（主表 + 明细）")
