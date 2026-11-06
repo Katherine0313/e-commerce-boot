@@ -17,6 +17,12 @@ import java.util.Map;
 public class CartVO {
     @Schema(description = "商品 ID")
     private Long productId;
+    @Schema(description = "SKU ID")
+    private Long skuId;
+    @Schema(description = "规格快照（JSON 字符串）")
+    private String specJson;
+    @Schema(description = "商家编码快照")
+    private String skuCode;
     @Schema(description = "商品名快照")
     private String name;
     @Schema(description = "商品图快照")

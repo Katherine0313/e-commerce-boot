@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.product.mapper.StockTransactionMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO stock_transaction
+            (sku_id, sku_code, sku_name, spec_text, order_item_id, stock_order_id,
+             type, reason, qty, balance_after, operator_id, operator_name, remark)
+        VALUES
+            (#{skuId}, #{skuCode}, #{skuName}, #{specText}, #{orderItemId}, #{stockOrderId},
+             #{type}, #{reason}, #{qty}, #{balanceAfter}, #{operatorId}, #{operatorName}, #{remark})
+    </insert>
+
+    <!-- 流水分页查询，支持多条件过滤 -->
+    <select id="pageList" resultType="ecommerce.product.entity.StockTransaction">
+        SELECT id, sku_id, sku_code, sku_name, spec_text, order_item_id, stock_order_id,
+               type, reason, qty, balance_after, operator_id, operator_name, remark, create_time
+        FROM stock_transaction
+        <where>
+            <if test="skuId != null">AND sku_id = #{skuId}</if>
+            <if test="type != null and type != ''">AND type = #{type}</if>
+            <if test="reason != null and reason != ''">AND reason = #{reason}</if>
+            <if test="orderItemId != null">AND order_item_id = #{orderItemId}</if>
+            <if test="startTime != null and startTime != ''">AND create_time >= #{startTime}</if>
+            <if test="endTime != null and endTime != ''">AND create_time < DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
+        </where>
+        ORDER BY id DESC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="pageCount" resultType="int">
+        SELECT COUNT(1) FROM stock_transaction
+        <where>
+            <if test="skuId != null">AND sku_id = #{skuId}</if>
+            <if test="type != null and type != ''">AND type = #{type}</if>
+            <if test="reason != null and reason != ''">AND reason = #{reason}</if>
+            <if test="orderItemId != null">AND order_item_id = #{orderItemId}</if>
+            <if test="startTime != null and startTime != ''">AND create_time >= #{startTime}</if>
+            <if test="endTime != null and endTime != ''">AND create_time < DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
+        </where>
+    </select>
+
+    <!-- 看板：近 N 天按日聚合 IN / OUT -->
+    <select id="dailyTrend" resultType="java.util.HashMap">
+        SELECT DATE(create_time) AS day,
+               SUM(CASE WHEN type = 'IN' THEN qty ELSE 0 END) AS in_qty,
+               SUM(CASE WHEN type = 'OUT' THEN qty ELSE 0 END) AS out_qty
+        FROM stock_transaction
+        WHERE create_time >= DATE_SUB(CURDATE(), INTERVAL #{days} DAY)
+        GROUP BY DATE(create_time)
+        ORDER BY day ASC
+    </select>
+
+    <select id="todayTotalIn" resultType="int">
+        SELECT COALESCE(SUM(qty), 0) FROM stock_transaction
+        WHERE type = 'IN' AND DATE(create_time) = CURDATE()
+    </select>
+
+    <select id="todayTotalOut" resultType="int">
+        SELECT COALESCE(SUM(qty), 0) FROM stock_transaction
+        WHERE type = 'OUT' AND DATE(create_time) = CURDATE()
+    </select>
+
+</mapper>

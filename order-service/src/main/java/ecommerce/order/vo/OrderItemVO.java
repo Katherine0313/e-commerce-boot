@@ -20,6 +20,12 @@ public class OrderItemVO {
     private Long orderItemId;
     @Schema(description = "商品 ID")
     private Long productId;
+    @Schema(description = "SKU ID 快照")
+    private Long skuId;
+    @Schema(description = "商家编码快照")
+    private String skuCode;
+    @Schema(description = "规格快照（JSON 字符串）")
+    private String specJson;
     @Schema(description = "商品名快照")
     private String productName;
     @Schema(description = "商品图快照")

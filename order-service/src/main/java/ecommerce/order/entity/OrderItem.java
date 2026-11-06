@@ -21,6 +21,12 @@ public class OrderItem {
     private Long id;
     private Long orderId;
     private Long productId;
+    /** 下单时 SKU ID 快照 */
+    private Long skuId;
+    /** 商家编码快照 */
+    private String skuCode;
+    /** 下单时规格快照（JSON 字符串） */
+    private String specJson;
     private String productName;
     private String image;
     private BigDecimal salesPrice;

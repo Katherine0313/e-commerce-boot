@@ -46,7 +46,9 @@ public class WebMvcConfig implements WebMvcConfigurer {
             "/api/banners", "/api/banners/**",
             "/api/articles", "/api/articles/**",
             // 商品评价只读（商品详情页展示评价列表与星级统计，免登录）
-            "/api/reviews", "/api/reviews/**"
+            "/api/reviews", "/api/reviews/**",
+            // 内部服务调用（stock 模块 /internal/stock-write），不走网关鉴权，校验 X-Internal-Call 请求头
+            "/internal/**"
     );
 
     private final JwtInterceptor jwtInterceptor;

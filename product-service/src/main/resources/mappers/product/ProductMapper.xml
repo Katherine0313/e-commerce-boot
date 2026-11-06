@@ -19,6 +19,7 @@
     <select id="findById" resultType="ecommerce.product.entity.Product">
         SELECT id, category_id, tag_id, name, sub_title, brand, title, image, body,
                sales_mode, listing_status, sales_price, market_price, product_code, stock, specs,
+               sku_type, sku_specs,
                create_time, update_time
         FROM products
         WHERE id = #{id}
@@ -154,6 +155,7 @@
     <select id="listAdmin" resultType="ecommerce.product.entity.Product">
         SELECT id, category_id, tag_id, name, sub_title, brand, title, image, body,
                sales_mode, listing_status, sales_price, market_price, cost_price, product_code, stock, specs,
+               sku_type, sku_specs,
                create_time, update_time
         FROM products
         <where>
@@ -194,6 +196,7 @@
     <select id="findByIdAdmin" resultType="ecommerce.product.entity.Product">
         SELECT id, category_id, tag_id, name, sub_title, brand, title, image, body,
                sales_mode, listing_status, sales_price, market_price, cost_price, product_code, stock, specs,
+               sku_type, sku_specs,
                create_time, update_time
         FROM products
         WHERE id = #{id}
@@ -204,11 +207,11 @@
         INSERT INTO products
             (category_id, tag_id, name, sub_title, brand, title, image, body,
              sales_mode, listing_status, sales_price, market_price, cost_price, product_code, stock, specs,
-             create_time, update_time)
+             sku_type, sku_specs, create_time, update_time)
         VALUES
             (#{categoryId}, #{tagId}, #{name}, #{subTitle}, #{brand}, #{title}, #{image}, #{body},
              #{salesMode}, #{listingStatus}, #{salesPrice}, #{marketPrice}, #{costPrice}, #{productCode}, #{stock},
-             #{specs}, #{createTime}, #{updateTime})
+             #{specs}, #{skuType}, #{skuSpecs}, #{createTime}, #{updateTime})
     </insert>
 
     <!-- 更新商品：动态 set，只更新非 null 字段（上架开关只传 listing_status 即可）；update_time 用 Java 传参 -->
@@ -231,6 +234,8 @@
             <if test="productCode != null">product_code = #{productCode},</if>
             <if test="stock != null">stock = #{stock},</if>
             <if test="specs != null">specs = #{specs},</if>
+            <if test="skuType != null">sku_type = #{skuType},</if>
+            <if test="skuSpecs != null">sku_specs = #{skuSpecs},</if>
             update_time = #{updateTime},
         </set>
         WHERE id = #{id}

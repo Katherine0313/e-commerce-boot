@@ -12,20 +12,17 @@
           AND r.status = 1
         ORDER BY r.id ASC
     </select>
-
     <select id="listPermsByAdminId" resultType="string">
         SELECT DISTINCT m.perms
         FROM admin_menu m
-                 JOIN admin_role_menu rm ON rm.menu_id = m.id
-                 JOIN admin_user_role ur ON ur.role_id = rm.role_id
-                 JOIN admin_role r ON r.id = ur.role_id
+        JOIN admin_role_menu rm ON rm.menu_id = m.id
+        JOIN admin_user_role ur ON ur.role_id = rm.role_id
+        JOIN admin_role r ON r.id = ur.role_id
         WHERE ur.admin_id = #{adminId}
-          AND r.status = 1
-          AND m.status = 1
-          AND m.perms IS NOT NULL
-          AND m.perms &lt;&gt; ''
+        AND r.status = 1
+        AND m.status = 1
+        AND m.perms IS NOT NULL
     </select>
-
     <select id="listMenusByAdminId" resultType="ecommerce.auth.entity.AdminMenu">
         SELECT DISTINCT m.id, m.parent_id, m.menu_name, m.menu_type, m.path, m.component,
                         m.perms, m.icon, m.sort_order, m.visible, m.status, m.create_time, m.update_time

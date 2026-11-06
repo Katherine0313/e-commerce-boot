@@ -44,4 +44,10 @@ public class AdminProductDTO {
     private Integer stock;
     @Schema(description = "规格参数（有序键值对，非 SKU）")
     private List<SpecItemDTO> specs;
+    @Schema(description = "0 单规格 / 1 多规格；不传表示本次不改规格")
+    private Integer skuType;
+    @Schema(description = "销售规格维度定义")
+    private List<SkuSpecDTO> skuSpecs;
+    @Schema(description = "SKU 明细；按 id 差量保存，未提交的旧 SKU 置停用")
+    private List<AdminSkuDTO> skus;
 }

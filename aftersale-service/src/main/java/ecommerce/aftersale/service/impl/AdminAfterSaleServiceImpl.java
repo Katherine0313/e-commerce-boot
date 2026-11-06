@@ -6,11 +6,13 @@ import ecommerce.aftersale.entity.AfterSale;
 import ecommerce.aftersale.entity.AfterSaleExchangeReturn;
 import ecommerce.aftersale.entity.AfterSaleItem;
 import ecommerce.aftersale.entity.AfterSaleOnlyRefund;
+import ecommerce.aftersale.entity.OrderItem;
 import ecommerce.aftersale.entity.AfterSaleReturn;
 import ecommerce.aftersale.enums.AfterSaleReasonEnum;
 import ecommerce.aftersale.enums.AfterSaleStatusEnum;
 import ecommerce.aftersale.enums.AfterSaleTypeEnum;
 import ecommerce.aftersale.enums.PayTypeEnum;
+import ecommerce.aftersale.client.StockInternalClient;
 import ecommerce.aftersale.mapper.AfterSaleExchangeReturnMapper;
 import ecommerce.aftersale.mapper.AfterSaleItemMapper;
 import ecommerce.aftersale.mapper.AfterSaleLogMapper;
@@ -78,6 +80,7 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
     private final AfterSaleLogMapper afterSaleLogMapper;
     private final OrderMapper orderMapper;
     private final ObjectMapper objectMapper;
+    private final StockInternalClient stockClient;
 
     public AdminAfterSaleServiceImpl(AfterSaleMapper afterSaleMapper, AfterSaleItemMapper afterSaleItemMapper,
                                      AfterSaleReturnMapper afterSaleReturnMapper,
@@ -85,7 +88,8 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                                      AfterSaleExchangeReturnMapper afterSaleExchangeReturnMapper,
                                      AfterSaleLogMapper afterSaleLogMapper,
                                      OrderMapper orderMapper,
-                                     ObjectMapper objectMapper) {
+                                     ObjectMapper objectMapper,
+                                     StockInternalClient stockClient) {
         this.afterSaleMapper = afterSaleMapper;
         this.afterSaleItemMapper = afterSaleItemMapper;
         this.afterSaleReturnMapper = afterSaleReturnMapper;
@@ -94,6 +98,7 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
         this.afterSaleLogMapper = afterSaleLogMapper;
         this.orderMapper = orderMapper;
         this.objectMapper = objectMapper;
+        this.stockClient = stockClient;
     }
 
     @Override
@@ -397,8 +402,15 @@ public class AdminAfterSaleServiceImpl implements AdminAfterSaleService {
                 afterSaleMapper.updateRefund(afterSale.getId(), total,
                         "RF" + afterSale.getAfterSaleNo(), channel, now);
                 for (AfterSaleItem item : items) {
-                    // 商品回补库存
-                    orderMapper.restoreStock(item.getProductId(), item.getQuantity());
+                    // 商品回补库存：优先按订单明细上的 sku_id 回补（委托 product-service 流水），
+                    // 旧数据没有 SKU 才回补商品级库存
+                    OrderItem orderItem = orderMapper.findItemById(item.getOrderItemId(), afterSale.getOrderId());
+                    if (orderItem != null && orderItem.getSkuId() != null) {
+                        stockClient.write(orderItem.getSkuId(), null, "IN", "退货归还", item.getQuantity(), item.getOrderItemId());
+                    } else {
+                        Long productId = orderItem != null ? orderItem.getProductId() : item.getProductId();
+                        orderMapper.restoreStock(productId, item.getQuantity());
+                    }
                     orderMapper.updateItemAfterSale(item.getOrderItemId(), afterSale.getId(), "refunded", now);
                 }
                 // 全部订单项都退款后，订单才变“已退款”

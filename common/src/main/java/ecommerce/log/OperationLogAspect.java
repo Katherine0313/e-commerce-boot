@@ -49,7 +49,6 @@ public class OperationLogAspect {
         this.recorder = recorder;
     }
 
-    @Around("@annotation(operationLog)")
     public Object around(ProceedingJoinPoint joinPoint, OperationLog operationLog) throws Throwable {
         long start = System.currentTimeMillis();
         boolean success = true;

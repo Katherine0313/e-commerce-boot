@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.order.mapper.ProductSkuMapper">
+
+    <select id="findById" resultType="ecommerce.order.entity.ProductSku">
+        SELECT id, product_id, sku_code, spec_json, spec_key, price, stock, status
+        FROM product_sku
+        WHERE id = #{id}
+    </select>
+
+    <select id="findDefaultByProductId" resultType="ecommerce.order.entity.ProductSku">
+        SELECT id, product_id, sku_code, spec_json, spec_key, price, stock, status
+        FROM product_sku
+        WHERE product_id = #{productId} AND status = 1
+        ORDER BY sort ASC, id ASC
+        LIMIT 1
+    </select>
+
+    <select id="listByIds" resultType="ecommerce.order.entity.ProductSku">
+        SELECT id, product_id, sku_code, spec_json, spec_key, price, stock, status
+        FROM product_sku
+        WHERE id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
+    <update id="deductStock">
+        UPDATE product_sku SET stock = stock - #{quantity}, update_time = NOW()
+        WHERE id = #{skuId} AND stock >= #{quantity} AND status = 1
+    </update>
+
+    <update id="restoreStock">
+        UPDATE product_sku SET stock = stock + #{quantity}, update_time = NOW()
+        WHERE id = #{skuId}
+    </update>
+
+    <!-- 商品级 stock 是 SKU 求和冗余，扣减后同步，保证列表页/后台库存一致 -->
+    <update id="refreshProductStock">
+        UPDATE products p
+        SET p.stock = (SELECT COALESCE(SUM(s.stock), 0)
+                       FROM product_sku s
+                       WHERE s.product_id = p.id AND s.status = 1),
+            p.update_time = NOW()
+        WHERE p.id = #{productId}
+    </update>
+</mapper>

@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.product.mapper.StockSkuMapper">
+
+    <!-- SKU 分页：JOIN products 拿商品名和图，支持商品名模糊搜索 -->
+    <select id="pageList" resultType="ecommerce.product.entity.ProductSku">
+        SELECT s.*
+        FROM product_sku s
+        INNER JOIN products p ON p.id = s.product_id
+        <where>
+            <if test="search != null and search != ''">
+                AND (s.sku_code LIKE CONCAT('%', #{search}, '%')
+                     OR p.name LIKE CONCAT('%', #{search}, '%'))
+            </if>
+            <if test="lowStockOnly">
+                AND s.min_stock > 0 AND s.stock < s.min_stock AND s.status = 1
+            </if>
+        </where>
+        ORDER BY s.stock ASC, s.id ASC
+        LIMIT #{offset}, #{size}
+    </select>
+
+    <select id="pageCount" resultType="int">
+        SELECT COUNT(1) FROM product_sku s
+        INNER JOIN products p ON p.id = s.product_id
+        <where>
+            <if test="search != null and search != ''">
+                AND (s.sku_code LIKE CONCAT('%', #{search}, '%')
+                     OR p.name LIKE CONCAT('%', #{search}, '%'))
+            </if>
+            <if test="lowStockOnly">
+                AND s.min_stock > 0 AND s.stock < s.min_stock AND s.status = 1
+            </if>
+        </where>
+    </select>
+
+    <!-- 看板：低库存 TOP N（stock < min_stock 且 min_stock > 0） -->
+    <select id="lowStockTopN" resultType="ecommerce.product.entity.ProductSku">
+        SELECT s.* FROM product_sku s
+        WHERE s.min_stock > 0 AND s.stock < s.min_stock AND s.status = 1
+        ORDER BY s.stock ASC, s.id ASC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 看板：SKU 总数（启用状态） -->
+    <select id="totalCount" resultType="int">
+        SELECT COUNT(1) FROM product_sku WHERE status = 1
+    </select>
+
+    <update id="updateAlert">
+        UPDATE product_sku
+        <set>
+            <if test="minStock != null">min_stock = #{minStock},</if>
+            <if test="maxStock != null">max_stock = #{maxStock},</if>
+            update_time = NOW()
+        </set>
+        WHERE id = #{skuId}
+    </update>
+
+</mapper>

@@ -29,8 +29,14 @@ public interface OrderMapper {
     // 统计订单里未处于指定售后标记的订单项数量（判断整单是否全部退款）
     int countItemsNotStatus(@Param("orderId") Long orderId, @Param("status") String status);
 
-    // 回补商品库存（退款/退货回库）
+    // 回补商品级库存（退款/退货回库；旧数据无 SKU 时兜底）
     int restoreStock(@Param("productId") Long productId, @Param("quantity") Integer quantity);
+
+    // 回补 SKU 库存
+    int restoreSkuStock(@Param("skuId") Long skuId, @Param("quantity") Integer quantity);
+
+    // SKU 回补后同步商品级库存冗余
+    int refreshProductStock(@Param("productId") Long productId);
 
     // 更新订单主状态
     int updateOrderStatus(@Param("orderId") Long orderId, @Param("status") Integer status,

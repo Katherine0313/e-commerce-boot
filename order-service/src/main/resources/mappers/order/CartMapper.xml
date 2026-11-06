@@ -4,13 +4,16 @@
         "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
 <mapper namespace="ecommerce.order.mapper.CartMapper">
 
-    <!-- 某用户购物车列表（按加购时间倒序），join products 带出实时库存供前端校验数量上限 -->
+    <!-- 某用户购物车列表（按加购时间倒序）
+         stock 优先取 SKU 库存，SKU 缺失（旧数据）时回落到商品汇总库存 -->
     <select id="listByUser" resultType="ecommerce.order.entity.Cart">
-        SELECT c.id, c.user_id, c.product_id, c.quantity, c.name, c.image, c.price,
+        SELECT c.id, c.user_id, c.product_id, c.sku_id, c.spec_json, c.sku_code,
+               c.quantity, c.name, c.image, c.price,
                c.description, c.insurance_detail, c.insurance_fee, c.created_at, c.updated_at,
-               p.stock
+               COALESCE(s.stock, p.stock) AS stock
         FROM cart c
         LEFT JOIN products p ON p.id = c.product_id
+        LEFT JOIN product_sku s ON s.id = c.sku_id
         WHERE c.user_id = #{userId}
         ORDER BY c.created_at DESC, c.id DESC
     </select>
@@ -22,19 +25,30 @@
         WHERE user_id = #{userId}
     </select>
 
-    <!-- 某用户购物车里某个商品的行 -->
+    <!-- 某用户购物车里某个商品的行（多规格时取第一条，仅为兼容旧客户端） -->
     <select id="findByUserAndProduct" resultType="ecommerce.order.entity.Cart">
-        SELECT id, user_id, product_id, quantity, name, image, price, description,
+        SELECT id, user_id, product_id, sku_id, spec_json, sku_code, quantity, name, image, price, description,
                insurance_detail, insurance_fee, created_at, updated_at
         FROM cart
         WHERE user_id = #{userId} AND product_id = #{productId}
+        ORDER BY id ASC
+        LIMIT 1
+    </select>
+
+    <!-- 按 SKU 精确查购物车行 -->
+    <select id="findByUserAndSku" resultType="ecommerce.order.entity.Cart">
+        SELECT id, user_id, product_id, sku_id, spec_json, sku_code, quantity, name, image, price, description,
+               insurance_detail, insurance_fee, created_at, updated_at
+        FROM cart
+        WHERE user_id = #{userId} AND sku_id = #{skuId}
+        LIMIT 1
     </select>
 
     <!-- 新增购物车项，回填自增 id -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
-        INSERT INTO cart (user_id, product_id, quantity, name, image, price, description,
+        INSERT INTO cart (user_id, product_id, sku_id, spec_json, sku_code, quantity, name, image, price, description,
                           insurance_detail, insurance_fee, created_at)
-        VALUES (#{userId}, #{productId}, #{quantity}, #{name}, #{image}, #{price},
+        VALUES (#{userId}, #{productId}, #{skuId}, #{specJson}, #{skuCode}, #{quantity}, #{name}, #{image}, #{price},
                 #{description}, #{insuranceDetail}, #{insuranceFee}, NOW())
     </insert>
 
@@ -42,6 +56,9 @@
     <update id="update">
         UPDATE cart
         SET quantity = #{quantity},
+            sku_id = #{skuId},
+            spec_json = #{specJson},
+            sku_code = #{skuCode},
             name = #{name},
             image = #{image},
             price = #{price},
@@ -58,6 +75,12 @@
         WHERE user_id = #{userId} AND product_id = #{productId}
     </delete>
 
+    <!-- 按 SKU 精确移除 -->
+    <delete id="deleteBySku">
+        DELETE FROM cart
+        WHERE user_id = #{userId} AND sku_id = #{skuId}
+    </delete>
+
     <!-- 批量移除 -->
     <delete id="deleteByProducts">
         DELETE FROM cart
@@ -65,6 +88,16 @@
         AND product_id IN
         <foreach collection="productIds" item="pid" open="(" separator="," close=")">
             #{pid}
+        </foreach>
+    </delete>
+
+    <!-- 按 SKU 批量移除 -->
+    <delete id="deleteBySkus">
+        DELETE FROM cart
+        WHERE user_id = #{userId}
+        AND sku_id IN
+        <foreach collection="skuIds" item="sid" open="(" separator="," close=")">
+            #{sid}
         </foreach>
     </delete>
 

@@ -14,4 +14,6 @@ import java.util.List;
 public class ClearCartDTO {
     @Schema(description = "要移除的商品 id 列表；为空则清空整个购物车")
     private List<Long> productIds;
+    @Schema(description = "要移除的 SKU id 列表；优先于 productIds，避免误删同商品其它规格")
+    private List<Long> skuIds;
 }

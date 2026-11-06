@@ -15,6 +15,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -59,22 +60,24 @@ public class CartController {
     @PutMapping("/{productId}")
     public Result<Void> updateQuantity(@PathVariable Long productId,
                                        @RequestBody UpdateQuantityDTO dto) {
-        cartService.updateQuantity(productId, dto.getQuantity());
+        cartService.updateQuantity(productId, dto.getSkuId(), dto.getQuantity());
         return Result.success();
     }
 
-    @Operation(summary = "移除某个商品")
+    @Operation(summary = "移除某个商品（多规格请带 skuId 参数）")
     @DeleteMapping("/{productId}")
-    public Result<Void> removeItem(@PathVariable Long productId) {
-        cartService.removeItem(productId);
+    public Result<Void> removeItem(@PathVariable Long productId,
+                                   @RequestParam(required = false) Long skuId) {
+        cartService.removeItem(productId, skuId);
         return Result.success();
     }
 
-    @Operation(summary = "清空购物车（可选 body.productIds 批量删除）")
+    @Operation(summary = "清空购物车（可选 body.skuIds 或 productIds 批量删除）")
     @DeleteMapping
     public Result<Void> clear(@RequestBody(required = false) ClearCartDTO dto) {
         List<Long> productIds = dto == null ? null : dto.getProductIds();
-        cartService.clear(productIds);
+        List<Long> skuIds = dto == null ? null : dto.getSkuIds();
+        cartService.clear(productIds, skuIds);
         return Result.success();
     }
 }

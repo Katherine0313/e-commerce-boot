@@ -20,6 +20,8 @@ public class OrderItem {
     private Long id;
     private Long orderId;
     private Long productId;
+    /** 下单时 SKU ID 快照；旧数据可为空 */
+    private Long skuId;
     private String productName;
     private String image;
     private BigDecimal salesPrice;

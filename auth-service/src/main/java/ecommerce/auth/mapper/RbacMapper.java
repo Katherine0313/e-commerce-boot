@@ -11,15 +11,15 @@ import java.util.List;
  */
 public interface RbacMapper {
 
-    // 管理员拥有的角色（只取正常状态）
+    // 系统用户拥有的角色（只取正常状态）
     List<AdminRole> listRolesByAdminId(@Param("adminId") Long adminId);
 
-    // 管理员拥有的权限标识（菜单 + 按钮，去重）
+    // 系统用户拥有的权限标识（菜单 + 按钮，去重）
     List<String> listPermsByAdminId(@Param("adminId") Long adminId);
 
-    // 管理员可见的目录/菜单（不含按钮）
+    // 系统用户可见的目录/菜单（不含按钮）
     List<AdminMenu> listMenusByAdminId(@Param("adminId") Long adminId);
 
-    // 全部目录/菜单（超级管理员用）
+    // 全部目录/菜单（超级系统用户用）
     List<AdminMenu> listAllMenus();
 }

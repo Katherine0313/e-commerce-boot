@@ -10,4 +10,6 @@ import lombok.Data;
 public class UpdateQuantityDTO {
     @Schema(description = "数量（最小 1）")
     private Integer quantity;
+    @Schema(description = "SKU ID；多规格商品必传，单规格可不传")
+    private Long skuId;
 }

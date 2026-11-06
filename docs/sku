@@ -1,0 +1,290 @@
+# 商品多规格（SKU）设计方案
+
+> 状态：表结构与存量数据已在本地、生产双执行完成（136 商品 / 800 SKU）；后端与前端待实施。
+
+## 一、模型
+
+- **SPU**（`products`）：名称、主图、详情、商品参数、上下架等共享信息
+- **SKU**（`product_sku`）：规格组合、售价、市场价、成本、库存、商家编码
+- 商品图共用 SPU 主图，不做 SKU 级图片
+
+| 数据 | 例子 | 存放 |
+|---|---|---|
+| 商品参数 | 屏幕、处理器、摄像头 | `products.specs` JSON，不参与交易 |
+| 销售规格 | 颜色、内存、尺码 | `products.sku_specs` 定义 + `product_sku.spec_json` |
+| 价格库存 | 售价、市场价、成本、库存 | `product_sku` 每行独立 |
+| 规格字典 | 规格名、可选值 | `product_spec_group` / `product_spec_value` |
+
+判断标准：取值会影响价格、库存、下单必须二选一的才是销售规格，否则是商品参数。
+
+1. 单规格商品也生成一条默认 SKU（`spec_key='__DEFAULT__'`），全链路统一走 `sku_id`，避免双轨逻辑。
+2. 规格用 JSON 快照（不建多对多表，语义与订单快照一致）；商品级 `sales_price`/`market_price`/`stock` 降级为聚合冗余。列表页按最低 SKU 价展示。
+
+## 二、表结构
+
+### 2.1 product_sku（新建）
+
+```sql
+CREATE TABLE product_sku (
+  id            BIGINT        NOT NULL AUTO_INCREMENT,
+  product_id    BIGINT        NOT NULL COMMENT '所属 SPU',
+  sku_code      VARCHAR(64)   NULL COMMENT '商家编码',
+  spec_json     JSON          NOT NULL COMMENT '规格组合 {"颜色":"曜石黑","内存":"256G"}',
+  spec_key      VARCHAR(255)  NOT NULL COMMENT '规范化串 颜色:曜石黑|内存:256G',
+  price         DECIMAL(10,2) NOT NULL COMMENT '销售价',
+  market_price  DECIMAL(10,2) NULL COMMENT '市场价',
+  cost_price    DECIMAL(10,2) NULL COMMENT '成本价',
+  stock         INT           NOT NULL DEFAULT 0 COMMENT '可售库存',
+  status        TINYINT       NOT NULL DEFAULT 1 COMMENT '1 启用 / 0 停用',
+  sort          INT           NOT NULL DEFAULT 0,
+  create_time   DATETIME      NOT NULL,
+  update_time   DATETIME      NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_sku_spec (product_id, spec_key),
+  KEY idx_sku_product (product_id),
+  KEY idx_sku_status_stock (status, stock)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='商品 SKU';
+```
+
+MySQL 5.7 不能对 JSON 建唯一索引，故额外存 `spec_key`：按 `sku_specs` 顺序拼接 `名称:值`，保证同一组合只有一个 key。单规格默认 SKU 用 `spec_json={}`、`spec_key='__DEFAULT__'`。
+
+### 2.2 规格字典（新建）
+
+```sql
+CREATE TABLE product_spec_group (
+  id          BIGINT      NOT NULL AUTO_INCREMENT,
+  category_id BIGINT      NULL COMMENT '所属分类，NULL 为全局',
+  name        VARCHAR(32) NOT NULL COMMENT '颜色 / 内存 / 尺码',
+  status      TINYINT     NOT NULL DEFAULT 1,
+  create_time DATETIME    NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_group_category_name (category_id, name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='销售规格名';
+
+CREATE TABLE product_spec_value (
+  id          BIGINT      NOT NULL AUTO_INCREMENT,
+  group_id    BIGINT      NOT NULL,
+  value       VARCHAR(64) NOT NULL COMMENT '曜石黑 / 256G',
+  create_time DATETIME    NOT NULL,
+  PRIMARY KEY (id),
+  UNIQUE KEY uk_value_group_value (group_id, value)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='销售规格值';
+```
+
+字典只用于后台候选值维护和分类预设；商品卖哪些值，以 `sku_specs` 的选中态为准。
+
+### 2.3 products 增量
+
+```sql
+ALTER TABLE products ADD COLUMN sku_type TINYINT NOT NULL DEFAULT 0 COMMENT '0 单规格 / 1 多规格' AFTER specs, ADD COLUMN sku_specs TEXT NULL COMMENT '规格维度 JSON' AFTER sku_type;
+```
+
+### 2.4 cart 增量
+
+```sql
+ALTER TABLE cart
+  ADD COLUMN sku_id    BIGINT       NULL COMMENT 'SKU ID' AFTER product_id,
+  ADD COLUMN spec_json VARCHAR(255) NULL COMMENT '规格快照' AFTER image,
+  ADD COLUMN sku_code  VARCHAR(64)  NULL COMMENT '商家编码快照';
+ALTER TABLE cart DROP INDEX <原唯一索引名>;                -- 原 (user_id, product_id)
+ALTER TABLE cart ADD UNIQUE KEY uk_cart_user_sku (user_id, sku_id);
+```
+
+改索引前必须先回填 `sku_id`，否则多行 NULL 不触发唯一约束；执行前 `SHOW INDEX FROM cart` 确认原索引名。
+
+### 2.5 order_items 增量
+
+```sql
+ALTER TABLE order_items
+  ADD COLUMN sku_id    BIGINT       NULL COMMENT '下单时 SKU 快照' AFTER product_id,
+  ADD COLUMN sku_code  VARCHAR(64)  NULL COMMENT '商家编码快照' AFTER image,
+  ADD COLUMN spec_json VARCHAR(255) NULL COMMENT '规格快照' AFTER sku_code;
+```
+
+订单明细已有商品名、图、价快照，再加 `sku_id`/`spec_json` 后，商品改规格不影响历史订单。
+
+### 2.6 售后库存回补
+
+`aftersale-service` 的 `restoreStock` 改为 `UPDATE product_sku SET stock=stock+#{quantity} WHERE id=#{skuId}`；售后从 `order_items` 取 `sku_id`，不新增表。
+
+## 三、规格数据格式
+
+`products.sku_specs`（数组顺序即选择器顺序和 `spec_key` 拼接顺序）：
+
+```json
+[{"groupId": 1, "name": "颜色", "values": ["曜石黑", "白色"]},
+ {"groupId": 2, "name": "内存", "values": ["128G", "256G"]}]
+```
+
+`spec_json={"颜色":"曜石黑","内存":"128G"}` → `spec_key=颜色:曜石黑|内存:128G`；单规格 `{}` → `__DEFAULT__`。维度顺序改变会导致 key 变化，必须配套数据迁移。
+
+## 四、存量迁移（已执行）
+
+存量 `products.specs` 只有商品参数，无法自动识别销售规格，按分类规则批量生成：
+
+| 分类 | 规格 |
+|---|---|
+| 手机 / 平板 | 颜色 × 存储容量 |
+| 电脑 | 颜色 × 运行内存 |
+| 手表 | 颜色 × 表带材质 |
+| 相机 | 颜色 × 套装类型 |
+| 耳机 / 音箱、配件 | 颜色 |
+| 硬盘 / 灯泡 / 扫地机 | 容量 / 色温 / 版本 |
+
+颜色统一为曜石黑 / 雪域白 / 晴空蓝；基础价 = 原 `sales_price` 按规则加价；库存按原总量平均分配；`sku_code` = `product_code + '-' + 序号`；全部商品 `sku_type=1`。
+
+脚本：[docs/sql/20261106_sku_phase1.sql](file:///D:/study/my-workspace/wechat-workspace/e-commerce-boot/docs/sql/20261106_sku_phase1.sql)
+
+结果（本地 / 生产一致）：商品 136、多规格 136、SKU 800、缺 SKU 商品 0、cart 与 order_items 回填无遗漏、汇总字段不一致 0；存量 cart / order_items 统一指向该商品 `MIN(id)` 的 SKU 并写入快照。执行顺序：备份 → 建三表 → products 两列 → cart 三列并换唯一索引 → order_items 三列 → 字典种子 → 生成 SKU → 更新 `sku_type`/`sku_specs` → 刷新汇总 → 回填 cart/order_items → 校验。生产备份在 `/tmp/e_commerce_db_before_sku_20261106.sql`。
+
+后续新增商品若只卖单一规格，走 `sku_type=0` + 一条默认 SKU，链路仍走 `sku_id`。
+
+## 五、后端改造
+
+### 5.1 product-service
+
+`Product.java` 加 `skuType`/`skuSpecs`；新建 `ProductSku`/`SpecGroup`/`SpecValue` 实体与 Mapper（按 productId 查、批量插入、更新、逻辑停用、刷新汇总、字典 CRUD）；`AdminSpecController` 提供规格库接口（权限 `product:spec:*`，被引用禁止删）；`ProductMapper.xml` 加两列；`AdminProductServiceImpl` 保存按 id 差量并在事务内刷新汇总；`ProductServiceImpl`/`ProductVO`/`AdminProductDetailVO` 返回 `skus`、`skuType`、`priceMin`、`priceMax`、`skuSpecs`。
+
+### 5.2 order-service
+
+扣库存改按 `skuId`：`UPDATE product_sku SET stock=stock-#{qty} WHERE id=#{skuId} AND stock>=#{qty}`；`Cart`/`CartMapper.xml` 加 `skuId`、`specJson`、`skuCode`，读写按 `(user_id, sku_id)`；`CartAddDTO`/`OrderItemDTO`/`OrderItem`/`OrderItemMapper.xml` 加三列；`OrderServiceImpl` 按 `skuId` 校验归属、状态、库存并用 SKU 价算价；`OrderMapper.xml` 详情/列表带出 `spec_json`。
+
+### 5.3 汇总字段刷新
+
+```sql
+<update id="refreshProductAggregate">
+    UPDATE products p SET
+        stock = (SELECT COALESCE(SUM(s.stock),0) FROM product_sku s WHERE s.product_id=p.id AND s.status=1),
+        sales_price = (SELECT COALESCE(MIN(s.price), p.sales_price) FROM product_sku s WHERE s.product_id=p.id AND s.status=1),
+        market_price = (SELECT s.market_price FROM product_sku s WHERE s.product_id=p.id AND s.status=1 ORDER BY s.price ASC LIMIT 1),
+        update_time = #{now}
+    WHERE p.id = #{productId}
+</update>
+```
+
+`market_price` 取最低价 SKU 的那条划线价，而非所有划线价的最小值，保证列表页「售价 / 市场价」来自同一规格。
+
+## 六、前端
+
+### 6.1 后台添加商品（`e-commerce`）
+
+`AddGoods.vue` 现有字段：分类 → 名称 → 品牌 → 主标题 → 副标题 → 图片 → 详情 → `SpecsEditor`（商品参数）。在 `SpecsEditor` 后插入一个卡片，参数与规格放在同一卡片：
+
+```
+┌─ 商品规格 ─────────────────────────────
+│ 商品参数  屏幕尺寸 [6.1英寸] 处理器 [A17 Pro]  [+添加]
+│ 销售规格                              [+ 添加规格]
+│   颜色      曜石黑 ×  雪域白 ×  晴空蓝 ×  [+ 添加值]
+│   存储容量  128G ×    256G ×    512G ×    [+ 添加值]
+│ 规格组合明细（常驻）  组合  售价  市场价  成本  库存  商家编码
+│                      曜石黑/128G  8499  8999  6400  30  IP16-B-128
+```
+
+**表格常驻**：未选值显示占位行「选择规格值后自动生成」；选完第一个值立刻生成行；新增值只追加、不重置已有行；单规格固定一行并隐藏组合列。
+
+多规格时，价格、市场价、成本、库存**只在这张表里填**，上方不设商品级价格框（列表页「¥5999 起」由后端算）。
+
+选维度（最多 3 个，全部平铺标签，不用下拉）：点未选规格名高亮；点已选规格名不取消，需点规格块「移除」；点规格值选中并在右上角出现 ×，点 × 或再点该值取消；点「+ 新增值」内联输入回车加入；删整块维度同步删组合。维度可拖拽排序，决定选择器顺序与 `spec_key`。SKU 表格（笛卡尔积自动生成）：每行独立填价格库存编码；表头「批量填充」填一行后「应用到全部」再微调；库存 0 标黄；删值只置 `status=0`，不物理删除。
+
+可选辅助：先填基准 SKU 价格与各规格值差价（差价由商家手填），点「批量填充」按 基准价+差价 铺进表格。系统只做加法、不参与定价，不用也可逐行手填。
+
+保存结构：
+
+```json
+{"skuType": 1,
+ "skuSpecs": [{"groupId": 1, "name": "颜色", "values": ["曜石黑", "白色"]}],
+ "skus": [{"id": null, "specJson": {"颜色": "曜石黑", "内存": "128G"}, "price": 5999,
+           "marketPrice": 6999, "costPrice": 4800, "stock": 30, "skuCode": "IP16-B-128", "status": 1}]}
+```
+
+后端按 `id` 差量：无 id 新增、有 id 更新、未提交的旧 SKU 置停用。
+
+校验：维度 ≤3 且不重名；每维度 1~10 个值；SKU 行 ≥1；`price>0`、`stock>=0`；编码全商品唯一；生成行数 = 各维度值数量乘积；`skuType=0` 不允许有 `skuSpecs`。
+
+编辑回显：`GET /api/admin/products/{id}` 返回 `skuSpecs` + `skus`，按 `specJson` 匹配回表格；停用行灰色可恢复。列表页 `priceMin==priceMax` 显示 `¥5999`，否则「¥5999 起」；库存显示汇总，0 标红；新增「规格」列显示「颜色/内存 · 4 个SKU」。规格库页 `/goods/specs` 值标签平铺带 × 可删单个值，被引用的规格只能停用。
+
+涉及文件：新建 `SpecValuePicker.vue`、`SkuEditor.vue`、`SpecList.vue`、`api/spec.js`；改 `AddGoods.vue`、`EditModal.vue`、`List.vue`、`api/goods.js`、`router`。
+
+### 6.2 商城 H5（`ecommerce-mall`）
+
+淘宝式：**规格放在商品详情页**（页面大、信息密度高，适合平铺展示），结算页只做地址、配送、金额和提交。
+
+详情页 `src/views/products/ProductDetail.vue` 右侧购买面板自上而下：
+
+```
+价格（多规格未选全显示「¥5999 起」）/ 活动前价 / 市场价
+颜色  [曜石黑] [雪域白] [晴空蓝]      ← 每维度一行，平铺标签
+内存  [128G] [256G] [512G 划线灰]
+已选：曜石黑 / 256G
+购买方式 官方标配 · 库存 25 件
+数量 - 1 +        （上限 = 所选 SKU 库存）
+增值保障卡片
+加入购物车 / 立即购买 / 合计
+```
+
+Element Plus 手写 chip：`spec-chip`，选中 `#FF3B30` 红框红字，缺货灰底划线不可点；`selectedSpec` 存 `{颜色, 内存}`，切换后价格、市场价、库存、数量上限即时更新。加购/立即购买前校验选全 → 提示「请选择 颜色、内存」；加购把 `skuId` + `specJson` + SKU 价写入购物车，购物车和结算行显示规格文字。
+
+算法 `src/utils/sku.js` 与小程序同一套：`findSku`/`isSpecComplete`/`isValueSelectable`/`specText`/`specLabel`。
+
+涉及文件：新建 `src/utils/sku.js`；改 `ProductDetail.vue`、`stores/cart.js`、`Cart.vue`、`Settlement.vue`（下单带 `skuId`）。
+
+### 6.3 小程序（`e-commerce-uniapp`）
+
+**规格选择放在确认订单页**，商品详情页不放规格（详情只决定数量、增值保障、加购/立即购买）。
+
+确认页 `pages/order/confirm.vue` 每件商品一张卡，自上而下：
+
+```
+收货地址（无地址时两行入口：填写收货地址 / 一键导入微信地址）
+商品卡：左图 + 右侧实付价、划线原价、优惠标签
+规格：每个维度独占一行，标签平铺，选中红框，缺货置灰（单选直接切换、无 ×）
+购买方式：官方标配（一期固定）
+数量：- / 数字 / +
+服务：可选增值服务（已选显示名称 + 金额）
+配送 / 留言 → 金额汇总 → 支付方式 → 底部「合计 + 提交订单」大红色按钮
+```
+
+进页面按 `productId` 拉 `getProductDetail` 取 `skuType`/`skuSpecs`/`skus`；后端未返回 SKU 时降级为单规格。选全后价格切 SKU 价、划线价切 SKU 市场价、数量上限切 SKU 库存。提交前校验未选全 → 提示「请选择「商品名」的颜色、内存」；报价与下单 items 带 `skuId`（选全时）和 `specJson`。多商品结算按商品逐张卡各自选规格。
+
+涉及文件：新建 `utils/sku.js`（`findSku`/`isSpecComplete`/`isValueSelectable`/`specText`）；改 `pages/order/confirm.vue`（规格区 + `getProductDetail` + `addAddress`）。
+
+### 6.4 三端数据契约
+
+```json
+{"skuType": 1, "priceMin": 5999, "priceMax": 6799,
+ "skuSpecs": [{"groupId": 1, "name": "颜色", "values": ["曜石黑", "白色"]}],
+ "skus": [{"id": 2001, "specJson": {"颜色": "曜石黑", "内存": "128G"}, "price": 5999, "marketPrice": 6999, "stock": 30, "status": 1}]}
+```
+
+`skuType=0` 不渲染选择器，直接用 `priceMin`/`stock`；`skuType=1` 渲染 `skuSpecs` 并用 `skus` 匹配。三端 `utils/sku.js` 保持同一套算法。
+
+## 七、价格、库存、促销
+
+| 场景 | 口径 |
+|---|---|
+| 列表 / 首页 / 搜索 | `products.sales_price` = 最低 SKU 价，显示「¥5999 起」 |
+| 详情未选 / 已选 | 价格区间 / 该 SKU `price`，市场价为空不展示 |
+| 下单 / 订单快照 | 服务端按 SKU 价算，存 `price` + `spec_json`；退款按订单明细 `sales_price` × 数量 |
+
+库存：列表「有货」看 `products.stock` 汇总；详情各 SKU 独立；下单扣 `product_sku.stock`（`stock>=qty` 乐观锁）；取消/售后回补对应 SKU 并刷新汇总。
+
+促销一期沿用 `promotion_item` 的 SPU 统一活动价（`promotion_price` 作为所选 SKU 成交价），取舍是 SKU 价差大时会抹平价差；二期可给 `promotion_item` 加 `sku_id`（NULL 走 SPU 价）。优惠券按订单总额，无需改。
+
+## 八、实施阶段
+
+P0 数据层（已完成）→ P1 后台录入 → P2 C 端选购 → P3 交易链路 → P4 促销适配（可选）。
+
+发布顺序：product-service → 后台前端 → order-service + 商城/小程序 → aftersale-service。
+
+## 九、风险
+
+1. 列表价格从「一个价」变「起价」，检查所有展示位置，防止 `¥null`。
+2. `cart` 唯一索引变更前必须回填 `sku_id`，并先确认原索引名。
+3. `spec_key` 顺序必须与 `sku_specs` 一致，维度改名/排序要迁移。
+4. JSON 不能索引，SKU 查询走 `product_id`，C 端在内存匹配。
+5. 售后部分退货按订单项 `sku_id` 回补，不能按 `product_id` 一把梭。
+
+## 十、待确认
+
+1. 活动价一期按 SPU 统一价，还是排到 P4
+2. 列表价格「¥5999 起」还是「¥5999~6799」

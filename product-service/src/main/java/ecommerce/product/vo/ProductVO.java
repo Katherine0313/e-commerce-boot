@@ -58,4 +58,14 @@ public class ProductVO {
     private List<SpecItemVO> specs;
     @Schema(description = "可选增值保障项（商品不适用保障时为空列表）")
     private List<InsuranceOptionVO> insuranceOptions;
+    @Schema(description = "0 单规格 / 1 多规格")
+    private Integer skuType;
+    @Schema(description = "销售规格维度定义（多规格时有值）")
+    private List<SkuSpecVO> skuSpecs;
+    @Schema(description = "SKU 明细（仅商品详情下发，列表为空）")
+    private List<SkuVO> skus;
+    @Schema(description = "最低 SKU 价")
+    private BigDecimal priceMin;
+    @Schema(description = "最高 SKU 价")
+    private BigDecimal priceMax;
 }

@@ -5,15 +5,19 @@ import ecommerce.common.insurance.InsurancePolicy;
 import ecommerce.exception.BusinessException;
 import ecommerce.product.entity.Category;
 import ecommerce.product.entity.Product;
+import ecommerce.product.entity.ProductSku;
 import ecommerce.product.entity.Tag;
 import ecommerce.product.mapper.CategoryMapper;
 import ecommerce.product.mapper.ProductMapper;
+import ecommerce.product.mapper.ProductSkuMapper;
 import ecommerce.product.mapper.TagMapper;
 import ecommerce.product.service.ProductService;
 import ecommerce.product.service.PromotionService;
 import ecommerce.product.support.ProductSpecsCodec;
 import ecommerce.product.vo.CategoryTreeVO;
 import ecommerce.product.vo.ProductVO;
+import ecommerce.product.vo.SkuSpecVO;
+import ecommerce.product.vo.SkuVO;
 import ecommerce.product.vo.TagVO;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
@@ -45,6 +49,7 @@ public class ProductServiceImpl implements ProductService {
     private static final Duration CACHE_TTL = Duration.ofMinutes(30);
 
     private final ProductMapper productMapper;
+    private final ProductSkuMapper skuMapper;
     private final CategoryMapper categoryMapper;
     private final TagMapper tagMapper;
     private final StringRedisTemplate stringRedisTemplate;
@@ -52,10 +57,11 @@ public class ProductServiceImpl implements ProductService {
     private final ProductSpecsCodec specsCodec;
     private final PromotionService promotionService;
 
-    public ProductServiceImpl(ProductMapper productMapper, CategoryMapper categoryMapper, TagMapper tagMapper,
-                              StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper,
+    public ProductServiceImpl(ProductMapper productMapper, ProductSkuMapper skuMapper, CategoryMapper categoryMapper,
+                              TagMapper tagMapper, StringRedisTemplate stringRedisTemplate, ObjectMapper objectMapper,
                               ProductSpecsCodec specsCodec, PromotionService promotionService) {
         this.productMapper = productMapper;
+        this.skuMapper = skuMapper;
         this.categoryMapper = categoryMapper;
         this.tagMapper = tagMapper;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -163,6 +169,25 @@ public class ProductServiceImpl implements ProductService {
             throw new BusinessException(HttpStatus.NOT_FOUND, "商品不存在");
         }
         ProductVO vo = toVO(product);
+        if (product.getSkuType() != null && product.getSkuType() == 1) {
+            List<ProductSku> skus = skuMapper.listEnabledByProductId(id);
+            vo.setSkus(skus.stream().map(this::toSkuVO).toList());
+            BigDecimal min = null;
+            BigDecimal max = null;
+            for (ProductSku s : skus) {
+                if (s.getPrice() == null) {
+                    continue;
+                }
+                min = min == null || s.getPrice().compareTo(min) < 0 ? s.getPrice() : min;
+                max = max == null || s.getPrice().compareTo(max) > 0 ? s.getPrice() : max;
+            }
+            vo.setPriceMin(min != null ? min : product.getSalesPrice());
+            vo.setPriceMax(max != null ? max : product.getSalesPrice());
+        } else {
+            vo.setSkus(List.of());
+            vo.setPriceMin(product.getSalesPrice());
+            vo.setPriceMax(product.getSalesPrice());
+        }
         promotionService.applyDisplay(List.of(vo));
         // 增值保障按最终展示价（含活动价）计价，规则由后端统一判断，前端只渲染返回的选项
         vo.setInsuranceOptions(InsurancePolicy.options(vo.getCategoryId(), vo.getPrice()));
@@ -320,7 +345,51 @@ public class ProductServiceImpl implements ProductService {
                 .status(p.getListingStatus())
                 .productCode(p.getProductCode())
                 .specs(specsCodec.decode(p.getSpecs()))
+                .skuType(p.getSkuType() == null ? 0 : p.getSkuType())
+                .skuSpecs(decodeSkuSpecs(p.getSkuSpecs()))
+                .skus(List.of())
+                .priceMin(p.getSalesPrice())
                 .build();
+    }
+
+    private SkuVO toSkuVO(ProductSku s) {
+        SkuVO vo = new SkuVO();
+        vo.setId(s.getId());
+        vo.setSpecKey(s.getSpecKey());
+        vo.setSpecJson(parseSpecJson(s.getSpecJson()));
+        vo.setPrice(s.getPrice());
+        vo.setMarketPrice(s.getMarketPrice());
+        vo.setStock(s.getStock());
+        vo.setImage(s.getImage());
+        vo.setSkuCode(s.getSkuCode());
+        vo.setStatus(s.getStatus());
+        return vo;
+    }
+
+    private List<SkuSpecVO> decodeSkuSpecs(String json) {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            SkuSpecVO[] array = objectMapper.readValue(json, SkuSpecVO[].class);
+            return array == null ? List.of() : Arrays.asList(array);
+        } catch (Exception e) {
+            log.warn("商品 sku_specs 反序列化失败，按空规格处理: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, String> parseSpecJson(String json) {
+        if (json == null || json.isBlank()) {
+            return Map.of();
+        }
+        try {
+            return (Map<String, String>) objectMapper.readValue(json, Map.class);
+        } catch (Exception e) {
+            log.warn("SKU spec_json 反序列化失败，按空规格处理: {}", e.getMessage());
+            return Map.of();
+        }
     }
 
     private TagVO toVO(Tag t) {

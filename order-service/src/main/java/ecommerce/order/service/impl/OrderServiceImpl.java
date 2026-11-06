@@ -5,12 +5,14 @@ import ecommerce.common.promotion.QuoteItemInput;
 import ecommerce.common.promotion.QuoteItemResult;
 import ecommerce.common.promotion.QuoteResult;
 import ecommerce.exception.BusinessException;
+import ecommerce.order.client.StockInternalClient;
 import ecommerce.order.config.WeChatSubscribeProperties;
 import ecommerce.order.dto.CreateOrderDTO;
 import ecommerce.order.dto.OrderItemDTO;
 import ecommerce.order.entity.Order;
 import ecommerce.order.entity.OrderItem;
 import ecommerce.order.entity.Product;
+import ecommerce.order.entity.ProductSku;
 import ecommerce.order.enums.OrderStatusEnum;
 import ecommerce.order.enums.PayTypeEnum;
 import ecommerce.order.mapper.AfterSaleRefundMapper;
@@ -20,6 +22,7 @@ import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.mapper.ProductMapper;
 import ecommerce.order.mapper.ProductReviewMapper;
+import ecommerce.order.mapper.ProductSkuMapper;
 import ecommerce.order.mapper.UserMapper;
 import ecommerce.order.service.CouponPricingService;
 import ecommerce.order.service.FinanceReceiptService;
@@ -80,6 +83,7 @@ public class OrderServiceImpl implements OrderService {
     private final OrderMapper orderMapper;
     private final OrderItemMapper orderItemMapper;
     private final ProductMapper productMapper;
+    private final ProductSkuMapper skuMapper;
     private final CartMapper cartMapper;
     private final ProductReviewMapper productReviewMapper;
     private final StringRedisTemplate stringRedisTemplate;
@@ -94,8 +98,10 @@ public class OrderServiceImpl implements OrderService {
     private final CouponMapper couponMapper;
     private final LogisticsBuilder logisticsBuilder;
     private final FinanceReceiptService financeReceiptService;
+    private final StockInternalClient stockClient;
 
     public OrderServiceImpl(OrderMapper orderMapper, OrderItemMapper orderItemMapper, ProductMapper productMapper,
+                            ProductSkuMapper skuMapper,
                             CartMapper cartMapper, ProductReviewMapper productReviewMapper,
                             StringRedisTemplate stringRedisTemplate,
                             ObjectMapper objectMapper, WebSocketSessionRegistry webSocketSessionRegistry,
@@ -106,10 +112,12 @@ public class OrderServiceImpl implements OrderService {
                             CouponPricingService couponPricingService,
                             CouponMapper couponMapper,
                             LogisticsBuilder logisticsBuilder,
-                            FinanceReceiptService financeReceiptService) {
+                            FinanceReceiptService financeReceiptService,
+                            StockInternalClient stockClient) {
         this.orderMapper = orderMapper;
         this.orderItemMapper = orderItemMapper;
         this.productMapper = productMapper;
+        this.skuMapper = skuMapper;
         this.cartMapper = cartMapper;
         this.productReviewMapper = productReviewMapper;
         this.stringRedisTemplate = stringRedisTemplate;
@@ -124,6 +132,7 @@ public class OrderServiceImpl implements OrderService {
         this.couponMapper = couponMapper;
         this.logisticsBuilder = logisticsBuilder;
         this.financeReceiptService = financeReceiptService;
+        this.stockClient = stockClient;
     }
 
     @Override
@@ -173,8 +182,9 @@ public class OrderServiceImpl implements OrderService {
 
     /** 原有下单逻辑：查商品 → 校验库存 → 促销算价 → 扣库存 → 写订单。幂等占位/结果写回由外层 createOrder 负责。 */
     private OrderVO doCreateOrder(CreateOrderDTO dto, Long userId) {
-        // 逐个查商品，校验库存，组装算价入参（价格只用后端查询结果，不信任前端）
+        // 逐个查商品 + SKU，校验库存，组装算价入参（价格只用后端查询结果，不信任前端）
         List<Product> products = new ArrayList<>();
+        List<ProductSku> skus = new ArrayList<>();
         List<QuoteItemInput> quoteInputs = new ArrayList<>();
         for (OrderItemDTO itemDTO : dto.getItems()) {
             if (itemDTO.getProductId() == null) {
@@ -184,13 +194,20 @@ public class OrderServiceImpl implements OrderService {
             if (product == null) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID " + itemDTO.getProductId() + " 不存在");
             }
+            ProductSku sku = resolveSku(itemDTO.getProductId(), itemDTO.getSkuId());
             int quantity = itemDTO.getQuantity() == null ? 1 : Math.max(1, itemDTO.getQuantity());
-            int stock = product.getStock() == null ? 0 : product.getStock();
+            int stock = sku != null && sku.getStock() != null
+                    ? sku.getStock()
+                    : (product.getStock() == null ? 0 : product.getStock());
             if (stock < quantity) {
-                throw new BusinessException(HttpStatus.BAD_REQUEST, "商品「" + product.getName() + "」库存不足（剩余 " + stock + " 件）");
+                throw new BusinessException(HttpStatus.BAD_REQUEST,
+                        "商品「" + product.getName() + "」库存不足（剩余 " + stock + " 件）");
             }
-            BigDecimal price = product.getSalesPrice() == null ? BigDecimal.ZERO : product.getSalesPrice();
+            BigDecimal price = sku != null && sku.getPrice() != null
+                    ? sku.getPrice()
+                    : (product.getSalesPrice() == null ? BigDecimal.ZERO : product.getSalesPrice());
             products.add(product);
+            skus.add(sku);
             quoteInputs.add(QuoteItemInput.builder()
                     .productId(product.getId())
                     .quantity(quantity)
@@ -215,6 +232,7 @@ public class OrderServiceImpl implements OrderService {
         BigDecimal originalTotal = BigDecimal.ZERO;
         for (int i = 0; i < products.size(); i++) {
             Product product = products.get(i);
+            ProductSku sku = skus.get(i);
             QuoteItemResult quoted = quotedItems.get(i);
             int quantity = quoted.getQuantity();
             // 增值保障：不采信前端传来的明细和费用，按后端规则复核（配件类、低价商品不卖保障）
@@ -226,6 +244,9 @@ public class OrderServiceImpl implements OrderService {
             BigDecimal subTotal = quoted.getSubTotal().add(insuranceTotal);
             orderItems.add(OrderItem.builder()
                     .productId(product.getId())
+                    .skuId(sku != null ? sku.getId() : null)
+                    .skuCode(sku != null ? sku.getSkuCode() : null)
+                    .specJson(sku != null ? sku.getSpecJson() : null)
                     .productName(product.getName())
                     .image(product.getImage())
                     .salesPrice(quoted.getFinalPrice())
@@ -240,9 +261,15 @@ public class OrderServiceImpl implements OrderService {
             originalTotal = originalTotal.add(quoted.getOriginalSubTotal().add(insuranceTotal));
         }
 
-        // 扣库存（乐观锁兜底防超卖）
-        for (OrderItem item : orderItems) {
-            if (productMapper.deductStock(item.getProductId(), item.getQuantity()) == 0) {
+        // 扣库存：委托 product-service /internal/stock-write（FOR UPDATE + 乐观锁在产品侧保证原子）。
+        // 调用失败抛异常 → 整个 @Transactional 回滚 → 订单不会创建，库存不会扣，闭环。
+        for (int i = 0; i < orderItems.size(); i++) {
+            OrderItem item = orderItems.get(i);
+            ProductSku sku = skus.get(i);
+            if (sku != null) {
+                stockClient.write(sku.getId(), sku.getSkuCode(), "OUT", "销售出库", item.getQuantity(), null);
+            } else if (productMapper.deductStock(item.getProductId(), item.getQuantity()) == 0) {
+                // 无 SKU 的旧数据兜底：保留 product 级扣减（SKU 改造后这条不应该走到，但保险起见）
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "商品「" + item.getProductName() + "」库存不足");
             }
         }
@@ -287,8 +314,15 @@ public class OrderServiceImpl implements OrderService {
         // 写促销使用记录：后台按活动统计应收/支付单数/优惠金额
         promotionPricingService.recordUsage(quote, order.getId(), order.getOrderNo(), userId);
 
-        // 下单成功：从购物车移除本次已下单的商品（与写订单同一事务，保证一致；立即购买场景购物车无该商品则删不到，无害）
+        // 下单成功：从购物车移除本次已下单的行（与写订单同一事务，保证一致）
+        // 多规格按 skuId 精确删除，避免把同商品其它规格误删；无 SKU 的旧数据再按商品删除
+        List<Long> orderedSkuIds = orderItems.stream()
+                .map(OrderItem::getSkuId).filter(java.util.Objects::nonNull).distinct().toList();
+        if (!orderedSkuIds.isEmpty()) {
+            cartMapper.deleteBySkus(userId, orderedSkuIds);
+        }
         List<Long> orderedProductIds = orderItems.stream()
+                .filter(item -> item.getSkuId() == null)
                 .map(OrderItem::getProductId).distinct().toList();
         if (!orderedProductIds.isEmpty()) {
             cartMapper.deleteByProducts(userId, orderedProductIds);
@@ -310,10 +344,14 @@ public class OrderServiceImpl implements OrderService {
             if (product == null) {
                 throw new BusinessException(HttpStatus.BAD_REQUEST, "商品 ID " + item.getProductId() + " 不存在");
             }
+            ProductSku sku = resolveSku(item.getProductId(), item.getSkuId());
+            BigDecimal price = sku != null && sku.getPrice() != null
+                    ? sku.getPrice()
+                    : (product.getSalesPrice() == null ? BigDecimal.ZERO : product.getSalesPrice());
             inputs.add(QuoteItemInput.builder()
                     .productId(product.getId())
                     .quantity(item.getQuantity() == null ? 1 : Math.max(1, item.getQuantity()))
-                    .originalPrice(product.getSalesPrice() == null ? BigDecimal.ZERO : product.getSalesPrice())
+                    .originalPrice(price)
                     .build());
         }
         // 确认页只展示，下单时会按最新活动重新计算，前端价格不作为成交依据
@@ -550,8 +588,37 @@ public class OrderServiceImpl implements OrderService {
     private void restoreStock(Long orderId) {
         List<OrderItem> items = orderItemMapper.listByOrderId(orderId);
         for (OrderItem item : items) {
-            productMapper.restoreStock(item.getProductId(), item.getQuantity());
+            if (item.getSkuId() != null) {
+                // SKU 级回补 → 委托 product-service /internal/stock-write(IN)
+                stockClient.write(item.getSkuId(), item.getSkuCode(), "IN", "订单取消回补", item.getQuantity(), item.getId());
+            } else {
+                // 无 SKU 的旧数据兜底：product 级回补（SKU 改造后这条不应该走到）
+                productMapper.restoreStock(item.getProductId(), item.getQuantity());
+            }
         }
+    }
+
+    /**
+     * 解析下单 SKU：指定 skuId 时必须属于该商品且已启用；
+     * 未指定时回落到商品默认 SKU（单规格/旧客户端），查不到返回 null 走商品级兜底。
+     */
+    private ProductSku resolveSku(Long productId, Long skuId) {
+        ProductSku sku = skuId != null
+                ? skuMapper.findById(skuId)
+                : skuMapper.findDefaultByProductId(productId);
+        if (sku == null) {
+            if (skuId != null) {
+                throw new BusinessException(HttpStatus.BAD_REQUEST, "所选规格不存在或已下架");
+            }
+            return null;
+        }
+        if (!productId.equals(sku.getProductId())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "所选规格与商品不匹配");
+        }
+        if (sku.getStatus() == null || sku.getStatus() != 1) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "所选规格已下架");
+        }
+        return sku;
     }
 
     /** 取消订单自动退款：生成 refunded 售后单（整单退，退款跟着原订单 pay_at 归属营业额） */
@@ -693,6 +760,9 @@ public class OrderServiceImpl implements OrderService {
         return OrderItemVO.builder()
                 .orderItemId(item.getId())
                 .productId(item.getProductId())
+                .skuId(item.getSkuId())
+                .skuCode(item.getSkuCode())
+                .specJson(item.getSpecJson())
                 .productName(item.getProductName())
                 .image(item.getImage())
                 .salesPrice(item.getSalesPrice())

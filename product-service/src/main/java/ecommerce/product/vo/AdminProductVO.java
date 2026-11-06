@@ -57,6 +57,12 @@ public class AdminProductVO {
     private Integer stock;
     @Schema(description = "规格参数（有序键值对，非 SKU）")
     private List<SpecItemVO> specs;
+    @Schema(description = "0 单规格 / 1 多规格")
+    private Integer skuType;
+    @Schema(description = "销售规格维度定义")
+    private List<SkuSpecVO> skuSpecs;
+    @Schema(description = "SKU 明细（含停用行，编辑回显用）")
+    private List<SkuVO> skus;
     @Schema(description = "可选增值保障项（商品不适用保障时为空列表）")
     private List<InsuranceOptionVO> insuranceOptions;
     @Schema(description = "创建时间")
