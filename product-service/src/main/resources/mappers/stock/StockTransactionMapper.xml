@@ -22,7 +22,7 @@
             <if test="reason != null and reason != ''">AND reason = #{reason}</if>
             <if test="orderItemId != null">AND order_item_id = #{orderItemId}</if>
             <if test="startTime != null and startTime != ''">AND create_time >= #{startTime}</if>
-            <if test="endTime != null and endTime != ''">AND create_time < DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
+            <if test="endTime != null and endTime != ''">AND create_time &lt; DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
         </where>
         ORDER BY id DESC
         LIMIT #{offset}, #{size}
@@ -36,7 +36,7 @@
             <if test="reason != null and reason != ''">AND reason = #{reason}</if>
             <if test="orderItemId != null">AND order_item_id = #{orderItemId}</if>
             <if test="startTime != null and startTime != ''">AND create_time >= #{startTime}</if>
-            <if test="endTime != null and endTime != ''">AND create_time < DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
+            <if test="endTime != null and endTime != ''">AND create_time &lt; DATE_ADD(#{endTime}, INTERVAL 1 DAY)</if>
         </where>
     </select>
 
