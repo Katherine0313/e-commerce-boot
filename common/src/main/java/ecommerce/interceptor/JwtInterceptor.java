@@ -35,6 +35,9 @@ public class JwtInterceptor implements HandlerInterceptor {
     private static final String BEARER_PREFIX = "Bearer ";
     /** 后台管理系统接口的路径前缀 */
     private static final String ADMIN_PATH = "/api/admin";
+    /** 可选登录的只读接口：游客可访问，带令牌时能拿到「当前用户已领取」等个性化状态 */
+    private static final String SUBSIDY_PATH_PREFIX = "/api/coupons/product/";
+    private static final String SUBSIDY_PATH_SUFFIX = "/subsidy";
 
     private final JwtUtil jwtUtil;
     private final AdminTokenRevocationStore revocationStore;
@@ -55,8 +58,13 @@ public class JwtInterceptor implements HandlerInterceptor {
             return true;
         }
 
+        boolean optionalAuth = isOptionalAuth(request);
         String token = resolveToken(request);
         if (token == null) {
+            if (optionalAuth) {
+                // 游客访问只读接口：不写用户上下文，按未登录处理
+                return true;
+            }
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "未登录或登录已过期");
         }
 
@@ -66,6 +74,10 @@ public class JwtInterceptor implements HandlerInterceptor {
         } catch (JwtException | IllegalArgumentException e) {
             // 签名不对 / 已过期 / 格式非法，对前端来说都是「登录失效」；日志里不打 token 本身
             log.warn("令牌校验失败: {}", e.getMessage());
+            if (optionalAuth) {
+                // 令牌失效不应挡住公开信息展示；领取动作会再次校验并返回 401
+                return true;
+            }
             throw new BusinessException(HttpStatus.UNAUTHORIZED, "未登录或登录已过期");
         }
 
@@ -131,6 +143,12 @@ public class JwtInterceptor implements HandlerInterceptor {
         return value.startsWith(BEARER_PREFIX)
                 ? value.substring(BEARER_PREFIX.length()).trim()
                 : value;
+    }
+
+    /** 商品详情页国家补贴横幅：游客可读，登录用户额外返回是否已领取 */
+    private boolean isOptionalAuth(HttpServletRequest request) {
+        String uri = request.getRequestURI();
+        return uri.startsWith(SUBSIDY_PATH_PREFIX) && uri.endsWith(SUBSIDY_PATH_SUFFIX);
     }
 
     /** 是否属于后台管理系统的接口，后台接入后按这里的分流规则走 */

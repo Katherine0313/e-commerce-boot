@@ -23,6 +23,28 @@
         ORDER BY id DESC
     </select>
 
+    <!-- 商品详情页「国家补贴」：名称含「国家补贴」作为补贴券标识，避免把普通商品券当成补贴；
+         作用域支持全场或指定商品 -->
+    <select id="findProductSubsidy" resultType="ecommerce.order.entity.CouponTemplate">
+        SELECT <include refid="templateColumns"/>
+        FROM coupon_template t
+        WHERE t.is_deleted = 0
+          AND t.manual_status = 0
+          AND t.receive_start &lt;= #{now}
+          AND t.receive_end &gt; #{now}
+          AND t.remain_quantity &gt; 0
+          AND t.name LIKE '%国家补贴%'
+          AND (t.scope_type = 'ALL'
+               OR EXISTS (
+                   SELECT 1 FROM coupon_scope s
+                   WHERE s.coupon_template_id = t.id
+                     AND s.target_type = 'PRODUCT'
+                     AND s.target_id = #{productId}
+               ))
+        ORDER BY t.id DESC
+        LIMIT 1
+    </select>
+
     <select id="listClaimedTemplateIds" resultType="long">
         SELECT template_id FROM user_coupon WHERE user_id = #{userId}
     </select>

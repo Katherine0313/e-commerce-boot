@@ -15,6 +15,7 @@ import ecommerce.order.service.CouponService;
 import ecommerce.order.support.CouponConstants;
 import ecommerce.order.vo.AvailableCouponVO;
 import ecommerce.order.vo.CouponCenterVO;
+import ecommerce.order.vo.ProductSubsidyVO;
 import ecommerce.order.vo.UserCouponVO;
 import ecommerce.utils.UserContext;
 import org.springframework.http.HttpStatus;
@@ -84,6 +85,33 @@ public class CouponServiceImpl implements CouponService {
                         .description(t.getDescription())
                         .build())
                 .toList();
+    }
+
+    @Override
+    public ProductSubsidyVO productSubsidy(Long productId) {
+        if (productId == null) {
+            return null;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        CouponTemplate template = couponMapper.findProductSubsidy(productId, now);
+        if (template == null) {
+            return null;
+        }
+        Long userId = currentUserId();
+        boolean claimed = userId != null
+                && couponMapper.findUserCouponByUserAndTemplate(userId, template.getId()) != null;
+        return ProductSubsidyVO.builder()
+                .templateId(template.getId())
+                .name(template.getName())
+                .discountRate(template.getDiscountRate())
+                .discountDesc(discountDesc(template))
+                .maxDiscount(template.getMaxDiscount())
+                .thresholdAmount(template.getThresholdAmount())
+                .remainQuantity(template.getRemainQuantity())
+                .claimed(claimed)
+                .receiveEnd(template.getReceiveEnd())
+                .description(template.getDescription())
+                .build();
     }
 
     @Override
@@ -238,6 +266,22 @@ public class CouponServiceImpl implements CouponService {
 
     private String typeDesc(String type) {
         return CouponConstants.TYPE_DISCOUNT.equals(type) ? "折扣券" : "满减券";
+    }
+
+    /** 补贴横幅展示文案：折扣券按「立减 x%」换算，满减券按面额 */
+    private String discountDesc(CouponTemplate template) {
+        if (!CouponConstants.TYPE_DISCOUNT.equals(template.getType())) {
+            return "立减" + (template.getFaceValue() == null ? "0" : template.getFaceValue().stripTrailingZeros().toPlainString()) + "元";
+        }
+        BigDecimal rate = template.getDiscountRate() == null ? BigDecimal.ONE : template.getDiscountRate();
+        // 兼容后台把折扣率存成 90 而不是 0.9 的历史数据
+        if (rate.compareTo(BigDecimal.ONE) > 0) {
+            rate = rate.divide(BigDecimal.valueOf(100));
+        }
+        BigDecimal off = BigDecimal.ONE.subtract(rate)
+                .multiply(BigDecimal.valueOf(100))
+                .stripTrailingZeros();
+        return "立减" + off.toPlainString() + "%";
     }
 
     private String scopeDesc(String scope) {

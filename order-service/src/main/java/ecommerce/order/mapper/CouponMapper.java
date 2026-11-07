@@ -23,6 +23,9 @@ public interface CouponMapper {
     // 领券中心：未删除、未停止、now 在领取窗口内、还有剩余
     List<CouponTemplate> listCenter(@Param("now") LocalDateTime now);
 
+    // 商品详情页「国家补贴」横幅：取名称含「国家补贴」、正在发放且适用于该商品的模板
+    CouponTemplate findProductSubsidy(@Param("productId") Long productId, @Param("now") LocalDateTime now);
+
     // 某用户已领取的模板 id（领券中心标记已领取）
     List<Long> listClaimedTemplateIds(@Param("userId") Long userId);
 

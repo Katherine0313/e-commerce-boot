@@ -5,6 +5,7 @@ import ecommerce.order.dto.QuoteOrderDTO;
 import ecommerce.order.service.CouponService;
 import ecommerce.order.vo.AvailableCouponVO;
 import ecommerce.order.vo.CouponCenterVO;
+import ecommerce.order.vo.ProductSubsidyVO;
 import ecommerce.order.vo.UserCouponVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -36,6 +37,12 @@ public class CouponController {
     @GetMapping("/center")
     public Result<List<CouponCenterVO>> center() {
         return Result.success(couponService.center());
+    }
+
+    @Operation(summary = "商品详情页国家补贴横幅（免登录，未登录 claimed=false；无可领模板返回 null）")
+    @GetMapping("/product/{productId}/subsidy")
+    public Result<ProductSubsidyVO> productSubsidy(@PathVariable Long productId) {
+        return Result.success(couponService.productSubsidy(productId));
     }
 
     @Operation(summary = "领取优惠券")
