@@ -52,7 +52,7 @@ deploy/README.md          -> /www/java/README.md（可选）
 ├── aftersale-service/
 ├── user-service/
 ├── file-service/
-├── ai-service/             # Python 导购机器人（源码来自 recommender-python）
+├── ai-service/             # Python 导购机器人（源码来自 ecommerce-python）
 └── gateway/
 ```
 
@@ -72,7 +72,7 @@ done
 > 里面包含商品图 `image/upload/`、详情图 `image/body/`、分类图 `image/category/`、
 > 轮播图 `image/swiper/`、分享图 `image/share/`、二维码/店铺 logo 等；缺了小程序图片会 404。
 
-> ⚠️ Python 导购机器人：把 `recommender-python/` 下的 `app/`、`requirements.txt`、`Dockerfile`、
+> ⚠️ Python 导购机器人：把 `ecommerce-python/` 下的 `app/`、`requirements.txt`、`Dockerfile`、
 > `.dockerignore` 上传到 `/www/java/ai-service/`（不要传 `.venv/` 和 `.env`）。
 > 它使用自己的 Dockerfile，不要用上面那个通用 Java Dockerfile 覆盖。
 
@@ -184,7 +184,7 @@ Nacos 控制台里应该能看到 8 个服务实例（Python `ai-service` 不注
 ## 10. 必查清单
 
 - [ ] `JWT_SECRET` 所有服务一致
-- [ ] 已执行 `docs/sql/20261105_kb.sql`，`kb_qa` 有 132 条数据（`recommender-python/scripts/import_kb.py` 导入）
+- [ ] 已执行 `docs/sql/20261105_kb.sql`，`kb_qa` 有 132 条数据（`ecommerce-python/scripts/import_kb.py` 导入）
 - [ ] `.env` 有 `MYSQL_HOST` / `MYSQL_PORT` / `MYSQL_DATABASE`，`ai-service` 能读到知识库
 - [ ] `docker logs ai-service` 无报错；网关 `/api/agent/chat` 能返回知识库答案
 - [ ] `WECHAT_SECRET` 正确
@@ -278,7 +278,7 @@ SSH 到服务器 `docker pull <目标镜像>` → `docker compose -f docker-comp
 - 全量启动用 `docker compose up -d`（不带 `TAG`），会按 override 里固定的 tag 启动。**不要用 `TAG=<新tag> docker compose up -d` 做全量操作**，那会要求所有服务都有这个 tag。
 - compose 里每个服务同时有 `image:` 和 `build:`；服务器部署必须带 `--no-build`，否则可能触发本地构建。
 - 未配置 `REGISTRY` 时镜像名默认是 `local/...`，只适合服务器本地 `docker compose build`；走 TCR 必须配置 `REGISTRY`。
-- `ai-service` 是 Python 服务，`release.sh` 会用 `../recommender-python/Dockerfile` 构建；目录不同时设置 `AI_SERVICE_DIR`。
+- `ai-service` 是 Python 服务，`release.sh` 会用 `../ecommerce-python/Dockerfile` 构建；目录不同时设置 `AI_SERVICE_DIR`。
 - 镜像仓库不可用时，回退到第 1 节的 jar 上传方式。
 - 建议在 TCR 配置镜像保留策略；服务器定期执行 `docker image prune -f`。
 - 本机是 ARM 架构 Windows 时，构建 Linux/amd64 镜像需设置 `PLATFORM=linux/amd64`。

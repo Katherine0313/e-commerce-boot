@@ -19,7 +19,7 @@
 | `JWT_SECRET` | `pIc70vBVlHlDDXb6Bfd9EBLHmAPL6JyCUieDSNbZaLlpIJ1T/rlEifXzZCwNTH8m` | JWT 签名密钥（8 个模块必须一致） |
 | `WECHAT_APPID` | `wxa18a22c8c5c1fa12` | 微信小程序 appid（user-service 登录） |
 | `WECHAT_SECRET` | `0df36c81d948e6083079462fdbd762f2` | 微信小程序 secret |
-| `KB_CACHE_TTL` | `60` | 客服知识库内存缓存秒数（Python `recommender-python/.env`） |
+| `KB_CACHE_TTL` | `60` | 客服知识库内存缓存秒数（Python `ecommerce-python/.env`） |
 
 ## 可选（本地开发便利）
 

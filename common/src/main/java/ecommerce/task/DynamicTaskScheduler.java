@@ -63,7 +63,7 @@ public class DynamicTaskScheduler implements SmartLifecycle {
             return;
         }
         scheduler = new ThreadPoolTaskScheduler();
-        scheduler.setPoolSize(2);
+        scheduler.setPoolSize(2); // 创建2条线程
         scheduler.setThreadNamePrefix("dynamic-task-");
         scheduler.setWaitForTasksToCompleteOnShutdown(false);
         scheduler.initialize();

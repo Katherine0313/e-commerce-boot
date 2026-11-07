@@ -4,7 +4,7 @@
 
 SET NAMES utf8mb4;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('店铺与商品','杰米多多是做什么的？','杰米多多是自营数码 3C 商城，主营手机、笔记本、平板、耳机音箱、智能手表、相机、配件和智能家居，目前在售 136 款商品。全场包邮，支持 7 天无理由退换。','店铺,介绍,杰米多多,主营'),
 ('店铺与商品','你们卖哪些品类？','手机、游戏本/轻薄本、平板、耳机与音箱、智能手表、相机、手机壳/键鼠/硬盘等配件、智能家居，共 29 个分类。','品类,类目,卖什么,商品范围'),
 ('店铺与商品','是正品吗？','全场自营全新正品，非翻新、非二手；可用序列号在品牌官网或官方 App 验真，国行机型享受品牌全国联保。','正品,真假,翻新,二手,验真'),
@@ -57,7 +57,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('售后服务','支持 7 天无理由吗？','支持。签收 7 天内、商品不影响二次销售可退换；人为损坏、已激活贬值、定制类商品除外。','7天无理由,无理由退货,七天')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('售后服务','可以只退订单里的部分商品吗？','可以。申请时勾选要退的商品，选中的商品按该行全部数量退，不支持只退其中几件。','部分退款,部分退货,退一件,数量'),
 ('售后服务','同一商品能重复申请售后吗？','同一订单项同时只能存在一张进行中的售后单，处理完成后才能再次申请。','重复申请,多次售后,同一商品'),
 ('售后服务','售后多久审核？','商家一般在 24 小时内审核，结果会在售后详情页显示。','审核,多久审核,审核时间'),
@@ -110,7 +110,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','5000 元左右手机推荐？','小米 14 Pro、小米 15、小米 15 Pro 都是 4999 元；要 iPhone 则从 5999 元起。','5000,五千,预算')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','拍照好的手机推荐？','华为 Pura 70 Ultra 7999 元、iPhone 16 Pro 8999 元、小米 15 Pro 4999 元，影像表现都不错。','拍照,影像,摄影,手机推荐'),
 ('商品选购','给父母买什么手机？','小米 12 3699 元性价比高；预算充足选 iPhone 15/16 5999 元，系统简单耐用。','父母,老人,长辈,手机推荐'),
 ('商品选购','学生党 4000 元以内买什么手机？','小米 12 3699 元；预算再加一点可看 4999 元的小米 15。','学生,4000,预算,学生手机'),
@@ -163,7 +163,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','手机电池健康怎么看？','iPhone：设置-通用-关于本机-电池健康；华为/小米：手机管家-电池-最大容量；新机应≥99%。','电池健康,新机,怎么看')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','手机 256G 够用吗？','存微信、拍照、日常使用 256G 够；存大量视频、游戏、照片建议 512G。','256g,内存,够吗,存储'),
 ('商品选购','曲面屏和直屏哪个好？','iPhone 16/小米15 是直屏，贴膜便宜、不绿屏、打游戏不误触；Mate 60 Pro/Pura 70 Ultra 曲屏好看但贴膜贵。','曲面屏,直屏,区别,对比'),
 ('商品选购','手机防水能洗澡吗？','iPhone 16、Mate 60 Pro 都是 IP68，只能防意外落水，不能洗热水澡、不能泡温泉，蒸汽会进水不保修。','防水,ip68,洗澡,进水'),
@@ -216,7 +216,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','iPad 10th Gen 多少钱？','¥2999（原价3298），10.9 英寸、A14 芯片，追剧网课入门款。','ipad10,价格,2999,入门')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','联想 Tab P12 多少钱？','¥2699（原价2968），12.7 英寸 3K 大屏、天玑 9000，安卓大屏平板性价比款。','联想tabp12,价格,2699,大屏'),
 ('商品选购','iPad Air 和 Pro 怎么选？','记笔记、追剧、轻办公选 Air；专业绘画、剪 4K、多任务选 Pro（mini-LED 屏+Face ID）。','ipadair,ipadpro,对比,怎么选'),
 ('商品选购','平板买 WiFi 版还是蜂窝版？','家里/办公室都有 WiFi 选 WiFi 版；经常出门无网办公选蜂窝版，贵 1000+。','wifi版,蜂窝版,插卡,区别'),
@@ -269,7 +269,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('售后服务','发错货了怎么办？','我们承担来回运费，给您换货；先拍照存证，联系客服登记。','发错货,错发,换货,运费')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('售后服务','可以拒收吗？','未发货可直接取消；已发货拒收需要承担往返运费，建议先签收再走退货。','拒收,拒签,取消,运费'),
 ('售后服务','降价了能补差价吗？','签收 7 天内价保期可补差价；超过价保期不补，下单时看好活动。','降价,补差价,价保'),
 ('售后服务','电池健康低怎么办？','iPhone 电池健康 80% 以下官方免费换；安卓品牌售后点检测，符合条件免费换。','电池健康,换电池,免费'),
@@ -322,7 +322,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('售后服务','可以补开发票吗？','下单后 30 天内可联系客服补开；超过 30 天无法补开。','补开发票,发票,过期,补开')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('售后服务','发票抬头写错了怎么办？','电子发票开出前联系客服改；已开出需红冲重开，1-3 天。','发票抬头,写错,红冲,重开'),
 ('售后服务','手机进水能保修吗？','iPhone/Mate 60 Pro 虽有 IP68，但人为进水不保修；建议买 AppleCare+。','进水,保修,ip68,applecare'),
 ('售后服务','屏幕漏光严重能换吗？','IPS 轻微漏光行业正常；四角漏光严重、黑屏明显可见，签收 7 天内可申请换货。','漏光,屏幕,换货,瑕疵'),
@@ -375,7 +375,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('优惠券与会员','会员有折扣吗？','会员没有全场折扣。等级权益是会员专享券、专属活动优先购、专属客服、新品优先购，具体以会员中心为准。','会员折扣,会员价,打折')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('优惠券与会员','会员券在哪领？','当前没有可领取的会员券；有券时在「我的-优惠券」查看，会员等级越高券额度越高。','会员券,领券,专属券'),
 ('优惠券与会员','有生日礼吗？','暂无生日礼配置。','生日,生日礼,生日券'),
 ('优惠券与会员','有积分抵现吗？','没有积分体系，也不支持积分抵现；会员只看成长值。','积分,抵现,积分兑换'),
@@ -428,7 +428,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','有轻薄本吗？','共 6 款：联想小新Pro 14 轻薄笔记本（4799 元）、小米RedmiBook Pro 16（4999 元）、联想ThinkBook 14+ 轻薄笔记本（6499 元）、苹果MacBook Air 15（6999 元）、苹果MacBook Air M3（7999 元）、华为MateBook X Pro（9999 元）；价格 4799~9999 元，均为现货。','轻薄本,有哪些,现货')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','有蓝牙音箱吗？','共 6 款：索尼SRS-XB33（799 元）、Bose SoundLink Flex 蓝牙（799 元）、JBL Flip 6 蓝牙（1099 元）、索尼SRS-XG300（1299 元）、JBL Charge 5 蓝牙（1499 元）、哈曼卡顿Aura Studio 4（3299 元）；价格 799~3299 元，均为现货。','蓝牙音箱,有哪些,现货'),
 ('商品选购','有存储设备吗？','共 6 款：金士顿读卡器（79 元）、金士顿U盘（129 元）、闪迪TF卡（159 元）、三星T7移动固态硬盘（429 元）、三星PSSD硬盘（449 元）、闪迪Extreme Pro SD卡（599 元）；价格 79~599 元，均为现货。','存储设备,有哪些,现货'),
 ('商品选购','有智能照明吗？','共 6 款：小米智能灯泡（49 元）、小米智能开关（59 元）、Yeelight 氛围灯 智能灯泡（69 元）、小米智能灯带（99 元）、小米米家台灯（129 元）、Yeelight 吸顶灯（299 元）；价格 49~299 元，均为现货。','智能照明,有哪些,现货'),
@@ -481,7 +481,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('物流配送','物流单号什么时候有？','发货后订单详情显示快递公司和单号，通常 16:00 前付款当天出单。','单号,快递单号,发货时间')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('物流配送','一个订单会分多个包裹吗？','可能。多商品订单会按仓库拆包裹，每个包裹有独立单号。','拆包,多个包裹,分开发'),
 ('物流配送','拒收后什么时候退款？','包裹退回仓库签收后按退款流程处理，原路退回，真实渠道通常 1~3 个工作日到账。','拒收退款,退货退款,拒收'),
 ('物流配送','能保证几点送到吗？','不能保证具体时段，以快递员派送为准。','几点到,送达时间,时间段'),
@@ -534,7 +534,7 @@ INSERT INTO kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','MacBook Air 15 有现货吗？','有现货，当前库存 548 件。16:00 前付款当天发货，之后次日发货。','MacBookAir15,现货,有货,库存')
 ON DUPLICATE KEY UPDATE answer = VALUES(answer), keywords = VALUES(keywords), status = 1;
 
-INSERT INTO kb_qa (category, question, answer, keywords) VALUES
+INSERT INTO ai_kb_qa (category, question, answer, keywords) VALUES
 ('商品选购','MacBook Air M3 有现货吗？','有现货，当前库存 565 件。16:00 前付款当天发货，之后次日发货。','MacBookAirM3,现货,有货,库存'),
 ('商品选购','iPad Pro 12.9 有现货吗？','有现货，当前库存 562 件。16:00 前付款当天发货，之后次日发货。','iPadPro12.9,现货,有货,库存'),
 ('商品选购','iPad 10 有现货吗？','有现货，当前库存 689 件。16:00 前付款当天发货，之后次日发货。','iPad10,现货,有货,库存'),

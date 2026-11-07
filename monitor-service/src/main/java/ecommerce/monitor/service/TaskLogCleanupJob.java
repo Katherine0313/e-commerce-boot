@@ -12,6 +12,7 @@ public class TaskLogCleanupJob {
     private final TaskMonitorService taskMonitorService;
 
     public TaskLogCleanupJob(TaskMonitorService taskMonitorService) {
+
         this.taskMonitorService = taskMonitorService;
     }
 

@@ -14,3 +14,4 @@ public class MonitorServiceApplication {
         SpringApplication.run(MonitorServiceApplication.class, args);
     }
 }
+

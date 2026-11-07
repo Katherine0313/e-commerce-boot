@@ -10,7 +10,7 @@ REMOTE_BASE="${REMOTE_BASE:-/www/java}"
 # auth-service 排最后：它停止签发 shopId 后，旧版本服务会拒绝新 token，必须等其它服务先升级
 ALL_SERVICES=(product-service order-service aftersale-service user-service
               file-service monitor-service gateway ai-service auth-service)
-AI_DIR="${AI_SERVICE_DIR:-$ROOT/../recommender-python}"
+AI_DIR="${AI_SERVICE_DIR:-$ROOT/../ecommerce-python}"
 
 NO_BUILD=0
 NO_DEPLOY=0
@@ -37,7 +37,7 @@ usage() {
   TAG          镜像版本（默认：日期-git短SHA）
   DEPLOY_HOST  SSH 别名或 user@host（默认 ecommerce）
   PLATFORM     可选，如 linux/amd64
-  AI_SERVICE_DIR  recommender-python 目录（默认 ../recommender-python）
+  AI_SERVICE_DIR  ecommerce-python 目录（默认 ../ecommerce-python）
 
 示例:
   ./deploy/release.sh order-service
@@ -197,12 +197,12 @@ fi
 if [[ -z "$ROLLBACK_TAG" ]]; then
   for svc in "${SERVICES[@]}"; do
     if [[ "$svc" == "ai-service" ]]; then
-      # Python 服务：用 recommender-python 自己的 Dockerfile
+      # Python 服务：用 ecommerce-python 自己的 Dockerfile
       CONTEXT="$AI_DIR"
       DOCKERFILE="$AI_DIR/Dockerfile"
       if [[ ! -f "$DOCKERFILE" || ! -d "$AI_DIR/app" ]]; then
         echo "找不到 ai-service 源码或 Dockerfile：$AI_DIR" >&2
-        echo "可用 AI_SERVICE_DIR 指定 recommender-python 目录" >&2
+        echo "可用 AI_SERVICE_DIR 指定 ecommerce-python 目录" >&2
         exit 1
       fi
     else

@@ -666,7 +666,7 @@ ecommerce
 - 前端登录后自动连，弹窗 + 语音 + 25s 心跳 + 断线重连；多实例广播计划用 RabbitMQ fanout（见下）。
 
 ### 客服知识库与生产同步（2026-11-05）
-- **运行时读 MySQL，不读 Excel**。链路：`docs/QandA.xlsx` → `recommender-python/scripts/import_kb.py` → `e_commerce_db.kb_qa` → ai-service **内存缓存 60 秒**（`KB_CACHE_TTL`）。这是「改了 Excel 还是旧内容」的三层原因：① 没执行导入脚本；② 导入后缓存没到期；③ 本地库与生产库不是同一个实例。
+- **运行时读 MySQL，不读 Excel**。链路：`docs/QandA.xlsx` → `ecommerce-python/scripts/import_kb.py` → `e_commerce_db.kb_qa` → ai-service **内存缓存 60 秒**（`KB_CACHE_TTL`）。这是「改了 Excel 还是旧内容」的三层原因：① 没执行导入脚本；② 导入后缓存没到期；③ 本地库与生产库不是同一个实例。
 - **表**：`kb_qa`（分类/问题/答案/关键词/priority/status/hit_count，唯一键 `(category, question)`）+ `kb_miss`（未命中记录，不参与检索）。建表 `docs/sql/20261105_kb.sql`；种子 `docs/sql/20261105_kb_seed.sql`（519 条 `INSERT ... ON DUPLICATE KEY UPDATE`，可重复执行）。
 - **导入**：`python scripts/import_kb.py --xlsx docs/QandA.xlsx`（`--dry-run` 只算不入库）；按 `(category, question)` 去重，Excel **532 行 → 519 条唯一**（13 条同分类重复被合并）。
 - **Excel 现状**：单 Sheet `qa`，四列「分类/问题/答案/关键词」，2026-11-05 从 332 行补到 **532 行**（+200 条）；样式统一微软雅黑 10、细边框、斑马纹、自动换行、冻结 A2、筛选 A1:D533。备份 `%TEMP%\QandA-backup-20261105.xlsx`。
@@ -687,7 +687,7 @@ ecommerce
 - **窄屏操作按钮不溢出**：操作列固定 `width: 150`，按钮容器 `.action-buttons` 改 `display:flex; flex-wrap: wrap; gap:6px`，屏宽变小时换行而不是把文字撑出表格。
 - **序号整列空白**：根因是 `<template #bodyCell="{ column, record }">` **没解构 `index`**，`record` 上没有序号字段。补 `index` 后序号 = `(pagination.current - 1) * pagination.pageSize + index + 1`（跨页连续递增，不是每页从 1 开始）。
 
-### AI 服务（Python `recommender-python`）
+### AI 服务（Python `ecommerce-python`）
 - FastAPI + LangGraph，接口 `/api/agent/chat`、`/api/agent/chat/stream`、`/health`；JWT 只校验不签发，每用户限流。**2026-11-05 起客服问答只走知识库，不调用大模型**（`kb/service.py` 纯规则检索，未命中即转人工）。
 - 生产容器 `ai-service:8000`，网关 `/api/agent/**` 转发；容器连宿主机 MySQL 需 `MYSQL_HOST=host.docker.internal`（2026-10-29 补上）。
 - 商品查询只读 `products + categories`，条件 `listing_status=1 AND stock>0`（无 shop_id）。
@@ -836,7 +836,7 @@ ecommerce
 | 小程序 | `D:\study\my-workspace\wechat-workspace\e-commerce-uniapp` | C 端，对应 `/api/**` |
 | PC 商城 | `D:\study\my-workspace\wechat-workspace\ecommerce-mall` | Vue3 + Vite SPA，https://www.xiaojiecpn.com |
 | 后台前端 | `D:\study\my-workspace\wechat-workspace\e-commerce` | Vue3 + ant-design-vue |
-| Python AI | `D:\study\my-workspace\wechat-workspace\recommender-python` | 导购机器人 |
+| Python AI | `D:\study\my-workspace\wechat-workspace\ecommerce-python` | 导购机器人 |
 | 后端 | `D:\study\my-workspace\wechat-workspace\e-commerce-boot` | Spring Cloud 多模块 |
 
 - API：`https://api.jiemids.com`；后台：`https://www.jiemids.com`；PC 商城：`https://www.xiaojiecpn.com`

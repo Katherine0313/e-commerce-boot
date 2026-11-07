@@ -69,11 +69,14 @@ public class StockOrderService {
             .build();
         orderMapper.insert(order);
 
-        // 2. 写明细（注意：调整单用 afterQty，其他类型用 qty）
+        // 2. 写明细（入/出库 qty 为正数；调整单 qty 是有符号差异，由前端按 afterQty - 当前库存算好）
         List<StockOrderItem> items = new ArrayList<>();
         int totalQty = 0;
         for (StockOrderCreateDTO.StockOrderItemDTO itemDto : dto.getItems()) {
-            if (itemDto.getSkuId() == null || itemDto.getQty() == null || itemDto.getQty() <= 0) {
+            boolean isAdjust = "ADJUST".equals(dto.getType());
+            if (itemDto.getSkuId() == null || itemDto.getQty() == null
+                    || (isAdjust ? itemDto.getQty() == 0 : itemDto.getQty() <= 0)) {
+                // 入/出库数量必须为正；调整单 qty 是有符号差异，允许为负、不允许为 0
                 throw new BusinessException("SKU " + itemDto.getSkuCode() + " 明细不完整");
             }
             StockOrderItem item = StockOrderItem.builder()
@@ -86,7 +89,7 @@ public class StockOrderService {
                 .costPrice(itemDto.getCostPrice())
                 .build();
             items.add(item);
-            totalQty += itemDto.getQty();
+            totalQty += Math.abs(itemDto.getQty()); // 调整单差异有正负，合计取绝对值
         }
         itemMapper.insertAll(items);
         order.setTotalQty(totalQty);

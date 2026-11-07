@@ -148,7 +148,7 @@
 - [✓] 小程序客服 AI 流式对话（2026-10-24）：`/api/agent/chat/stream` SSE 首字推送 + `sessionId` Redis 多轮历史（2h TTL）；前端 AI 流式优先、人工客服本地拦截、规则失败兜底
 - [✓] 全局悬浮 AI 客服（2026-10-24）：`components/floating-chat` 右侧中间悬浮球 + 底部聊天面板，头像 `static/zongjie.jpg`（2026-10-25 由本地 webp 转 jpg，修 iOS 不显示）；Pinia `store/ai-chat` 共享会话，已注入 pages.json 注册的 29 个页面（专属客服页除外）
   - ⚠️ **约定：以后新增小程序页面，必须在模板 `<template>` 后手动加 `<FloatingChat />`，否则新页面没有悬浮球。**（uni-app 小程序没有 App 级全局组件，悬浮球靠逐页注入）
-- [✓] 迁移到 Python（2026-10-26）：新增 FastAPI + LangGraph 服务 `recommender-python`，多轮对话 + 商品问答（直连 MySQL 只读）；网关 `/api/agent/**` 静态转发；前端契约不变
+- [✓] 迁移到 Python（2026-10-26）：新增 FastAPI + LangGraph 服务 `ecommerce-python`，多轮对话 + 商品问答（直连 MySQL 只读）；网关 `/api/agent/**` 静态转发；前端契约不变
 - [✓] 删除 Java `ai-agent-service` 与 Spring AI BOM（2026-10-26）
 - [✓] 生产部署 `ai-service` + 网关切换（2026-10-26），旧 `ai-agent-service` 容器已移除
 - [✓] 防滥用（2026-10-26）：对话接口强制 JWT（共用 `JWT_SECRET`）、每用户 10 分钟 20 次 / 每天 100 次、全局并发 10、消息 500 字、`max_tokens=600`、首字 12s / 总时长 55s 超时
