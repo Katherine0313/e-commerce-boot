@@ -20,6 +20,17 @@
         WHERE order_id = #{orderId} AND is_deleted = 0
     </select>
 
+    <!-- 批量查已评价的订单 id（不含软删除）：一次 IN 查回后调用方转 Set 判断；调用方需保证 orderIds 非空 -->
+    <select id="findReviewedOrderIds" resultType="java.lang.Long">
+        SELECT DISTINCT order_id
+        FROM product_reviews
+        WHERE is_deleted = 0
+          AND order_id IN
+        <foreach collection="orderIds" item="orderId" open="(" separator="," close=")">
+            #{orderId}
+        </foreach>
+    </select>
+
     <!-- ==================== 后台管理 ==================== -->
 
     <!--

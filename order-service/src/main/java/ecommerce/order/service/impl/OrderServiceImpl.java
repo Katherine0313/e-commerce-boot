@@ -54,9 +54,12 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 /**
  * 订单 Service 实现。
@@ -381,11 +384,29 @@ public class OrderServiceImpl implements OrderService {
         int size = pageSize <= 0 ? 10 : Math.min(pageSize, 50);
         String kw = keyword == null || keyword.isBlank() ? null : keyword.trim();
         long total = orderMapper.countByUser(userId, kw, status);
-        List<OrderVO> list = total == 0
-                ? List.of()
-                : orderMapper.listByUserPage(userId, kw, status, (currentPage - 1) * size, size).stream()
-                        .map(this::toVO)
-                        .toList();
+        List<OrderVO> list;
+        if (total == 0) {
+            list = List.of();
+        } else {
+            List<Order> orders = orderMapper.listByUserPage(userId, kw, status, (currentPage - 1) * size, size);
+            // 批量装配：明细、评价、快递字典均按本次分页一次性查回，避免逐单 N+1
+            Map<Long, List<OrderItem>> itemsByOrder = orders.isEmpty()
+                    ? new HashMap<>()
+                    : orderItemMapper.listByOrderIds(orders.stream().map(Order::getId).toList()).stream()
+                            .collect(Collectors.groupingBy(OrderItem::getOrderId));
+            List<Long> finishedOrderIds = orders.stream()
+                    .filter(o -> OrderStatusEnum.FINISHED.getCode().equals(o.getOrderStatus()))
+                    .map(Order::getId)
+                    .toList();
+            Set<Long> reviewedOrderIds = finishedOrderIds.isEmpty()
+                    ? Set.of()
+                    : new HashSet<>(productReviewMapper.findReviewedOrderIds(finishedOrderIds));
+            Map<String, String> courierMap = logisticsBuilder.courierNameMap();
+            list = orders.stream()
+                    .map(o -> toVO(o, itemsByOrder.getOrDefault(o.getId(), List.of()),
+                            reviewedOrderIds.contains(o.getId()), logisticsBuilder.build(o, courierMap)))
+                    .toList();
+        }
         return PageVO.<OrderVO>builder()
                 .list(list)
                 .total(total)
@@ -725,24 +746,30 @@ public class OrderServiceImpl implements OrderService {
         }
     }
 
+    /** 单条路径（详情/下单/支付等）：逐单查明细与评价，物流按订单单独构建 */
     private OrderVO toVO(Order order) {
-        OrderStatusEnum status = OrderStatusEnum.fromCode(order.getOrderStatus());
-        PayTypeEnum payType = PayTypeEnum.fromCode(order.getPayType());
         List<OrderItem> items = orderItemMapper.listByOrderId(order.getId());
         // 是否已评价：仅已完成订单可能有评价记录，其余状态直接 false（省去无谓查询）
         boolean reviewed = OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())
                 && productReviewMapper.findByOrderId(order.getId()) != null;
-        // courier 存英文 key，转中文返回；字典表优先，与物流轨迹里的名称保持一致
-        String courierDesc = logisticsBuilder.courierName(order.getCourier());
-        if (courierDesc == null) {
-            courierDesc = order.getCourier();
-        }
+        return toVO(order, items, reviewed, buildLogistics(order));
+    }
+
+    /** 批量装配路径（订单列表分页）：items/reviewed/logistics 均由调用方批量预取，内部不再查库 */
+    private OrderVO toVO(Order order, List<OrderItem> items, boolean reviewed, LogisticsVO logistics) {
+        OrderStatusEnum status = OrderStatusEnum.fromCode(order.getOrderStatus());
+        PayTypeEnum payType = PayTypeEnum.fromCode(order.getPayType());
+        // courier 存英文 key，转中文返回；字典表优先，与物流轨迹里的名称保持一致。
+        // 订单未填快递公司时保持原值（不采用轨迹里的兜底随机名）
+        String courierDesc = order.getCourier() == null || order.getCourier().isBlank()
+                ? order.getCourier()
+                : logistics.getCourier();
         // 物流摘要：已发货/已完成订单取最新一条轨迹，列表卡片直接展示，避免每卡一次请求
         String logisticsStatus = null;
         String latestTrace = null;
         if (OrderStatusEnum.SHIPPED.getCode().equals(order.getOrderStatus())
                 || OrderStatusEnum.FINISHED.getCode().equals(order.getOrderStatus())) {
-            List<LogisticsTraceVO> traces = buildLogistics(order).getTraces();
+            List<LogisticsTraceVO> traces = logistics.getTraces();
             if (!traces.isEmpty()) {
                 LogisticsTraceVO latest = traces.get(traces.size() - 1);
                 logisticsStatus = latest.getStatus();

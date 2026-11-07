@@ -12,7 +12,9 @@ import org.springframework.stereotype.Component;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 物流轨迹生成（假数据，不接真实物流 API）。
@@ -54,13 +56,24 @@ public class LogisticsBuilder {
      * @param order 订单（取状态、发货时间、快递公司、单号、收货地区）
      */
     public LogisticsVO build(Order order) {
+        return build(order, null);
+    }
+
+    /**
+     * 生成物流轨迹（不查库版本）：courierMap 由调用方预先一次性加载（code → 中文名），
+     * 供订单列表批量装配复用，避免逐单查快递字典。
+     *
+     * @param order      订单
+     * @param courierMap 快递字典；为 null 时退回逐单查库（单条详情路径沿用）
+     */
+    public LogisticsVO build(Order order, Map<String, String> courierMap) {
         int seed = (int) (order.getId() % 97);
         String originCity = CITIES.get(seed % CITIES.size());
         String originDistrict = DISTRICTS.get((seed + 3) % DISTRICTS.size());
         String destCity = resolveDestination(order.getRegion(), seed);
 
         // 快递公司：字典表优先（商家可自定义名称），订单上没有就兜底随机
-        String courierName = courierName(order.getCourier());
+        String courierName = courierName(order.getCourier(), courierMap);
         if (courierName == null || courierName.isBlank()) {
             courierName = COURIERS.get((seed + 7) % COURIERS.size());
         }
@@ -146,8 +159,24 @@ public class LogisticsBuilder {
      * 字典没有则退回枚举，最后原样返回 code。code 为空返回 null。
      */
     public String courierName(String code) {
+        return courierName(code, null);
+    }
+
+    /**
+     * 快递公司中文名（不查库版本）：courierMap 不为 null 时只读内存字典，缺失则退回枚举/原编码；
+     * 为 null 时按原有逻辑逐单查字典表。
+     */
+    public String courierName(String code, Map<String, String> courierMap) {
         if (code == null || code.isBlank()) {
             return null;
+        }
+        if (courierMap != null) {
+            String name = courierMap.get(code);
+            if (name != null && !name.isBlank()) {
+                return name;
+            }
+            CourierEnum courierEnum = CourierEnum.fromCode(code);
+            return courierEnum != null ? courierEnum.getDesc() : code;
         }
         DeliveryExpress express = deliveryExpressMapper.findByCode(code);
         if (express != null && express.getName() != null && !express.getName().isBlank()) {
@@ -155,6 +184,17 @@ public class LogisticsBuilder {
         }
         CourierEnum courierEnum = CourierEnum.fromCode(code);
         return courierEnum != null ? courierEnum.getDesc() : code;
+    }
+
+    /** 一次性加载快递字典（code → 中文名），供订单列表批量装配复用 */
+    public Map<String, String> courierNameMap() {
+        Map<String, String> map = new HashMap<>();
+        for (DeliveryExpress express : deliveryExpressMapper.listAll()) {
+            if (express.getCode() != null && express.getName() != null && !express.getName().isBlank()) {
+                map.put(express.getCode(), express.getName());
+            }
+        }
+        return map;
     }
 
     private void add(List<LogisticsTraceVO> traces, LocalDateTime time, String status, String desc) {

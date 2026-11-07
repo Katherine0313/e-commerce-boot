@@ -37,4 +37,7 @@ public interface DeliveryExpressMapper {
 
     /** 启用中的快递公司（下拉用，按排序取） */
     List<DeliveryExpress> listEnabled();
+
+    /** 全部快递公司（不含软删除，含停用），供列表分页一次性加载字典 */
+    List<DeliveryExpress> listAll();
 }

@@ -31,14 +31,15 @@
         WHERE a.id = #{id} AND a.is_deleted = 0
     </select>
 
-    <select id="listByUser" resultType="ecommerce.aftersale.entity.AfterSale">
-        <include refid="joinOrderColumns"/>
+    <!-- 买家列表共用筛选条件（状态/关键词/时间范围），listByUser / 分页 / 计数保持一致 -->
+    <sql id="userFilter">
         WHERE o.user_id = #{userId} AND a.is_deleted = 0
         <if test="status != null and status != ''">
             AND a.status = #{status}
         </if>
         <if test="search != null and search != ''">
             AND (a.order_no LIKE CONCAT('%', #{search}, '%')
+                 OR a.after_sale_no LIKE CONCAT('%', #{search}, '%')
                  OR o.consignee LIKE CONCAT('%', #{search}, '%')
                  OR o.phone LIKE CONCAT('%', #{search}, '%')
                  OR EXISTS (SELECT 1 FROM order_items oi
@@ -50,7 +51,41 @@
         <if test="end != null">
             AND a.${dateField} &lt;= #{end}
         </if>
+    </sql>
+
+    <select id="listByUser" resultType="ecommerce.aftersale.entity.AfterSale">
+        <include refid="joinOrderColumns"/>
+        <include refid="userFilter"/>
         ORDER BY a.created_at DESC, a.id DESC
+    </select>
+
+    <select id="listByUserPage" resultType="ecommerce.aftersale.entity.AfterSale">
+        <include refid="joinOrderColumns"/>
+        <include refid="userFilter"/>
+        ORDER BY a.created_at DESC, a.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countByUser" resultType="long">
+        SELECT COUNT(1)
+        FROM after_sales a
+        LEFT JOIN orders o ON o.id = a.order_id
+        <include refid="userFilter"/>
+    </select>
+
+    <!-- 买家售后各状态数量：一条聚合，避免 7 次 count -->
+    <select id="countsByUser" resultType="ecommerce.aftersale.vo.AfterSaleCountsVO">
+        SELECT COUNT(*) AS `all`,
+               COUNT(CASE WHEN a.status = 'reviewing' THEN 1 END) AS reviewing,
+               COUNT(CASE WHEN a.status = 'returning' THEN 1 END) AS returning,
+               COUNT(CASE WHEN a.status = 'refunding' THEN 1 END) AS refunding,
+               COUNT(CASE WHEN a.status = 'exchanging' THEN 1 END) AS exchanging,
+               COUNT(CASE WHEN a.status = 'exchanged' THEN 1 END) AS exchanged,
+               COUNT(CASE WHEN a.status = 'refunded' THEN 1 END) AS refunded,
+               COUNT(CASE WHEN a.status = 'rejected' THEN 1 END) AS rejected
+        FROM after_sales a
+        LEFT JOIN orders o ON o.id = a.order_id
+        WHERE o.user_id = #{userId} AND a.is_deleted = 0
     </select>
 
     <select id="listByShop" resultType="ecommerce.aftersale.entity.AfterSale">

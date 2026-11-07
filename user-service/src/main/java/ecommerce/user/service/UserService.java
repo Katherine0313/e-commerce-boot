@@ -24,9 +24,14 @@ public interface UserService {
     String updateName(Long userId, String name);
 
     /**
-     * 绑定手机号：用 getPhoneNumber 授权 code 换手机号并写回 user.phone，返回手机号
+     * 绑定手机号。
+     * <p>
+     * phone 非空：PC 端，校验短信验证码后绑定该手机号；
+     * phone 为空：微信端，用 getPhoneNumber 授权 code 换手机号。
+     *
+     * @return 绑定成功的手机号
      */
-    String bindPhone(Long userId, String code);
+    String bindPhone(Long userId, String phone, String code);
 
     /**
      * 注销账号：软删除用户（is_deleted=1）并清空其购物车，两者同一事务

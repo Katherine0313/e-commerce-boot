@@ -2,9 +2,11 @@ package ecommerce.aftersale.service;
 
 import ecommerce.aftersale.dto.CreateAfterSaleDTO;
 import ecommerce.aftersale.dto.SubmitReturnDTO;
+import ecommerce.aftersale.vo.AfterSaleCountsVO;
 import ecommerce.aftersale.vo.AfterSaleLogVO;
 import ecommerce.aftersale.vo.AfterSaleStatusConstantsVO;
 import ecommerce.aftersale.vo.AfterSaleVO;
+import ecommerce.common.PageVO;
 
 import java.util.List;
 
@@ -21,6 +23,13 @@ public interface AfterSaleService {
 
     /** 当前用户售后列表（可选状态/关键词/时间范围筛选，不含明细/子表字段） */
     List<AfterSaleVO> list(String status, String search, String startDate, String endDate, String dateField);
+
+    /** 当前用户售后分页列表（含商品明细，批量装配） */
+    PageVO<AfterSaleVO> page(String status, String search, String startDate, String endDate,
+                             String dateField, int page, int pageSize);
+
+    /** 当前用户售后各状态数量（Tab 角标） */
+    AfterSaleCountsVO counts();
 
     /** 售后详情（含明细 + 子表平铺字段） */
     AfterSaleVO getById(Long id);

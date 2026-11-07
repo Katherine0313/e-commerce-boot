@@ -73,7 +73,7 @@ public class UserController {
     public Result<String> bindPhone(@RequestBody PhoneDTO dto) {
         // 从上下文拿到当前登录用户 ID，交给业务层处理
         Long userId = UserContext.getUserId();
-        return Result.success(userService.bindPhone(userId, dto.getCode()));
+        return Result.success(userService.bindPhone(userId, dto.getPhone(), dto.getCode()));
     }
 
     // 注销账号：软删除当前用户（is_deleted=1）并清空购物车，同一事务

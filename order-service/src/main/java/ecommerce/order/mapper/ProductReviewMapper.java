@@ -27,6 +27,9 @@ public interface ProductReviewMapper {
     // 查某订单的评价（不含软删除）；用于「是否已评价」标记与防重复提交
     ProductReview findByOrderId(@Param("orderId") Long orderId);
 
+    // 批量查已评价的订单 id（不含软删除），供列表分页批量装配
+    List<Long> findReviewedOrderIds(@Param("orderIds") List<Long> orderIds);
+
     // ===== 后台管理 =====
 
     // 后台详情（含订单号 / 评价人 / 虚拟评价创建人）

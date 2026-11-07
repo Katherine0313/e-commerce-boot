@@ -9,18 +9,17 @@ import ecommerce.user.entity.User;
 import ecommerce.user.mapper.UserMapper;
 import ecommerce.user.service.PcAuthService;
 import ecommerce.user.support.PasswordUtil;
+import ecommerce.user.support.PhoneCodeStore;
 import ecommerce.user.vo.PcLoginVO;
 import ecommerce.user.vo.PcSendCodeVO;
 import ecommerce.utils.JwtUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.redis.core.StringRedisTemplate;
-import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
 import java.security.SecureRandom;
 import java.time.Duration;
-import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -33,8 +32,6 @@ import java.util.regex.Pattern;
 @Service
 public class PcAuthServiceImpl implements PcAuthService {
 
-    /** 登录验证码：pc:auth:code:{phone} */
-    private static final String CODE_KEY_PREFIX = "pc:auth:code:";
     /** 发送限频：pc:auth:code:limit:{phone} */
     private static final String SEND_LIMIT_KEY_PREFIX = "pc:auth:code:limit:";
     private static final Duration CODE_TTL = Duration.ofMinutes(5);
@@ -43,25 +40,21 @@ public class PcAuthServiceImpl implements PcAuthService {
     private static final Pattern CODE_PATTERN = Pattern.compile("^\\d{6}$");
     /** 用户名：3-30 位字母/数字/下划线（与后台 admin 的用户名规则一致） */
     private static final Pattern USERNAME_PATTERN = Pattern.compile("^[a-zA-Z0-9_]{3,30}$");
-    /**
-     * 取出并删除验证码（一次性使用）。
-     * 不用 opsForValue().getAndDelete()：那是 Redis 6.2+ 的 GETDEL 命令，
-     * 本机装的旧版 Redis 不支持会报 unknown command。Lua 脚本同样原子，且兼容所有版本。
-     */
-    private static final DefaultRedisScript<String> GET_AND_DELETE = new DefaultRedisScript<>(
-            "local v = redis.call('GET', KEYS[1]); if v then redis.call('DEL', KEYS[1]) end; return v",
-            String.class);
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final UserMapper userMapper;
     private final JwtUtil jwtUtil;
     private final StringRedisTemplate stringRedisTemplate;
+    /** 验证码读取（取出即删除）与绑定手机号共用同一份实现 */
+    private final PhoneCodeStore phoneCodeStore;
 
     public PcAuthServiceImpl(UserMapper userMapper, JwtUtil jwtUtil,
-                             StringRedisTemplate stringRedisTemplate) {
+                             StringRedisTemplate stringRedisTemplate,
+                             PhoneCodeStore phoneCodeStore) {
         this.userMapper = userMapper;
         this.jwtUtil = jwtUtil;
         this.stringRedisTemplate = stringRedisTemplate;
+        this.phoneCodeStore = phoneCodeStore;
     }
 
     @Override
@@ -122,7 +115,7 @@ public class PcAuthServiceImpl implements PcAuthService {
 
         String code = String.format("%06d", RANDOM.nextInt(1_000_000));
         try {
-            stringRedisTemplate.opsForValue().set(CODE_KEY_PREFIX + phone, code, CODE_TTL);
+            stringRedisTemplate.opsForValue().set(PhoneCodeStore.codeKey(phone), code, CODE_TTL);
         } catch (RuntimeException e) {
             // 写入失败时释放限频，允许用户立即重试
             safeDelete(limitKey);
@@ -140,12 +133,11 @@ public class PcAuthServiceImpl implements PcAuthService {
     public PcLoginVO loginByCode(PcCodeLoginDTO dto) {
         String phone = requirePhone(dto.getPhone());
         String code = requireCode(dto.getCode());
-        String key = CODE_KEY_PREFIX + phone;
 
         String saved;
         try {
             // 取出即删除：验证码一次性使用
-            saved = stringRedisTemplate.execute(GET_AND_DELETE, List.of(key));
+            saved = phoneCodeStore.take(phone);
         } catch (RuntimeException e) {
             log.error("PC 登录验证码读取 Redis 失败", e);
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "验证码服务暂不可用，请稍后重试");

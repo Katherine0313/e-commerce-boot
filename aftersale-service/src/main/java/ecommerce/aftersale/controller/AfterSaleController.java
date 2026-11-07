@@ -3,9 +3,11 @@ package ecommerce.aftersale.controller;
 import ecommerce.aftersale.dto.CreateAfterSaleDTO;
 import ecommerce.aftersale.dto.SubmitReturnDTO;
 import ecommerce.aftersale.service.AfterSaleService;
+import ecommerce.aftersale.vo.AfterSaleCountsVO;
 import ecommerce.aftersale.vo.AfterSaleLogVO;
 import ecommerce.aftersale.vo.AfterSaleStatusConstantsVO;
 import ecommerce.aftersale.vo.AfterSaleVO;
+import ecommerce.common.PageVO;
 import ecommerce.common.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -49,6 +51,24 @@ public class AfterSaleController {
                                           @RequestParam(required = false) String endDate,
                                           @RequestParam(required = false) String dateField) {
         return Result.success(afterSaleService.list(status, search, startDate, endDate, dateField));
+    }
+
+    @Operation(summary = "我的售后分页列表（状态/关键词/时间范围筛选）")
+    @GetMapping("/page")
+    public Result<PageVO<AfterSaleVO>> page(@RequestParam(required = false) String status,
+                                            @RequestParam(required = false) String search,
+                                            @RequestParam(required = false) String startDate,
+                                            @RequestParam(required = false) String endDate,
+                                            @RequestParam(required = false) String dateField,
+                                            @RequestParam(defaultValue = "1") int page,
+                                            @RequestParam(defaultValue = "10") int pageSize) {
+        return Result.success(afterSaleService.page(status, search, startDate, endDate, dateField, page, pageSize));
+    }
+
+    @Operation(summary = "我的售后各状态数量")
+    @GetMapping("/counts")
+    public Result<AfterSaleCountsVO> counts() {
+        return Result.success(afterSaleService.counts());
     }
 
     @Operation(summary = "售后状态常量")

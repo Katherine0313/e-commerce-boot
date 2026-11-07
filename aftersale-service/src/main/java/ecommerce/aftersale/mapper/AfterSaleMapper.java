@@ -1,6 +1,7 @@
 package ecommerce.aftersale.mapper;
 
 import ecommerce.aftersale.entity.AfterSale;
+import ecommerce.aftersale.vo.AfterSaleCountsVO;
 import org.apache.ibatis.annotations.Param;
 
 import java.time.LocalDateTime;
@@ -24,6 +25,22 @@ public interface AfterSaleMapper {
                                @Param("status") String status, @Param("search") String search,
                                @Param("start") LocalDateTime start, @Param("end") LocalDateTime end,
                                @Param("dateField") String dateField);
+
+    // 分页查某用户的售后列表（筛选条件与 listByUser 一致）
+    List<AfterSale> listByUserPage(@Param("userId") Long userId,
+                                   @Param("status") String status, @Param("search") String search,
+                                   @Param("start") LocalDateTime start, @Param("end") LocalDateTime end,
+                                   @Param("dateField") String dateField,
+                                   @Param("offset") int offset, @Param("pageSize") int pageSize);
+
+    // 某用户售后总数（与分页筛选条件一致）
+    long countByUser(@Param("userId") Long userId,
+                     @Param("status") String status, @Param("search") String search,
+                     @Param("start") LocalDateTime start, @Param("end") LocalDateTime end,
+                     @Param("dateField") String dateField);
+
+    // 某用户售后各状态数量（一条聚合查询）
+    AfterSaleCountsVO countsByUser(@Param("userId") Long userId);
 
     // 后台列表：查所有售后（不限用户，可选状态/关键词/时间范围筛选）
     List<AfterSale> listByShop(@Param("status") String status, @Param("search") String search,

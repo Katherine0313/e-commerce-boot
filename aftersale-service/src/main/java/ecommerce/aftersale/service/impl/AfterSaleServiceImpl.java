@@ -26,11 +26,13 @@ import ecommerce.aftersale.mapper.AfterSaleReturnMapper;
 import ecommerce.aftersale.mapper.OrderMapper;
 import ecommerce.aftersale.service.AfterSaleService;
 import ecommerce.aftersale.support.AfterSaleLogConverter;
+import ecommerce.aftersale.vo.AfterSaleCountsVO;
 import ecommerce.aftersale.vo.AfterSaleItemVO;
 import ecommerce.aftersale.vo.AfterSaleLogVO;
 import ecommerce.aftersale.vo.AfterSaleStatusConstantsVO;
 import ecommerce.aftersale.vo.AfterSaleVO;
 import ecommerce.exception.BusinessException;
+import ecommerce.common.PageVO;
 import ecommerce.utils.UserContext;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
@@ -45,6 +47,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 /**
  * 售后 Service 实现。
@@ -266,6 +269,43 @@ public class AfterSaleServiceImpl implements AfterSaleService {
     }
 
     @Override
+    public PageVO<AfterSaleVO> page(String status, String search, String startDate, String endDate,
+                                    String dateField, int page, int pageSize) {
+        String field = resolveDateField(dateField);
+        LocalDateTime start = parseDateTime(startDate);
+        LocalDateTime end = parseDateTime(endDate);
+        int currentPage = Math.max(1, page);
+        int size = pageSize <= 0 ? 10 : Math.min(pageSize, 50);
+        long total = afterSaleMapper.countByUser(currentUserId(), status, search, start, end, field);
+        List<AfterSaleVO> list;
+        if (total == 0) {
+            list = List.of();
+        } else {
+            List<AfterSale> rows = afterSaleMapper.listByUserPage(currentUserId(), status, search, start, end,
+                    field, (currentPage - 1) * size, size);
+            // 明细一次 IN 查询后按售后单分组，避免逐单查明细
+            Map<Long, List<AfterSaleItem>> itemMap = rows.isEmpty()
+                    ? Map.of()
+                    : afterSaleItemMapper.listByAfterSaleIds(rows.stream().map(AfterSale::getId).toList())
+                            .stream().collect(Collectors.groupingBy(AfterSaleItem::getAfterSaleId));
+            list = rows.stream()
+                    .map(a -> toVO(a, itemMap.getOrDefault(a.getId(), List.of()), null))
+                    .toList();
+        }
+        return PageVO.<AfterSaleVO>builder()
+                .list(list)
+                .total(total)
+                .page(currentPage)
+                .pageSize(size)
+                .build();
+    }
+
+    @Override
+    public AfterSaleCountsVO counts() {
+        return afterSaleMapper.countsByUser(currentUserId());
+    }
+
+    @Override
     public List<AfterSaleVO> list(String status, String search, String startDate, String endDate, String dateField) {
         String field = resolveDateField(dateField);
         LocalDateTime start = parseDateTime(startDate);
@@ -312,7 +352,8 @@ public class AfterSaleServiceImpl implements AfterSaleService {
         if (afterSale == null || !currentUserId().equals(afterSale.getUserId())) {
             return null;
         }
-        return toVO(afterSale, null, null);
+        // 与 getById 一致：装商品明细 + 退货/换货子表，否则详情页商品区和退货信息为空
+        return buildDetail(afterSale.getId());
     }
 
     /**

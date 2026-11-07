@@ -13,6 +13,7 @@ import ecommerce.user.entity.User;
 import ecommerce.user.mapper.CartMapper;
 import ecommerce.user.mapper.UserMapper;
 import ecommerce.user.service.UserService;
+import ecommerce.user.support.PhoneCodeStore;
 import ecommerce.user.vo.WxLoginVO;
 import ecommerce.properties.WeChatProperties;
 import ecommerce.utils.HttpClientUtil;
@@ -31,6 +32,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
@@ -43,11 +45,15 @@ public class UserServiceImpl implements UserService {
     private final JwtUtil jwtUtil;
     /** 微信 access_token 统一走 Redis 共享缓存，避免与 order-service 互相刷失效 */
     private final WeChatAccessTokenProvider weChatAccessTokenProvider;
+    /** PC 短信验证码存取（与登录共用同一份 key） */
+    private final PhoneCodeStore phoneCodeStore;
+    private static final Pattern PHONE_PATTERN = Pattern.compile("^1\\d{10}$");
 
 
     public UserServiceImpl(WeChatProperties weChatProperties, HttpClientUtil httpClientUtil,
                            ObjectMapper objectMapper, UserMapper userMapper, CartMapper cartMapper,
-                           JwtUtil jwtUtil, WeChatAccessTokenProvider weChatAccessTokenProvider) {
+                           JwtUtil jwtUtil, WeChatAccessTokenProvider weChatAccessTokenProvider,
+                           PhoneCodeStore phoneCodeStore) {
         this.weChatProperties = weChatProperties;
         this.httpClientUtil = httpClientUtil;
         this.objectMapper = objectMapper;
@@ -55,6 +61,7 @@ public class UserServiceImpl implements UserService {
         this.cartMapper = cartMapper;
         this.jwtUtil = jwtUtil;
         this.weChatAccessTokenProvider = weChatAccessTokenProvider;
+        this.phoneCodeStore = phoneCodeStore;
 
     }
 
@@ -107,9 +114,43 @@ public class UserServiceImpl implements UserService {
                 .build();
     }
 
-    // 绑定手机号：用 getPhoneNumber 按钮授权拿到的 code 换手机号并写回 user.phone，返回手机号
+    // 绑定手机号：PC 端走 phone + 短信验证码；微信端走 getPhoneNumber 授权 code
     @Override
-    public String bindPhone(Long userId, String code) {
+    public String bindPhone(Long userId, String phone, String code) {
+        // phone 为空 = 微信小程序流程，保持原逻辑向后兼容
+        if (phone == null || phone.isBlank()) {
+            return bindPhoneByWxCode(userId, code);
+        }
+        String targetPhone = phone.trim();
+        if (!PHONE_PATTERN.matcher(targetPhone).matches()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "请输入正确的手机号");
+        }
+        if (code == null || code.isBlank()) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "验证码不能为空");
+        }
+        findActiveUser(userId);
+        // 取出即删除，验证码一次性使用；Redis 异常单独提示，避免误报成「验证码错误」
+        String saved;
+        try {
+            saved = phoneCodeStore.take(targetPhone);
+        } catch (RuntimeException e) {
+            log.error("PC 绑定手机号读取验证码失败", e);
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "验证码服务暂不可用，请稍后重试");
+        }
+        if (saved == null || !saved.equals(code.trim())) {
+            throw new BusinessException(HttpStatus.BAD_REQUEST, "验证码错误或已过期");
+        }
+        // 手机号已被他人占用时拒绝，避免把别人的手机号绑到自己账号
+        User owner = userMapper.findForLoginByPhone(targetPhone);
+        if (owner != null && !owner.getId().equals(userId)) {
+            throw new BusinessException(HttpStatus.CONFLICT, "该手机号已被其他账号绑定");
+        }
+        userMapper.updateById(User.builder().id(userId).phone(targetPhone).build());
+        return targetPhone;
+    }
+
+    /** 微信小程序：用 getPhoneNumber 授权 code 换手机号并写库 */
+    private String bindPhoneByWxCode(Long userId, String code) {
         // 1. 手机号授权 code 不能为空
         if (code == null || code.isBlank()) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "手机号授权 code 不能为空");

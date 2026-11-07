@@ -72,6 +72,14 @@
         </if>
     </select>
 
+    <!-- 全部快递公司（含停用，不含软删除），供批量装配一次性加载字典 -->
+    <select id="listAll" resultType="ecommerce.order.entity.DeliveryExpress">
+        SELECT id, code, name, logo, sort_order, status, remark, is_deleted, create_time, update_time
+        FROM delivery_express
+        WHERE is_deleted = 0
+        ORDER BY sort_order ASC, id ASC
+    </select>
+
     <!-- 启用中的快递公司（下拉用） -->
     <select id="listEnabled" resultType="ecommerce.order.entity.DeliveryExpress">
         SELECT id, code, name, logo, sort_order, status, remark, is_deleted, create_time, update_time

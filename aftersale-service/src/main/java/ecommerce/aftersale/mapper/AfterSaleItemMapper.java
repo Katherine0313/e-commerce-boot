@@ -17,6 +17,9 @@ public interface AfterSaleItemMapper {
     // 查某售后单的明细（不含软删除）
     List<AfterSaleItem> listByAfterSaleId(@Param("afterSaleId") Long afterSaleId);
 
+    // 批量查多张售后单的明细（分页列表一次装配，避免 N+1）
+    List<AfterSaleItem> listByAfterSaleIds(@Param("afterSaleIds") List<Long> afterSaleIds);
+
     // 软删除某售后单的明细
     int softDelete(@Param("afterSaleId") Long afterSaleId, @Param("now") LocalDateTime now);
 }
