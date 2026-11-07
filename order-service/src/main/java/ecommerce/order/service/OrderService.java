@@ -1,9 +1,11 @@
 package ecommerce.order.service;
 
+import ecommerce.common.PageVO;
 import ecommerce.common.promotion.QuoteResult;
 import ecommerce.order.dto.CreateOrderDTO;
 import ecommerce.order.dto.OrderItemDTO;
 import ecommerce.order.vo.LogisticsVO;
+import ecommerce.order.vo.OrderCountsVO;
 import ecommerce.order.vo.OrderVO;
 
 import java.util.List;
@@ -27,6 +29,12 @@ public interface OrderService {
 
     /** 当前用户订单列表（keyword 为空查全部，非空按订单号/收货人/商品名模糊搜索） */
     List<OrderVO> listOrders(String keyword);
+
+    /** 当前用户订单分页列表（status 为空查全部；page 从 1 开始，pageSize 最大 50） */
+    PageVO<OrderVO> pageOrders(String keyword, Integer status, int page, int pageSize);
+
+    /** 当前用户各状态订单数量（前端 Tab 角标） */
+    OrderCountsVO orderCounts();
 
     /** 支付：待付款 → 待发货（支付成功即进入待发货，无人工确认收款环节） */
     OrderVO payOrder(Long id, String payType);

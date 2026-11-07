@@ -1,5 +1,6 @@
 package ecommerce.order.service.impl;
 
+import ecommerce.common.PageVO;
 import ecommerce.common.insurance.InsurancePolicy;
 import ecommerce.common.promotion.QuoteItemInput;
 import ecommerce.common.promotion.QuoteItemResult;
@@ -32,6 +33,7 @@ import ecommerce.order.support.InsuranceReviewer;
 import ecommerce.order.support.LogisticsBuilder;
 import ecommerce.order.vo.LogisticsTraceVO;
 import ecommerce.order.vo.LogisticsVO;
+import ecommerce.order.vo.OrderCountsVO;
 import ecommerce.order.vo.OrderItemVO;
 import ecommerce.order.vo.OrderVO;
 import ecommerce.order.wechat.WeChatSubscribeMessageClient;
@@ -370,6 +372,31 @@ public class OrderServiceImpl implements OrderService {
         return orderMapper.listByUser(currentUserId(), keyword).stream()
                 .map(this::toVO)
                 .toList();
+    }
+
+    @Override
+    public PageVO<OrderVO> pageOrders(String keyword, Integer status, int page, int pageSize) {
+        Long userId = currentUserId();
+        int currentPage = Math.max(1, page);
+        int size = pageSize <= 0 ? 10 : Math.min(pageSize, 50);
+        String kw = keyword == null || keyword.isBlank() ? null : keyword.trim();
+        long total = orderMapper.countByUser(userId, kw, status);
+        List<OrderVO> list = total == 0
+                ? List.of()
+                : orderMapper.listByUserPage(userId, kw, status, (currentPage - 1) * size, size).stream()
+                        .map(this::toVO)
+                        .toList();
+        return PageVO.<OrderVO>builder()
+                .list(list)
+                .total(total)
+                .page(currentPage)
+                .pageSize(size)
+                .build();
+    }
+
+    @Override
+    public OrderCountsVO orderCounts() {
+        return orderMapper.countsByUser(currentUserId());
     }
 
     @Override

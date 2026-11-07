@@ -31,6 +31,18 @@ public interface OrderMapper {
     // 查某用户订单列表（按创建时间倒序；keyword 非空时按订单号/收货人/商品名模糊搜索）
     List<Order> listByUser(@Param("userId") Long userId, @Param("keyword") String keyword);
 
+    // C 端分页列表：status 为空查全部，keyword 非空时按订单号/商品名模糊搜索
+    List<Order> listByUserPage(@Param("userId") Long userId, @Param("keyword") String keyword,
+                               @Param("status") Integer status, @Param("offset") int offset,
+                               @Param("pageSize") int pageSize);
+
+    // C 端分页总数（与 listByUserPage 同筛选条件）
+    long countByUser(@Param("userId") Long userId, @Param("keyword") String keyword,
+                     @Param("status") Integer status);
+
+    // C 端各状态订单数（订单 Tab 角标）
+    ecommerce.order.vo.OrderCountsVO countsByUser(@Param("userId") Long userId);
+
     // 用户已支付订单数：为 0 视为「未下单过的新用户」，供新用户专享活动判定
     @Select("SELECT COUNT(*) FROM orders WHERE user_id = #{userId} AND pay_at IS NOT NULL AND is_deleted = 0")
     long countPaidByUser(@Param("userId") Long userId);

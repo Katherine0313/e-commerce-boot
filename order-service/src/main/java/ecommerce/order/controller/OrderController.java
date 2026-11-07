@@ -1,11 +1,13 @@
 package ecommerce.order.controller;
 
+import ecommerce.common.PageVO;
 import ecommerce.common.Result;
 import ecommerce.common.promotion.QuoteResult;
 import ecommerce.order.dto.CreateOrderDTO;
 import ecommerce.order.dto.QuoteOrderDTO;
 import ecommerce.order.service.OrderService;
 import ecommerce.order.vo.LogisticsVO;
+import ecommerce.order.vo.OrderCountsVO;
 import ecommerce.order.vo.OrderVO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -55,6 +57,21 @@ public class OrderController {
     @GetMapping
     public Result<List<OrderVO>> listOrders(@RequestParam(required = false) String keyword) {
         return Result.success(orderService.listOrders(keyword));
+    }
+
+    @Operation(summary = "订单分页列表")
+    @GetMapping("/page")
+    public Result<PageVO<OrderVO>> pageOrders(@RequestParam(required = false) Integer status,
+                                              @RequestParam(required = false) String keyword,
+                                              @RequestParam(defaultValue = "1") int page,
+                                              @RequestParam(defaultValue = "10") int pageSize) {
+        return Result.success(orderService.pageOrders(keyword, status, page, pageSize));
+    }
+
+    @Operation(summary = "订单各状态数量")
+    @GetMapping("/counts")
+    public Result<OrderCountsVO> orderCounts() {
+        return Result.success(orderService.orderCounts());
     }
 
     @Operation(summary = "订单详情")

@@ -65,6 +65,59 @@
         ORDER BY o.created_at DESC, o.id DESC
     </select>
 
+    <!-- C 端订单分页：与 listByUser 同字段、同筛选，额外支持 order_status 与 LIMIT -->
+    <select id="listByUserPage" resultType="ecommerce.order.entity.Order">
+        SELECT o.id, o.user_id, o.order_no, o.is_deleted, o.pay_amount, o.original_amount, o.discount_amount,
+        o.coupon_id, o.coupon_name, o.coupon_amount, o.pay_type, o.order_status,
+        o.remark, o.consignee, o.phone, o.region, o.detail_address, o.shipping_type, o.courier, o.tracking_number,
+        o.sign_status, o.created_at, o.pay_at, o.ship_at, o.finish_at, o.updated_at,
+        EXISTS (SELECT 1 FROM after_sales a WHERE a.order_id = o.id AND a.is_deleted = 0) AS after_sale
+        FROM orders o
+        WHERE o.user_id = #{userId} AND o.is_deleted = 0
+        <if test="keyword != null and keyword != ''">
+            AND (o.order_no LIKE CONCAT('%', #{keyword}, '%')
+            OR EXISTS (SELECT 1 FROM order_items oi
+            WHERE oi.order_id = o.id AND oi.product_name LIKE CONCAT('%', #{keyword}, '%')))
+        </if>
+        <if test="status != null">
+            AND o.order_status = #{status}
+        </if>
+        ORDER BY o.created_at DESC, o.id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <!-- C 端订单分页总数 -->
+    <select id="countByUser" resultType="long">
+        SELECT COUNT(*)
+        FROM orders o
+        WHERE o.user_id = #{userId} AND o.is_deleted = 0
+        <if test="keyword != null and keyword != ''">
+            AND (o.order_no LIKE CONCAT('%', #{keyword}, '%')
+            OR EXISTS (SELECT 1 FROM order_items oi
+            WHERE oi.order_id = o.id AND oi.product_name LIKE CONCAT('%', #{keyword}, '%')))
+        </if>
+        <if test="status != null">
+            AND o.order_status = #{status}
+        </if>
+    </select>
+
+    <!-- C 端各状态订单数：一次聚合，供订单 Tab 角标使用 -->
+    <select id="countsByUser" resultType="ecommerce.order.vo.OrderCountsVO">
+        SELECT
+        COUNT(*) AS `all`,
+        COUNT(CASE WHEN o.order_status = 1 THEN 1 END) AS pendingPay,
+        COUNT(CASE WHEN o.order_status = 3 THEN 1 END) AS pendingShip,
+        COUNT(CASE WHEN o.order_status = 4 THEN 1 END) AS pendingReceive,
+        COUNT(CASE WHEN o.order_status = 5
+        AND NOT EXISTS (SELECT 1 FROM product_reviews r
+        WHERE r.order_id = o.id AND r.is_deleted = 0) THEN 1 END) AS pendingReview,
+        COUNT(CASE WHEN o.order_status = 5 THEN 1 END) AS finished,
+        COUNT(CASE WHEN o.order_status = 6 THEN 1 END) AS cancelled,
+        COUNT(CASE WHEN o.order_status = 7 THEN 1 END) AS refunded
+        FROM orders o
+        WHERE o.user_id = #{userId} AND o.is_deleted = 0
+    </select>
+
     <!-- 状态流转：按目标状态自动记录对应时间戳
          status 数字（OrderStatusEnum）：1=待付款 3=待发货 4=已发货 5=已完成 6=已取消
          3=待发货 由「支付」直接进入（原先的 2=待确认收款已退役并入 3），此时记 pay_at（付款时间，营业额统计口径） -->
