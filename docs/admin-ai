@@ -1,0 +1,877 @@
+# 电商系统 · AI 客服设计方案
+
+> 目标：接入大模型。**所有 AI 逻辑在 Python**（LangChain + LangGraph），**Java 只提供业务数据 API**。
+>
+> AI 能力双端共用：商城 H5（客户用）+ 后台管理（运营用）。小程序因微信限制继续纯规则。
+>
+> 本版已按项目实际代码校验，标注了所有与代码不符的假设修正点。
+
+---
+
+## 1. 架构总览（已修正）
+
+```
+商城 H5（客户）                      后台 Vue（运营）
+   │ POST /api/mall/ai/chat            │ POST /api/admin/ai/chat
+   │ (user JWT)                        │ (admin JWT + permissions)
+   └──────────────┬────────────────────┘
+                  ▼
+        Gateway（新增路由，直接转Python）
+                  │  透传 Authorization 头（Python 自己校验 JWT）
+                  ▼
+        Python ecommerce-python（AI 大脑）
+                  │  LangGraph 编排 → LLM → 工具调用
+                  │  工具拿数据 → 调 Java /internal/ai/**
+                  ▼
+        Java 业务服务（数据 API）
+        product-service  /internal/ai/product/**   查/改商品
+        order-service    /internal/ai/order/**     查订单
+        aftersale-service /internal/ai/aftersale/** 查售后
+                  ▼
+        MySQL (products / product_sku / orders / after_sales / ai_* 表)
+```
+
+### 1.1 关键修正：网关不再经过 Java，直接转Python
+
+**原方案**：前端 → Java product-service 网关 → Python → Java 内部 API。
+
+**修正原因**（基于代码事实）：
+
+| 事实 | 影响 |
+|---|---|
+| Gateway 已有 `ai-service` 路由直通 Python：`uri: ${AI_SERVICE_URL:...}`，Path=`/api/agent/**` | 已有现成先例，照抄即可 |
+| 全仓 `ResponseBodyEmitter` / `SseEmitter` / `ServerSentEvent` **0 命中** | Java 侧 SSE 透传要从零建 |
+| Python 已有 JWT 校验，与 Java **共用 `JWT_SECRET`**（`app/services/auth.py`） | Python 可自行鉴权，无需 Java 转 Header |
+| Python 已有 SSE 实现（`app/services/sse.py`） | 流式在 Python 侧闭环 |
+
+**结论**：Java 网关这一跳**只增加复杂度不增加价值**——鉴权 Python 能做、流式 Python 能做、路由 Gateway 已有先例。改为 **Gateway 直转 Python**。
+
+### 1.2 三套 AI 能力边界
+
+| | 小程序客服 | 商城 H5 AI 客服 | 后台 AI |
+|---|---|---|---|
+| 大模型 | ❌ 纯规则 ai_kb_qa | ✅ 硅基流动 | ✅ 硅基流动 |
+| 路由 | `/api/agent/*` | `/api/mall/ai/*` | `/api/admin/ai/*` |
+| 调用方 | 小程序用户 | H5 客户 | 后台运营 |
+| 可用工具 | 无 | 客户工具集（7 个） | 运营工具集（9 个） |
+| 权限过滤 | — | **仅角色绑定 + 启用状态** | 角色绑定 ∩ 用户权限 ∩ 启用状态 |
+| 知识库 | ai_kb_qa | ai_kb_qa | ai_kb_dataset + ai_kb_segment |
+| 特殊能力 | — | 商品卡片 → 下单 | 文案生成 + 商品回填 |
+
+> **权限过滤不对称的原因**：商城用户令牌由 `JwtUtil.generateUserToken()` 签发，**只含 `sub`，没有 `permissions` claim**（`common/.../JwtUtil.java:41`）。后台令牌由 `generateAdminToken()` 签发，含 `roles` + `permissions`。所以商城端无法做「用户权限 ∩ 工具」这一层。
+
+---
+
+## 2. 技术选型（已修正）
+
+| 项 | 选型 | 说明 |
+|---|---|---|
+| 父工程 | **Spring Boot 4.1.0** / Spring Cloud 2025.1.3 / Java 17 | 实际版本，非 3.x |
+| AI 大脑 | Python `ecommerce-python`（FastAPI 0.162） | 复用 SSE/Redis/MySQL/JWT |
+| 编排 | **LangChain 1.4.2 + LangGraph 1.2.12** | venv 已装但代码 0 引用，需补 requirements.txt |
+| LLM 客户端 | `langchain-openai` → 硅基流动 | `openai` 3.19.2 已装 |
+| Java→Python | Gateway 直转 + `RestClient`（product-service 调 Python 用过） | 现成先例 `RecommendServiceImpl.java:109` |
+| Python→Java | 新建 `internal_client.py`（httpx） | httpx 0.28.1 已装，代码 0 引用 |
+| 向量存储 | MySQL 存 JSON 数组 + Python 内存余弦计算 | 无向量库；数据量小够用，P2 再考虑 FAISS |
+| 密钥 | Python `.env` 的 `SILICONFLOW_API_KEY` | 已有键但 `config.py` 未定义，需补 |
+
+### 2.1 Python 现状（缺口清单）
+
+| 现状 | 事实 | 动作 |
+|---|---|---|
+| LLM 调用封装 | **不存在**。`.env` 有 `SILICONFLOW_API_KEY`/`OPENAI_BASE_URL`/`CHAT_MODEL`/`CHAT_TEMPERATURE`，但 `app/config.py` 的 `Settings` 未定义、代码未读取 | 补 config 字段 + 新建 `app/llm/client.py` |
+| LangChain/LangGraph | venv 已装，`app/**.py` **0 引用** | 补 `requirements.txt` 依赖声明 |
+| SSE | 有 `app/services/sse.py`，但流式是「完整答案按 14 字切块」伪流式 | AI 对话走真token 流式 |
+| 鉴权 | `require_user()` 强制 `type == "user"`，**admin 令牌会被 403** | 扩展为 `require_token()` 返回完整 payload，按需校验 type |
+| `app/graph/` | 目录存在但**只剩 `__pycache__`**，源文件已被删除且未入版本控制 | 清理目录，避免与新 `graphs/` 混淆 |
+| 配置 | `app/config.py` frozen dataclass `Settings` + `_env()` | 加 LLM/Embedding 配置项 |
+| MySQL | pymysql + DictCursor 同步连接，包在 `asyncio.to_thread` | 复用同样风格 |
+| Redis | `app/services/redis_client.py` 已有 | 复用（限流、会话历史） |
+
+---
+
+## 3. 功能清单
+
+### 3.1 商城 H5（面向客户，个人中心入口）
+
+| 功能 | 说明 | 优先级 |
+|---|---|---|
+| AI 客服对话 | 聊天，支持商品推荐卡片、查订单/售后/库存 | P0 |
+| 商品卡片推荐 | AI 推荐 → 卡片 → 点击跳转商品详情下单 | P0 |
+| 客服知识问答 | 退换货、发货时间、尺码等 ai_kb_qa | P0 |
+
+### 3.2 后台管理（面向运营）
+
+| 页面 | 路径 | 权限码 | 优先级 |
+|---|---|---|---|
+| AI 对话 | `/ai/chat` | `ai:chat:use` | P0 |
+| 商品文案助手 | `/ai/copy` | `ai:copy:generate` | P0 |
+| 聊天角色 | `/ai/roles` | `ai:role:list` | P1 |
+| 工具管理 | `/ai/tools` | `ai:tool:list` | P1 |
+| 知识库管理 | `/ai/knowledge` | `ai:knowledge:list` | P1 |
+| 聊天管理 | `/ai/admin` | `ai:chat:admin` | P1 |
+
+---
+
+## 4. Gateway 路由（新增）
+
+Gateway 用 **Spring Cloud Gateway 5.x webflux** 路由（`server.webflux.routes`），现有 `ai-service` 路由就是先例。
+
+```yaml
+# gateway/src/main/resources/application.yml
+- id: ai-service-mall
+  uri: ${AI_SERVICE_URL:http://127.0.0.1:8000}
+  predicates:
+    - Path=/api/mall/ai,/api/mall/ai/**
+- id: ai-service-admin
+  uri: ${AI_SERVICE_URL:http://127.0.0.1:8000}
+  predicates:
+    - Path=/api/admin/ai,/api/admin/ai/**
+```
+
+**必须放在 `/api/**` 通配（user-service）之前**，否则会被整段吃掉——这是现有配置里反复强调的规则。
+
+**鉴权归属**：Gateway 不做鉴权，Python 侧按 `type` 校验。理由见§1.1。
+
+**SSE 注意**：Gateway 是 WebFlux，SSE 透传需确认不缓冲。现有 `ai-service` 路由已在跑 `/api/agent/chat/stream`，说明这条路可行。
+
+---
+
+## 5. Java 业务数据 API（/internal/ai/**）
+
+### 5.1 安全问题（必须解决）
+
+**现状**：`/internal/**` 在 `WebMvcConfig.EXCLUDE_AUTH_PATHS` 白名单里，**免登录**。唯一防护是 `X-Internal-Call: true` 这个**静态字符串头**——任何人从公网带上这个头就能直调。
+
+`/internal/stock-write` 已经在裸奔（能改库存）。**`/internal/ai/**` 会暴露商品成本价、订单、售后，风险更高。**
+
+**方案**：为 AI 内部接口单独用**共享密钥**，不沿用 `X-Internal-Call`。
+
+```yaml
+# 统一配置
+ai:
+  internal:
+    token: ${AI_INTERNAL_TOKEN:change-me-in-prod}
+```
+
+```java
+// common/.../client/InternalServiceClient.java（新建，全局复用）
+if (!token.equals(header.get("X-Internal-Token"))) {
+    throw new BusinessException(HttpStatus.FORBIDDEN, "非法内部调用");
+}
+```
+
+**同时建议**：把 `/internal/stock-write` 也换成这个机制（顺带修掉现有漏洞）。这是独立议题，不阻塞 AI 开发，但必须记录。
+
+### 5.2 内部调用客户端（新建）
+
+现有内部调用**没有统一封装**（无Feign、无 WebClient、无通用 RestTemplate 配置），只有：
+- `common/.../utils/HttpClientUtil.java`——不支持自定义 Header
+- `order-service/.../client/StockInternalClient.java`——固定 URL 硬编码 `http://localhost:9003/...`，不走 Nacos
+
+**新建** `common/.../client/InternalServiceClient.java`：
+
+```java
+@Component
+public class InternalServiceClient {
+    // 走 Nacos lb://，不要硬编码 localhost
+    private final RestClient restClient;   // baseUrl 按服务名切换
+
+    public <T> T get(String service, String path, Class<T> type) { ... }
+    public <T> T put(String service, String path, Object body, Class<T> type) { ... }
+    // 统一加 X-Internal-Token 头 + 超时 + 失败降级
+}
+```
+
+### 5.3 接口清单
+
+| 接口 | 归属服务 | 方法 | 说明 | 调用方工具 |
+|---|---|---|---|---|
+| `/internal/ai/product/{id}` | product-service | GET | 查商品（不含成本价） | query_product |
+| `/internal/ai/products` | product-service | GET | 搜商品（keyword/分类/价格/排序） | search_product / recommend_product |
+| `/internal/ai/product/{id}` | product-service | PUT | 改商品（白名单字段） | update_product / generate_copy |
+| `/internal/ai/stock/{skuId}` | product-service | GET | 查库存 | query_stock |
+| `/internal/ai/orders` | order-service | GET | 查用户订单列表 | query_order |
+| `/internal/ai/aftersale/{id}` | aftersale-service | GET | 查售后进度 | query_aftersale |
+
+**全部需要新建**——现有只有 `/internal/stock-write` 一个写接口。
+
+**可复用的现有能力**：
+
+| 能力 | 现有实现 | 复用方式 |
+|---|---|---|
+| 商品搜索 | `ProductController` `GET /api/products/page`（keyword/分类/品牌/价格/排序） | 内部接口包装它，**不要重写 SQL** |
+| 商品详情 | `GET /api/products/{id}` | 同上 |
+| 改商品 | `AdminProductService.update(id, dto)` 局部更新（null 跳过） | 直接调，**不要绕过 Service** |
+| 订单查询 | `OrderService.listOrders(keyword)`（按 UserContext.userId + keyword 模糊） | 内部接口需显式传 userId |
+| 售后查询 | `AfterSaleService.getById(id)` / `getByOrderId(orderId)` / `list(...)` | 直接调 |
+
+**改商品的白名单与陷阱**：
+
+```java
+// AdminProductServiceImpl.java:127-136
+if (dto.getStock() != null && !Objects.equals(old.getStock(), dto.getStock())) {
+    throw new BusinessException(BAD_REQUEST, "商品库存不能在此处修改，请到【库存管理】操作");
+}
+```
+
+| 字段 | 允许 | 说明 |
+|---|---|---|
+| `name` / `subTitle` / `title` / `body` / `brand` | ✅ | 文案回填目标字段 |
+| `stock` | ❌ | Service 会抛 400 |
+| `costPrice` | ❌ | 商业敏感 |
+| `listingStatus` | ❌ | 上下架影响售卖 |
+| `categoryId` | ⚠️ | **`0` 是「清空分类」哨兵**，null 才是「不改」 |
+
+**DTO 只设目标字段，其余留 null**（局部更新语义）。
+
+### 5.4 C 端数据安全
+
+- `products.cost_price` C 端不下发 → `/internal/ai/product/**` 返回给商城 AI 时也**必须剔除**
+- 商城 AI 的订单/售后查询必须带 `userId` 过滤，**只能查自己的**
+- `admin_menu.perms` 全局唯一、长度 ≤100 → 工具权限码要短
+
+---
+
+## 6. Python ecommerce-python（AI 大脑）
+
+### 6.1 目录结构（基于现有结构调整）
+
+```
+ecommerce-python/app/
+├── api/
+│   ├── agent.py              # 现有：小程序客服（不动）
+│   ├── ai_chat.py            # 新增：对话 + 文案（SSE）
+│   ├── ai_admin.py           # 新增：角色/工具/知识库 CRUD（P1）
+│   └── ai_mgmt.py            # 新增：聊天管理（P1）
+├── ai/
+│   ├── client.py             # ChatOpenAI 客户端
+│   ├── state.py              # AgentState
+│   ├── chat_agent.py         # LangGraph StateGraph 编排
+│   ├── copy_agent.py         # 文案生成图
+│   ├── nodes/
+│   │   ├── intent.py         # 意图路由节点
+│   │   ├── llm.py            # LLM 节点（bind_tools）
+│   │   └── confirm.py        # 二次确认节点（interrupt）
+│   ├── tools/
+│   │   ├── query_product.py
+│   │   ├── search_product.py
+│   │   ├── recommend_product.py
+│   │   ├── search_knowledge.py
+│   │   ├── generate_copy.py
+│   │   ├── update_product.py
+│   │   ├── query_stock.py
+│   │   ├── query_order.py
+│   │   └── query_aftersale.py
+│   ├── knowledge.py          # RAG 检索
+│   ├── intent_router.py      # 关键词意图分类
+│   └── repo.py               # ai_* 表 DAO
+├── services/
+│   ├── auth.py               # 改：require_token 支持 admin
+│   ├── sse.py                # 现有，复用
+│   └── ...
+├── internal_client.py        # 新增：调 Java /internal/ai/**
+├── kb/                       # 现有（不动）
+├── db/                       # 现有（不动）
+├── config.py                 # 改：加 LLM 配置
+└── main.py                   # 改：注册新路由
+```
+
+**与现有代码的衔接点**：
+
+| 复用 | 说明 |
+|---|---|
+| `app/services/sse.py` | `sse_pack()` 直接用 |
+| `app/services/auth.py` | 扩展 `require_user` → `require_token` |
+| `app/kb/repo.py` | pymysql + DictCursor + `asyncio.to_thread` 风格照抄 |
+| `app/db/product_repo.py` | 同样的 MySQL 连接封装可参考 |
+| `app/config.py` | frozen dataclass，加字段即可 |
+
+### 6.2 LLM 客户端
+
+```python
+# app/ai/client.py
+from langchain_openai import ChatOpenAI
+from app.config import settings
+
+def get_llm(temperature: float | None = None):
+    return ChatOpenAI(
+        model=settings.chat_model,                 # deepseek-ai/DeepSeek-V4-Flash
+        api_key=settings.siliconflow_api_key,
+        base_url=settings.openai_base_url,         # https://api.siliconflow.cn/v1
+        temperature=temperature if temperature is not None else settings.chat_temperature,
+        max_tokens=settings.ai_max_output_tokens,
+        streaming=True,
+    )
+
+def get_embeddings():
+    from langchain_openai import OpenAIEmbeddings
+    return OpenAIEmbeddings(model=settings.embedding_model,   # BAAI/bge-m3
+                            api_key=settings.siliconflow_api_key,
+                            base_url=settings.openai_base_url)
+```
+
+`config.py` 需补的字段（**键名已在 .env 里，只是没被读取**）：
+
+```python
+siliconflow_api_key: str = _env("SILICONFLOW_API_KEY", "")
+openai_base_url: str = _env("OPENAI_BASE_URL", "https://api.siliconflow.cn/v1")
+chat_model: str = _env("CHAT_MODEL", "deepseek-ai/DeepSeek-V4-Flash")
+chat_temperature: float = float(_env("CHAT_TEMPERATURE", "0.7"))
+embedding_model: str = _env("EMBEDDING_MODEL", "BAAI/bge-m3")
+```
+
+### 6.3 工具设计原则（原子能力，不按场景）
+
+工具按**能力维度**设计，大模型负责编排组合。
+
+| 工具 | 能力 | 权限码 | 商城 | 后台 |
+|---|---|---|---|---|
+| `query_product` | 查单个商品全部信息 | `ai:tool:query` | ✅ | ✅ |
+| `search_product` | 按条件搜商品 | `ai:tool:search` | ✅ | ✅ |
+| `recommend_product` | 推荐商品（返回卡片） | `ai:tool:recommend` | ✅ | ✅ |
+| `search_knowledge` | RAG 搜知识库 | `ai:tool:knowledge` | ✅ | ✅ |
+| `query_stock` | 查库存 | `ai:tool:stock` | ✅ | ✅ |
+| `query_order` | 查用户订单 | `ai:tool:order` | ✅ | ✅ |
+| `query_aftersale` | 查售后进度 | `ai:tool:aftersale` | ✅ | ✅ |
+| `generate_copy` | 生成文案 | `ai:copy:generate` | ❌ | ✅ |
+| `update_product` | 改商品字段 | `ai:tool:update` | ❌ | ✅ |
+
+**7 个客户工具 + 2 个运营专属 = 9 个工具**。两端共用同一套 LangGraph 编排，区别只在：可用工具集、知识库、system_message。
+
+工具用 `@tool` 装饰器，统一调 Java `/internal/ai/**`，**不直连业务表**：
+
+```python
+# app/ai/tools/query_product.py
+from langchain_core.tools import tool
+from app.internal_client import internal_client
+
+@tool
+def query_product(productId: int) -> dict:
+    """查询商品详情，传入商品ID返回商品名称、价格、库存等信息。"""
+    return internal_client.get(f"/internal/ai/product/{productId}")
+```
+
+**工具权限过滤**：
+
+| 端 | 过滤逻辑 |
+|---|---|
+| 商城 | 「角色绑定工具 ∩ 工具启用状态」 |
+| 后台 | 「角色绑定工具 ∩ 用户 permissions ∩ 工具启用状态」 |
+
+`ai_tool.perm_code` 与 `admin_menu.perms` 的关系见 §9.2。
+
+### 6.4 对话编排（LangGraph StateGraph）
+
+```
+START → intent
+  ├─ greeting/thanks/farewell → END（固定回复，不调 LLM）
+  ├─ chitchat → llm（不带 tools）
+  └─ tool_needed/dangerous_write → llm（带 tools）
+        ├─ 无 tool_calls → END
+        └─ 有 tool_calls → confirm（dangerous_write 中断等确认）
+              → tools（执行）→ 回 llm
+```
+
+```python
+# app/ai/chat_agent.py
+from langgraph.graph import StateGraph, END
+from langgraph.prebuilt import ToolNode
+
+def build_chat_agent(checkpointer):
+    g = StateGraph(AgentState)
+    g.add_node("intent", intent_node)
+    g.add_node("llm", llm_node)
+    g.add_node("confirm", confirm_node)
+    g.add_node("tools", ToolNode(get_tools_for_context()))
+    g.set_entry_point("intent")
+    g.add_conditional_edges("intent", route_intent, {"end": END, "llm": "llm"})
+    g.add_conditional_edges("llm", should_call_tool, {"end": END, "confirm": "confirm"})
+    g.add_edge("confirm", "tools")
+    g.add_edge("tools", "llm")
+    return g.compile(checkpointer=checkpointer)
+```
+
+**Checkpointer 用 Redis**（项目已有 Redis 客户端），实现多轮上下文 + `interrupt()` 断点续跑。
+
+### 6.5 意图路由
+
+关键词匹配，< 1ms：
+
+| 意图 | 判定 | 商城 | 后台 |
+|---|---|---|---|
+| greeting | 你好/hi/hello | 固定回复 | 固定回复 |
+| thanks | 谢谢/感谢 | 固定回复 | 固定回复 |
+| farewell | 再见/拜拜 | 固定回复 | 固定回复 |
+| chitchat | 短文本无业务词 | LLM 无 tools | LLM 无 tools |
+| tool_needed | 商品/库存/价格/订单/售后 | LLM + 客户工具 | LLM + 运营工具 |
+| dangerous_write | 改/修改/删除/上架 | ❌ 无此意图 | LLM + 工具 + 二次确认 |
+
+**`dangerous_write` 安全护栏（仅后台）**：LLM 调 `update_product` 时不直接执行，返回「我准备帮你把商品 123 的标题改为『xxx』，确认吗？」，用户确认后才执行。
+
+### 6.6 RAG 知识库（两套）
+
+**Function Calling 查结构化数据，RAG 查非结构化知识。**
+
+| 知识库 | 表 | 使用端 | 内容 |
+|---|---|---|---|
+| 客服知识库 | `ai_kb_qa`（已有，+embedding 字段） | 商城 H5 | 退换货政策、发货时间、尺码表、运费规则 |
+| 运营知识库 | `ai_kb_dataset` + `ai_kb_segment`（新增，P1） | 后台 | 文案写法、运营规则、平台政策、内部 FAQ |
+
+- 客服知识库：Q&A 天然分段，加embedding 即可向量检索
+- 运营知识库：两表（dataset → segment），上传文档自动切分 embedding
+- `search_knowledge` 按调用端选择知识库；角色绑定的是 dataset
+- **向量模型**：硅基流动 `BAAI/bge-m3`（同 provider）
+- **向量存储**：embedding 存 MySQL JSON 数组，检索时 Python 内存算余弦。数据量小（<5000 段）完全够用，P2 再上 FAISS
+- **Rerank**：P1 可选，知识库 >200 篇再加（`BAAI/bge-reranker-v2-m3`）
+
+---
+
+## 7. 数据库表设计
+
+> 规范：`ai_` 前缀，`created_at`/`updated_at`，`utf8mb4_general_ci`，`bigint` 主键，无软删字段。
+
+### 7.1 `ai_tool` — 工具定义表
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | bigint PK | |
+| name | varchar(128) NOT NULL UNIQUE | 工具名，与 `@tool` 函数名一致 |
+| description | varchar(512) | 工具描述（给大模型看） |
+| perm_code | varchar(100) | 权限码，**必须对应 admin_menu 的一条 F 类型记录**（见 §9.2） |
+| scope | varchar(16) DEFAULT 'both' | mall / admin / both，标记工具面向哪端 |
+| status | tinyint DEFAULT 1 | 1 启用 0 停用 |
+| sort_order | int DEFAULT 0 | |
+| created_at / updated_at | datetime | |
+
+> 无 `input_schema` 字段——Schema 由 LangChain `@tool` 自动生成。
+
+### 7.2 `ai_chat_role` — 聊天角色表
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | bigint PK | |
+| name | varchar(128) NOT NULL | 角色名称 |
+| avatar | varchar(256) | 头像 |
+| description | varchar(256) | |
+| category | varchar(32) | 分类 |
+| system_message | varchar(1024) | 角色设定（system prompt） |
+| admin_id | bigint | 创建者，NULL=系统内置 |
+| public_status | tinyint DEFAULT 0 | 0 私有 1 公开 |
+| status | tinyint DEFAULT 1 | |
+| sort | int DEFAULT 0 | |
+| created_at / updated_at | datetime | |
+
+### 7.3 `ai_chat_role_tool` — 角色-工具绑定表
+
+| 字段 | 类型 |
+|---|---|
+| id | bigint PK |
+| role_id | bigint NOT NULL |
+| tool_id | bigint NOT NULL |
+
+UNIQUE KEY (role_id, tool_id)。
+
+### 7.4 `ai_chat_role_knowledge` — 角色-知识库绑定表（P1）
+
+| 字段 | 类型 |
+|---|---|
+| id | bigint PK |
+| role_id | bigint NOT NULL |
+| dataset_id | bigint NOT NULL |
+
+UNIQUE KEY (role_id, dataset_id)。
+
+### 7.5 `ai_chat_conversation` — 对话表
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | bigint PK | |
+| title | varchar(256) NOT NULL | |
+| admin_id | bigint | 后台对话发起人，商城为 NULL |
+| user_id | bigint | 商城对话发起人，后台为 NULL |
+| source | varchar(16) NOT NULL | mall / admin |
+| role_id | bigint | |
+| system_message | varchar(1024) | |
+| temperature | double DEFAULT 0.7 | |
+| max_tokens | int DEFAULT 2048 | |
+| max_contexts | int DEFAULT 20 | |
+| pinned | tinyint DEFAULT 0 | |
+| created_at / updated_at | datetime | |
+
+### 7.6 `ai_chat_message` — 消息表
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | bigint PK | |
+| conversation_id | bigint NOT NULL | |
+| admin_id | bigint | 后台发起人，商城为 NULL |
+| user_id | bigint | 商城发起人，后台为 NULL |
+| role_id | bigint | |
+| type | varchar(16) NOT NULL | user / assistant / tool |
+| content | text | |
+| tool_calls | text | assistant 发起的工具调用 JSON |
+| tool_call_id | varchar(128) | type=tool 时 |
+| tool_name | varchar(128) | type=tool 时 |
+| created_at | datetime | |
+
+### 7.7 `ai_call_log` — 调用审计表
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | bigint PK | |
+| admin_id | bigint | |
+| user_id | bigint | |
+| conversation_id | bigint | |
+| scene | varchar(64) NOT NULL | chat / generate_copy / tool:xxx |
+| model | varchar(128) | |
+| prompt_tokens / completion_tokens / total_tokens | int | |
+| duration_ms | int | |
+| success | tinyint DEFAULT 1 | |
+| error_msg | varchar(512) | |
+| created_at | datetime | |
+
+### 7.8 `ai_kb_qa` — 客服知识库（已有，P1 加字段）
+
+现有表。P1 时加 `embedding` 列（TEXT 存 JSON 数组）。Q&A 结构天然分段，无需切分。
+
+### 7.9 `ai_kb_dataset` — 运营知识库表（P1）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | bigint PK | |
+| name | varchar(256) NOT NULL | 知识库名称 |
+| description | varchar(512) | |
+| category | varchar(64) | 分类 |
+| status | tinyint DEFAULT 1 | |
+| created_at / updated_at | datetime | |
+
+### 7.10 `ai_kb_segment` — 运营知识分段表（P1）
+
+| 字段 | 类型 | 说明 |
+|---|---|---|
+| id | bigint PK | |
+| dataset_id | bigint NOT NULL | 所属知识库 |
+| source_doc | varchar(256) | 来源文档名 |
+| title | varchar(256) | 分段标题 |
+| content | text NOT NULL | 分段正文 |
+| embedding | text | 向量 JSON 数组（1536 维） |
+| status | tinyint DEFAULT 1 | |
+| created_at | datetime | |
+
+---
+
+## 8. 接口设计
+
+### 8.1 商城 AI 对话（流式，P0）
+
+```
+POST /api/mall/ai/chat/stream
+鉴权: user JWT（Python 侧校验 type=user）
+入参: { conversationId?, message }
+出参: SSE
+```
+
+配套：`GET /api/mall/ai/conversations`、`GET /conversations/{id}/messages`、`DELETE /conversations/{id}`。
+
+**商品卡片**：`recommend_product` 返回结构化数据，前端渲染卡片，「立即购买」跳转商城商品详情页 `/product/{id}`（路由 `product/:id`）。
+
+### 8.2 后台 AI 对话（流式，P0）
+
+```
+POST /api/admin/ai/chat/stream
+鉴权: admin JWT（Python 侧校验 type=admin + permissions 含 ai:chat:use）
+入参: { conversationId?, roleId?, message }
+```
+
+配套：`GET /api/admin/ai/conversations`、`GET /conversations/{id}/messages`、`DELETE /conversations/{id}`。
+
+### 8.3 文案生成（后台，P0）
+
+```
+POST /api/admin/ai/copy/generate
+权限: ai:copy:generate
+入参: { productId, scene }   // TITLE→name | SUBTITLE→subTitle | DESCRIPTION→body
+出参: { productId, scene, content }
+```
+
+自动回填：调 `PUT /internal/ai/product/{id}`，DTO 只设对应字段。
+
+### 8.4 角色 / 工具 / 知识库管理（P1）
+
+```
+GET    /api/admin/ai/roles          POST   /api/admin/ai/roles
+PUT    /api/admin/ai/roles/{id}     DELETE /api/admin/ai/roles/{id}
+GET    /api/admin/ai/tools          PUT    /api/admin/ai/tools/{id}/status
+GET    /api/admin/ai/knowledges     POST   /api/admin/ai/knowledges
+DELETE /api/admin/ai/knowledges/{id}
+```
+
+### 8.5 聊天管理（P1）
+
+```
+GET    /api/admin/ai/admin/conversations
+GET    /api/admin/ai/admin/messages
+DELETE /api/admin/ai/admin/conversations/{id}
+```
+
+---
+
+## 9. 权限与菜单（重要修正）
+
+### 9.1 现有权限体系事实
+
+| 事实 | 说明 |
+|---|---|
+| 权限码格式 | `模块:实体:动作`，如 `product:product:list`、`stock:dashboard:view` |
+| `admin_menu.perms` | **单个权限码字符串**（不是逗号分隔多值），≤100 字符，**全局唯一** |
+| 权限来源 | 登录时一次性查库快照进 JWT `permissions` claim，**不是每次查库** |
+| 超管 | `permissions = ["*:*:*"]`，`PermissionInterceptor` 直接放行 |
+| `@RequirePerm` | **HandlerInterceptor**（非 AOP），取 `UserContext.getPermissions()` |
+| 内置角色 | 1 admin 店铺管理员 / 2 operator 运营 / 3 service 客服 / 4 warehouse 仓储发货 |
+| 角色权限计算 | `admin_menu → admin_role_menu → admin_user_role → admin_role`，取 DISTINCT `m.perms`（含 F 按钮类型） |
+
+### 9.2 工具权限码的授权链路（闭环关键）
+
+`ai_tool.perm_code` 要真正生效，必须**在 `admin_menu` 里有一条 F 类型按钮记录**，`perms` 等于该 `perm_code`，再通过 `admin_role_menu` 关联到角色。
+
+```
+ai_tool.perm_code = 'ai:tool:query'
+        │
+        ├── admin_menu(id=1010, menu_type='F', perms='ai:tool:query')
+        │        │
+        │        └── admin_role_menu(role_id=2, menu_id=1010)  ← 运营角色获得该权限
+        │
+        └── admin_user_role(admin_id=X, role_id=2)
+                ↓
+        登录时 RbacMapper 查出 permissions = ['ai:tool:query', ...]
+                ↓
+        存入 JWT permissions claim
+                ↓
+        Python 侧过滤工具时与角色绑定取交集
+```
+
+**没有 `admin_menu` 记录 → 权限码永远匹配不到任何角色 → 工具对所有人不可用。** 建表时必须同步插入这批 F 类型菜单。
+
+### 9.3 菜单显示由前端写死（修正）
+
+**后台菜单不是后端下发的。** `App.vue:122-150` 的 `buildMenu()` 从**前端静态路由** `src/router/index.js` 生成侧边栏，按 `meta.permission` 过滤。
+
+后端虽然有 `GET /api/admin/info` 返回 `menus`，但**前端从未调用**。
+
+**因此**：
+- `admin_menu` SQL 的作用 = **授权**（让角色能拿到权限码），**不是**控制菜单显示
+- 菜单显示 = 前端 `src/router/index.js` 加路由 + `meta.permission`
+- 两者都要做，缺一不可
+
+### 9.4 权限码清单
+
+```sql
+-- 目录
+INSERT INTO admin_menu (id, parent_id, menu_name, menu_type, path, icon, sort_order, perms)
+SELECT 1000, 0, 'AI 客服', 'M', '/ai', 'RobotOutlined', 55, NULL
+WHERE NOT EXISTS (SELECT 1 FROM admin_menu WHERE id = 1000);
+
+-- 菜单
+INSERT INTO admin_menu (id, parent_id, menu_name, menu_type, path, sort_order, perms)
+SELECT 1001, 1000, 'AI 对话', 'C', '/ai/chat', 1, 'ai:chat:use'
+WHERE NOT EXISTS (SELECT 1 FROM admin_menu WHERE id = 1001);
+
+INSERT INTO admin_menu (id, parent_id, menu_name, menu_type, path, sort_order, perms)
+SELECT 1002, 1000, '商品文案助手', 'C', '/ai/copy', 2, 'ai:copy:generate'
+WHERE NOT EXISTS (SELECT 1 FROM admin_menu WHERE id = 1002);
+
+-- 按钮（工具权限码，必须有 F 类型记录才能被角色授予）
+INSERT INTO admin_menu (id, parent_id, menu_name, menu_type, sort_order, perms)
+SELECT 1010, 1001, '查询商品', 'F', 1, 'ai:tool:query'
+WHERE NOT EXISTS (SELECT 1 FROM admin_menu WHERE id = 1010);
+-- ... 其余 8 个工具同理，id 1011~1018
+```
+
+角色分配：超管(1) 全有；运营(2) 全有；客服(3) 仅对话；仓管(4) 无。
+
+### 9.5 前端权限指令的实际行为（修正）
+
+`v-permission` **不隐藏无权限的按钮**，只在点击时拦截并 `message.warning('无权限，无法执行该操作')`（`src/directives/permission.js:6-8, 20-32`）。
+
+路由守卫（`src/router/permission.js:67-111`）：无权限时跳到第一个可访问页面。
+
+前端取权限靠 `src/utils/auth.js` 的 `hasPermi()`——**直接 base64 解 JWT payload**，不调后端。
+
+---
+
+## 10. 前端设计
+
+### 10.1 闭环设计（核心）
+
+工具和知识库创建后，必须通过**聊天角色**绑定，才能在对话中生效：
+
+```
+工具闭环：
+  代码定义 @tool → ai_tool 表注册 → 工具管理（启停）
+       ↓
+  聊天角色编辑 → 多选绑定工具 → 保存
+       ↓
+  AI 对话 → 选角色 → LLM 只能调用绑定的工具 → 工具执行 → 结果展示
+
+知识库闭环：
+  知识库管理 → 建库 + 上传文档 + embedding
+       ↓
+  聊天角色编辑 → 多选绑定知识库 → 保存
+       ↓
+  AI 对话 → 选角色 → search_knowledge 只检索绑定的知识库 → 结果给 LLM
+```
+
+**聊天角色 = 人设(system_message) + 工具集 + 知识库集**，是整个 AI 能力的配置中心。
+
+### 10.2 商城 H5 AI 客服
+
+- **入口**：个人中心 →「AI 客服」（`ecommerce-mall/src/views/user/Profile.vue`）
+- **布局**：全屏聊天页
+  - 顶部：返回 + 「AI 客服」
+  - 中间：消息列表（user 右气泡，assistant 左气泡）
+  - 底部：输入框 + 发送
+- **商品卡片**：`tool_name=recommend_product` → 渲染卡片（主图+名+价+「立即购买」→ `/product/{id}`）
+- **流式**：打字机效果
+- **会话历史**：保留会话列表
+- **不显示角色选择**，默认「商城客服」内置角色
+- **商城客服内置角色**：绑定 7 个客户工具 + ai_kb_qa
+
+### 10.3 后台路由
+
+```js
+{ path: '/ai', component: Layout, meta: { title: 'AI 客服', icon: 'RobotOutlined', renderMenu: true },
+  children: [
+    { path: 'chat',      component: () => import('@/pages/ai/AiChat.vue'),
+      meta: { permission: 'ai:chat:use' } },
+    { path: 'copy',      component: () => import('@/pages/ai/CopyAssistant.vue'),
+      meta: { permission: 'ai:copy:generate' } },
+    { path: 'roles',     component: () => import('@/pages/ai/RoleList.vue'),
+      meta: { permission: 'ai:role:list' } },
+    { path: 'tools',     component: () => import('@/pages/ai/ToolList.vue'),
+      meta: { permission: 'ai:tool:list' } },
+    { path: 'knowledge', component: () => import('@/pages/ai/KnowledgeList.vue'),
+      meta: { permission: 'ai:knowledge:list' } },
+    { path: 'admin',     component: () => import('@/pages/ai/ChatAdmin.vue'),
+      meta: { permission: 'ai:chat:admin' } },
+  ]
+}
+```
+
+> `renderMenu: true` 是现有路由的约定（见 `src/router/index.js:52-63`），漏了侧边栏不显示。
+
+### 10.4 后台 AI 对话页（AiChat.vue）
+
+- **左侧**：会话列表（新建/删除）+ 顶部角色选择
+- **右侧**：消息列表（Markdown）+ 输入框，流式打字机
+- **商品卡片**：「查看商品」「复制链接」
+- **工具调用提示**：assistant 消息下方显示「调用了 query_product 工具」小字标签
+
+### 10.5 商品文案助手页（CopyAssistant.vue）
+
+商品搜索选择器 + 场景选择（标题/副标题/详情）+ 生成按钮 → 结果展示 → 提示「已自动写入商品」→ 跳商品编辑页。
+
+### 10.6 聊天角色页（RoleList.vue）— 闭环枢纽
+
+- **表格列**：名称、头像、分类、绑定工具数、绑定知识库数、状态、操作
+- **新建/编辑弹窗**（`a-modal`）：
+  - 基本信息：名称、头像、分类、排序、状态
+  - 角色设定（system_message）：`a-textarea`
+  - **绑定工具**：`a-checkbox-group`（数据来自 ai_tool 表），多选
+  - **绑定知识库**：`a-checkbox-group`（数据来自 ai_kb_dataset 表），多选
+  - 公开/私有
+- **操作**：编辑、删除（`a-popconfirm`）
+
+### 10.7 工具管理页（ToolList.vue）
+
+- **表格列**：工具名、描述、权限码、启用端（scope）、状态（`a-switch`）、操作
+- **查看 Schema**：弹窗展示入参 JSON Schema（LangChain `@tool` 自动生成）
+- **只能启停和查看，不能创建**（新增工具需写代码 + 插表）
+
+### 10.8 知识库管理页（KnowledgeList.vue）
+
+- **左侧**：知识库列表（新建/编辑/删除）
+- **右侧**：文档列表
+  - 上传文档（文本/Markdown）→ 自动切分 + embedding
+  - 手动添加片段（标题 + 内容）
+- **召回测试（P1）**：列表操作列加「测试」→ 弹窗输入问题 → 展示命中的 top_k segment（标题+内容+相似度）。复用 `search_knowledge` 逻辑，不单独建表。
+
+### 10.9 聊天管理页（ChatAdmin.vue）
+
+- **Tab1 对话列表**：按用户/角色/时间筛选，可删除
+- **Tab2 消息列表**：按关键词/时间筛选，点击看详情
+- 仅超管可见
+
+### 10.10 API 封装
+
+```js
+// e-commerce/src/api/ai.js
+import request from '@/api/request'
+
+export const adminChatStream = (data) => request.post('/api/admin/ai/chat/stream', data)
+export const getConversations = () => request.get('/api/admin/ai/conversations')
+export const getMessages = (id) => request.get(`/api/admin/ai/conversations/${id}/messages`)
+export const deleteConversation = (id) => request.delete(`/api/admin/ai/conversations/${id}`)
+export const generateCopy = (productId, scene) => request.post('/api/admin/ai/copy/generate', { productId, scene })
+export const getRoles = () => request.get('/api/admin/ai/roles')
+export const createRole = (data) => request.post('/api/admin/ai/roles', data)
+export const updateRole = (id, data) => request.put(`/api/admin/ai/roles/${id}`, data)
+export const deleteRole = (id) => request.delete(`/api/admin/ai/roles/${id}`)
+export const getTools = () => request.get('/api/admin/ai/tools')
+export const toggleTool = (id, status) => request.put(`/api/admin/ai/tools/${id}/status`, { status })
+export const getKnowledges = () => request.get('/api/admin/ai/knowledges')
+export const createKnowledge = (data) => request.post('/api/admin/ai/knowledges', data)
+export const deleteKnowledge = (id) => request.delete(`/api/admin/ai/knowledges/${id}`)
+```
+
+商城端：`ecommerce-mall/src/api/ai.js`，请求封装在 `src/utils/request.js`（localStorage key `mall_token`）。
+
+---
+
+## 11. 本版修正点汇总
+
+| # | 原方案 | 实际情况 | 修正 |
+|---|---|---|---|
+| 1 | Spring Boot 3.x | **4.1.0** | 版本更正 |
+| 2 | Java 做网关 + SSE 透传 | 全仓无 SSE 基础设施；Gateway 已有 Python 直通路由 | **改为 Gateway 直转 Python** |
+| 3 | 转发 `X-Admin-Perms` Header | Python 已共用 `JWT_SECRET`，可自校验 | 改为透传 Authorization 头 |
+| 4 | 权限字段 `perms` / `role` | JWT 里是 **`permissions`**（复数数组）+ `roles` | 字段名更正 |
+| 5 | 商城端「用户权限 ∩ 工具」 | 商城令牌**没有 permissions claim** | 商城只按角色绑定过滤 |
+| 6 | 权限码 `ai:tool:query_product` | 格式应为 `模块:实体:动作` | 改为 `ai:tool:query` 等短码 |
+| 7 | 菜单 SQL 控制菜单显示 | 菜单**前端写死**，SQL 只管授权 | 补充前端路由 + `renderMenu` |
+| 8 | `v-permission` 隐藏按钮 | 实际是**点击时拦截提示** | 行为更正 |
+| 9 | 内部调用有统一封装 | 无 Feign/无通用客户端，现有走硬编码 URL | 新建 `InternalServiceClient` |
+| 10 | `X-Internal-Call: true` 鉴权 | 静态字符串，公网可直调（现存漏洞） | 新增 `X-Internal-Token` 共享密钥 |
+| 11 | 订单/售后有内部接口 | **完全没有**，只有 stock-write | 标注全部需新建 |
+| 12 | Python 已接LLM | **代码零调用**，`.env` 有键但 config 未读 | 补 config + client |
+| 13 | Python 用 LangGraph | venv 装了但**代码 0 引用** | 补 requirements.txt |
+| 14 | `app/graph/` 目录 | **只剩 __pycache__**，源文件已删 | 清理目录，改用 `app/ai/` |
+| 15 | 向量存 MySQL blob | MySQL 5.7 无向量类型 | 改 JSON 数组 + 内存余弦 |
+| 16 | 内部接口可复用现有 | 商品搜索/订单/售后有现成 Service | 明确复用，不重写 SQL |
+| 17 | 未考虑成本价泄露 | `cost_price` C 端不下发 | 内部接口也必须剔除 |
+| 18 | `categoryId` 直接传 | **`0` 是清空哨兵**，null 才是不改 | 标注陷阱 |
+
+---
+
+## 12. 开发顺序
+
+### P0
+
+| 步 | 内容 | 产出 |
+|---|---|---|
+| 1 | 建表 + 初始化数据 | 6 张表 + 9 个工具 + 2 个内置角色 + **F 类型菜单按钮记录** |
+| 2 | Python 基础 | config 补 LLM 字段、`llm/client.py`、`internal_client.py`、`services/auth.py` 扩展 |
+| 3 | Gateway 路由 | `/api/mall/ai/**`、`/api/admin/ai/**` |
+| 4 | Java 内部 API | `InternalServiceClient` + `/internal/ai/**`（商品/库存/订单/售后） |
+| 5 | Python 图编排 | `intent` + `llm` + `tools` + `confirm`，SSE 输出 |
+| 6 | 商城 H5 | AI 客服页面 + 商品卡片 + 跳转下单 |
+| 7 | 后台前端 | `AiChat.vue` + `CopyAssistant.vue` + `api/ai.js` + 路由 |
+| 8 | 联调验收 | |
+
+### P1
+
+角色管理 / 聊天管理 / 工具管理 / RAG 知识库（`ai_kb_qa` 加 embedding + `ai_kb_dataset` + `ai_kb_segment` + `search_knowledge` + 知识库管理页面）。
+
+### P2
+
+Rerank（知识库 >200 篇）/ FAISS 向量库 / `/internal/stock-write` 的共享密钥改造。
