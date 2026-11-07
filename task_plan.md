@@ -677,6 +677,43 @@
 - [ ] **【待发版】** 后台前端 `release-web.sh`
 - [ ] **【待确认】** 旧知识库矛盾条目（积分 / 价保 / 券叠加）修订；寒暄问答 5~8 条补库
 
+### 阶段 34：上传链路安全加固（2026-11-07）
+
+> 起因：`docs/fileupload` 盘出上传链路的 7 个缺口，用户拍板本次修 3 类（魔数校验 + 孤儿清理 + 落盘健壮性），
+> 明确不做限流 / 对象存储 / 私有读。完整说明见 `docs/fileupload` 第 6 章。
+
+- [✓] **魔数校验**（新增 `common/utils/MediaMagic.java`）：读文件头比对真实类型，与声明类型不符返回 400。
+      接入 `UploadServiceImpl.upload()`（后台图 + C 端图）、`UserServiceImpl.uploadAvatar()`（头像）。
+      **不能用 `ImageIO.read()`** —— JDK 17 ImageIO 不支持 webp，本项目统一输出 webp，会把正常图片全判为非法。
+      实测 9/9 通过（真 webp/jpg + png/gif/mp4 头 + 伪装脚本 + 空文件 + 两种拒绝场景）
+- [✓] **落盘健壮性**：`mkdirs()` 失败且目录仍不存在 → 抛「存储目录不可用」；`transferTo` 后校验文件存在且 `length() > 0`；
+      头像补 2MB 体积校验（Service 层原来只校验类型，体积全靠容器层 2MB 兜底）
+- [✓] **孤儿文件清理任务**（新增 `product-service/.../OrphanImageCleanupTask.java` + `OrphanImageCleanupTaskRunner`）：
+      扫 `upload/`，删掉数据库里已无引用的上传文件。`admin_monitor_task` 动态调度（`task_name=orphanImageCleanup`、
+      `task_group=product-service`、每天 04:30）；`monitor-service` 的 `MANUAL_RUN_ALLOWED` 放开手动执行；
+      `product-service` yml 开 `monitor.dynamic-task.enabled` + `upload.orphan-cleanup.*`
+- [✓] **引用列清单**（`OrphanImageCleanupTask.REFERENCED_SQL`）：一条 UNION ALL 全查 **17 个图片列 + 2 个富文本列**，
+      跨 6 个模块的表；一条正则统一提取路径，兼容单值 / JSON 字符串数组 / JSON 对象数组 / 富文本 HTML 四种存储。
+      **新增图片类型时必须补一条**，否则新类型的图会被误判成孤儿
+- [✓] **四道安全闸**：`dry-run` 默认 true / 静态资源白名单（`swiper/` `share/` `side-bar/` + 4 张根级静态图，
+      这些是前端代码写死引用、不在数据库里的）/ 7 天门槛 / 单次 500 个上限
+- [✓] **跨平台坑已修**：静态白名单判断**不能用 `Path.parts` 解析 URL**（Windows/Linux 段数下标不同，会让白名单在本地失效），
+      改用 `url.split("/")`。实跑验证：4 张根级静态图**未**出现在待删清单里
+- [✓] **实测基线**（本地库 + 本地磁盘）：数据库引用路径 460 条、磁盘文件 498 个（不含 opt），真正孤儿 21 个
+      （after-sale 13、body 5、upload 2、banner 1），其中 20 个超 7 天；Java 实跑 26 个（含 6 个 opt 派生孤儿），
+      与 Python 独立脚本基线逐项对齐
+- [✓] **沙箱真删验证**（副本目录，真实 `upload/` 未动，仍是 708 个文件）：708 → 682，删除清单与 dry-run **完全一致**；
+      三条边界断言全对 —— 刚上传的新孤儿**保留**（7 天门槛）、100 天前的老孤儿**删除**、100 天前但**被引用**的文件**保留**
+- [✓] **单元测试 10/10 通过**（新增 `spring-boot-starter-test` 到 common / product-service 的 test 作用域）：
+      `MediaMagicTest` 5 例（5 种格式识别 / 伪装文件拒绝 / 类型不符拒绝）+ `OrphanImageCleanupTaskTest` 5 例
+      （opt 与原图同 URL 的路径换算 / 静态资源白名单 / 端到端只删真孤儿 / 演练模式不删）
+- [✓] **生产库已同步**：`docs/sql/20261107_orphan_cleanup_task.sql` 同一份在本地与生产均执行并核对
+      （生产 id=8，task_group=product-service，cron `0 30 4 * * ?`）
+- [ ] **【待发版】** common 改了 → product-service / user-service / monitor-service **都要重发**
+- [ ] **【待人工】** 上线后先跑一次 dry-run 演练（后台「系统监控 → 定时任务」手动执行 `orphanImageCleanup`），
+      核对清单无静态资源、无被引用文件、无比 7 天内的新文件，再把 `upload.orphan-cleanup.dry-run` 改 false
+- [ ] **【本次明确不做】** 上传限流（Redis）/ 本地盘改对象存储（OSS-COS）/ 静态资源私有读签名 —— 理由见 `docs/fileupload` 第 6.2 / 8 章
+
 ## 订单状态合并：退役「待确认收款(2)」（2026-11-04）
 
 - [✓] **判断**：code=2 是原 Node 真实支付场景的「商家人工确认到账」。本项目支付是 mock 的，点一下即成功，

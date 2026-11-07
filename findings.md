@@ -450,6 +450,27 @@ ecommerce
 - **C 端上传不重复造**：小程序 review / feedback / after-sale 走微信原生 `uni.chooseImage({sizeType:['compressed']})`，已经压过了。
 - **实测收益**：用现网那张 1200×1200 banner 编码实测，小程序首页位 58.2KB → 21.7KB，像素 144 万 → 28 万（解码内存 5.76MB → 1.1MB）。方形图裁进宽幅位是设计取舍，画幅正确比清晰度更重要。
 
+### 上传链路安全加固（2026-11-07）
+
+> 完整说明见 `docs/fileupload`（含第 6 章「上传安全性设计」）。这里是约定与坑。
+
+- **上传归属**：`file-service` 是空壳（只有启动类），**所有上传逻辑都在 `product-service`**（`UploadServiceImpl`）；头像在 `user-service`。
+- **魔数校验（新增 `common/utils/MediaMagic.java`）**：`Content-Type` 是客户端填的，可以伪造 —— 把 `.jsp` 标成 `image/png` 就能骗过白名单落盘。现在读文件头比对真实类型，不符返回 400。接入 `UploadServiceImpl.upload()` 与 `UserServiceImpl.uploadAvatar()`。
+  - **不能用 `ImageIO.read()` 校验**：JDK 17 的 ImageIO **不支持 webp**，而本项目图片统一输出 webp，用 ImageIO 会把正常图片全判为非法。所以只做魔数判定不做解码 —— 能挡住「伪装成图片的脚本/任意二进制」，挡不住「魔数对但内容损坏」（那种只是浏览器裂图，无安全影响）。
+  - 魔数：PNG `89 50 4E 47 0D 0A 1A 0A` / JPEG `FF D8 FF` / GIF `GIF8` / WEBP `RIFF`+`WEBP`(第 8~11 字节) / MP4 第 4~7 字节 `ftyp`。
+- **孤儿文件清理任务（新增 `product-service/.../OrphanImageCleanupTask.java`）**：扫描 `upload/`，删掉数据库里已无引用的上传文件。由 `admin_monitor_task` 动态调度（`task_name=orphanImageCleanup`、`task_group=product-service`、每天 04:30），后台「系统监控 → 定时任务」可手动执行。
+  - **引用列清单在 `OrphanImageCleanupTask.REFERENCED_SQL` 里，一条 UNION ALL 全查**：共 **17 个图片列 + 2 个富文本列**，跨 6 个模块的表（products / product_sku / categories / promotion_banner / promotion_article / promotion_article_category / product_reviews / order_items / cart / after_sales / after_sale_items / delivery_express / feedback / user）。**新增图片类型时必须补一条**，否则新类型的图会被误判成孤儿。
+  - **一条正则统一提取路径**，兼容四种存储形态：单值路径、JSON 字符串数组（`after_sales.images` / `feedback.images`）、JSON 对象数组（`product_reviews.images` 的 `[{"url":...,"type":"image"}]`，种子数据用的就是这种）、富文本 HTML（`products.body` / `promotion_article.content`，实测形态 `<img src="/image/body/xxx.webp" alt="" data-href="..." style=""/>`）。左边界用 lookbehind 挡住外链 URL 里恰好含 `/image/` 的情况（`user.avatar` 可能存微信头像绝对地址）。
+  - **软删数据算「仍被引用」**（不过滤 `is_deleted`）：软删行可以恢复，删掉它的图会导致恢复后裂图。宁可多留文件（占点空间），也不能删活数据（不可逆）。
+  - **`products` / `categories` / `product_sku` 是物理删**，商品删了以后 `order_items.image` / `cart.image` / `product_reviews.product_image` 仍引用同一文件 → 该图仍算被引用（历史订单页还要显示）。判孤儿必须看**全部引用列的并集**。
+  - **`opt/` 是派生目录，不做独立判定**：`upload/image/opt/{sub}/x.webp` 与原图 `upload/image/{sub}/x.webp` 是同一个 URL，原图被判孤儿时连带清理；原图本来就不存在时（如实测的 `opt/upload/128.webp`）opt 也一并清掉。
+  - **四道安全闸**：`dry-run` 默认 true（上线先演练只打印清单）/ 静态资源白名单 / 7 天门槛（防「刚上传还没写库」竞态）/ 单次 500 个上限（`admin_monitor_task.status=0` 可随时停用）。
+  - **静态资源白名单（漏了就是线上事故）**：`/image/swiper/`、`/image/share/`、`/image/side-bar/` 三个目录 + `/image/` 根下 `QRcode.webp`、`store-logo.webp`、`zongjie.webp`、`price-background.webp` 四个散图 —— 这些是前端代码**写死**引用的，**不在任何数据库表里**。出处：`ecommerce-mall/src/views/layouts/DefaultLayout.vue`、`views/products/Paid.vue`、`components/StoreCard.vue`；`e-commerce/src/pages/goods/list/Paid.vue`、`StoreCard.vue`；小程序 `components/custom-swiper.vue`。
+  - **踩坑：判断白名单不能用 `Path.parts` 解析 URL**。Windows 上 `Path("/image/QRcode.webp").parts` = `('\\','image','QRcode.webp')`，Linux 上 = `('/','image','QRcode.webp')`，段数与下标都不同 —— 会导致白名单在本地演练时失效、4 张根级静态图被误判成孤儿。**必须用 `url.split("/")` 拆字符串**，与平台无关。实现时踩到了，已修。
+  - **实测基线（本地库 + 本地磁盘）**：数据库引用路径 460 条、磁盘文件 498 个（不含 opt 共 708 个文件）；排除静态资源后真正孤儿 21 个（after-sale 13、body 5、upload 2、banner 1），其中 20 个超过 7 天。
+- **落盘健壮性**：`mkdirs()` 返回 false 且目录仍不存在 → 抛「存储目录不可用」；`transferTo` 后校验文件存在且 `length() > 0`，避免「接口返回成功但磁盘上是空文件」。头像另补 2MB 体积校验（Service 层原来只校验类型，体积全靠容器层 2MB 兜底）。
+- **本次明确不做的**：上传频率限流（Redis）、本地磁盘改对象存储（OSS/COS）、静态资源私有读签名。理由与影响见 `docs/fileupload` 第 6.2 / 8 章。
+
 ### 后台商品评价管理模块（2026-11-02）
 
 > 完整方案见仓库根目录 `review`（v3，已按实际实现回改）。这里只记**约定和坑**。
@@ -785,6 +806,10 @@ ecommerce
 | 登录失败锁定按 `username+ip` 计，挡不住「一个 IP 遍历一堆用户名」的枚举 | 每组合只错 1 次永不触发锁定，还能把 Redis key 堆爆 | **2026-11-03 决定暂不改**；需补 IP 维度限流（`auth.login.max-fail-per-minute`） |
 | 验证码 `get` 成功但 `delete` 抛异常 → 整段 catch 成 500 | 验证码明明正确却报「验证码服务暂不可用」，且该验证码没被消费可重放 | **2026-11-03 决定暂不改**；应把读失败与删失败分级（删失败只告警） |
 | 验证码校验失败**不计入**登录失败计数（校验在密码之前抛异常） | 连续输错验证码时计数不涨，用户观感是「锁不上」；实测密码错 5 次必锁（429），验证码错则一次都不计 | **2026-11-03 实测确认，维持现状**；详见「后台登录锁定实测」 |
+| 上传接口**无频率限制** | 单用户可无限次上传，磁盘被刷爆 | **2026-11-07 决定暂不做**；待做时用 Redis 限流（common 已接入 RedisTemplate），按 userId 计数 |
+| 上传文件落**本地磁盘**，目录基于进程工作目录 | 多实例部署时 A 实例上传的图片 B 实例访问不到 | **2026-11-07 决定暂不做**；生产目前单实例，**扩容前必须改对象存储（OSS/COS）或共享卷** |
+| `/image/**` 静态资源**无鉴权** | 售后凭证图（`/image/after-sale/`）任何人都能访问（UUID 不可枚举，但无授权校验） | **2026-11-07 决定暂不做**；展示链路依赖公开访问，改私有读要配套签名 URL |
+| 本地库有 5 条「DB 有引用但磁盘无文件」（4 个商品主图 + 1 个头像） | 历史丢图，页面显示裂图 | 2026-11-07 排查孤儿时发现，与清理方向相反（清理只删「磁盘有、DB 无引用」），本次未处理 |
 
 ## 后台登录加固（2026-11-03 讨论结论，**暂未实施**）
 

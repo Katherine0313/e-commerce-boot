@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import ecommerce.user.vo.UserProfileVO;
 import ecommerce.user.vo.UserStatisticsVO;
 import ecommerce.utils.JwtUtil;
+import ecommerce.utils.MediaMagic;
 import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.ObjectMapper;
 import ecommerce.exception.BusinessException;
@@ -208,6 +209,12 @@ public class UserServiceImpl implements UserService {
             "image/webp", "webp"
     );
 
+    /**
+     * 头像体积上限（2MB）：与 user-service 的 multipart max-file-size 对齐。
+     * 容器层是总闸，这里再卡一道给出更精确的提示（区分「头像」而不是笼统的「上传文件过大」）。
+     */
+    private static final long MAX_AVATAR_BYTES = 2L * 1024 * 1024;
+
     @Override
     public String uploadAvatar(Long userId, MultipartFile file) {
         // 只收白名单内的图片类型；Content-Type 由客户端提供，大小写和参数都可能不规范，先归一化
@@ -216,18 +223,30 @@ public class UserServiceImpl implements UserService {
         if (suffix == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "只支持 png / jpg / gif / webp 格式的图片");
         }
+        // 魔数校验：Content-Type 是客户端填的可以伪造，读文件头确认真实类型，不一致直接拒绝
+        MediaMagic.assertRealType(file, suffix);
+        // 体积兜底
+        if (file.getSize() > MAX_AVATAR_BYTES) {
+            throw new BusinessException(HttpStatus.PAYLOAD_TOO_LARGE, "头像不能超过 2MB");
+        }
         // 上传前先记下旧头像路径，等新文件保存成功后再删旧文件，避免反复上传堆满磁盘
         String oldAvatar = findActiveUser(userId).getAvatar();
 
         // 保存文件：upload/avatar/{userId}_{时间戳}.{后缀}
         String filename = userId + "_" + System.currentTimeMillis() + "." + suffix;
         File dir = new File(UPLOAD_DIR);
-        if (!dir.exists()) {
-            dir.mkdirs();
+        if (!dir.exists() && !dir.mkdirs() && !dir.exists()) {
+            // 目录创建失败（磁盘满 / 权限不足），直接报错，别让后面的 IO 异常变得没头没脑
+            throw new BusinessException("存储目录不可用，请联系管理员");
         }
+        File target = new File(dir, filename);
         try {
-            file.transferTo(new File(dir, filename).toPath());
+            file.transferTo(target.toPath());
         } catch (IOException e) {
+            throw new BusinessException("头像保存失败");
+        }
+        // 落盘后校验文件真的写出来了：避免接口返回成功但磁盘上是空文件
+        if (!target.isFile() || target.length() <= 0) {
             throw new BusinessException("头像保存失败");
         }
         // 库里存相对路径，完整 URL 由 Controller 按当前请求域名拼

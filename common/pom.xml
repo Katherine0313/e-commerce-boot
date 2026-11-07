@@ -75,6 +75,12 @@
 			<artifactId>lombok</artifactId>
 			<optional>true</optional>
 		</dependency>
+		<!-- 单元测试：MediaMagic 等工具类的用例 -->
+		<dependency>
+			<groupId>org.springframework.boot</groupId>
+			<artifactId>spring-boot-starter-test</artifactId>
+			<scope>test</scope>
+		</dependency>
 	</dependencies>
 
 	<!-- common 是普通库 jar，不挂 spring-boot-maven-plugin，避免被 repackage 进 BOOT-INF -->

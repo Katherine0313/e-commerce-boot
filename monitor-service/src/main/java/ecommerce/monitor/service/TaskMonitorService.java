@@ -39,7 +39,7 @@ import java.util.Map;
 public class TaskMonitorService {
 
     /** 允许手动执行的任务白名单：避免重复推送/批量改单等副作用 */
-    private static final List<String> MANUAL_RUN_ALLOWED = List.of("logCleanup");
+    private static final List<String> MANUAL_RUN_ALLOWED = List.of("logCleanup", "orphanImageCleanup");
 
     private static final String SELECT_SQL = """
             SELECT id, task_name, task_group, bean_name, method_name, method_params,

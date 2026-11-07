@@ -3,6 +3,7 @@ package ecommerce.product.service.impl;
 import ecommerce.exception.BusinessException;
 import ecommerce.product.service.UploadService;
 import ecommerce.product.vo.UploadVO;
+import ecommerce.utils.MediaMagic;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
@@ -76,6 +77,9 @@ public class UploadServiceImpl implements UploadService {
         if (suffix == null) {
             throw new BusinessException(HttpStatus.BAD_REQUEST, "只支持 png / jpg / gif / webp 图片或 mp4 视频");
         }
+        // 魔数校验：Content-Type 是客户端填的可以伪造，把 .jsp 标成 image/png 就能骗过上面的白名单。
+        // 读文件头确认真实类型，不一致直接拒绝。
+        MediaMagic.assertRealType(file, suffix);
         // 体积兜底：后台前端已按展示规格压过，后端再卡一道，防止绕过前端直传大图
         if ("mp4".equals(suffix)) {
             if (file.getSize() > MAX_VIDEO_BYTES) {
@@ -90,14 +94,20 @@ public class UploadServiceImpl implements UploadService {
         String sub = (type == null || type.isBlank()) ? "upload" : TYPE_SUBDIR.getOrDefault(type, "upload");
         String dirPath = IMAGE_DIR + sub + "/";
         File dir = new File(dirPath);
-        if (!dir.exists()) {
-            dir.mkdirs();
+        if (!dir.exists() && !dir.mkdirs() && !dir.exists()) {
+            // 目录创建失败（磁盘满 / 权限不足）：不继续往下走，否则后面报的是没头没脑的 IO 异常
+            throw new BusinessException("存储目录不可用，请联系管理员");
         }
         // UUID 文件名：与 body 图一致，避免数字编号覆盖冲突
         String filename = UUID.randomUUID() + "." + suffix;
+        File target = new File(dir, filename);
         try {
-            file.transferTo(new File(dir, filename).toPath());
+            file.transferTo(target.toPath());
         } catch (IOException e) {
+            throw new BusinessException("文件保存失败");
+        }
+        // 落盘后校验文件真的写出来了：避免接口返回成功但磁盘上是空文件
+        if (!target.isFile() || target.length() <= 0) {
             throw new BusinessException("文件保存失败");
         }
         return UploadVO.builder().url("/image/" + sub + "/" + filename).build();
