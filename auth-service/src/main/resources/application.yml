@@ -33,7 +33,7 @@ spring:
 server:
   port: 9001
 
-# Actuator：只暴露健康与指标，供 monitor-service 内网聚合；网关不转发 /actuator/**
+# Actuator：只暴露健康与指标，供 system-service 内网聚合；网关不转发 /actuator/**
 management:
   endpoints:
     web:
@@ -55,25 +55,11 @@ jwt:
   #token有效期，单位：秒（7天）
   expire: 604800
 
-# 动态定时任务：从 admin_monitor_task 读取启用任务，本服务只调度有对应 Runner 的行
-monitor:
-  dynamic-task:
-    enabled: true
-
 # 后台登录失败锁定：同一「用户名 + IP」连续输错密码达到次数后锁定
 auth:
   login:
     max-fail-count: ${LOGIN_MAX_FAIL_COUNT:5}
     lock-minutes: ${LOGIN_LOCK_MINUTES:10}
-
-# 系统管理：数据库备份与接口文档同步
-system:
-  database:
-    # 生产必须挂持久卷；容器内推荐 /data/backup/db
-    backup-dir: ${DB_BACKUP_DIR:./backup/db}
-  api-doc:
-    # 网关地址：容器内为 http://gateway:8080，本地默认 127.0.0.1:8080
-    gateway-url: ${GATEWAY_URL:http://127.0.0.1:8080}
 
 # 接口文档：安全兜底默认关闭，避免生产环境暴露
 springdoc:

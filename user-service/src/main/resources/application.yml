@@ -44,7 +44,7 @@ spring:
 server:
   port: 9006
 
-# Actuator：只暴露健康与指标，供 monitor-service 内网聚合；网关不转发 /actuator/**
+# Actuator：只暴露健康与指标，供 system-service 内网聚合；网关不转发 /actuator/**
 management:
   endpoints:
     web:

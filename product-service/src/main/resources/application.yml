@@ -57,7 +57,7 @@ upload:
     # 单次最多删多少个文件，防止逻辑有误时一次删光
     max-delete: 500
 
-# Actuator：只暴露健康与指标，供 monitor-service 内网聚合；网关不转发 /actuator/**
+# Actuator：只暴露健康与指标，供 system-service 内网聚合；网关不转发 /actuator/**
 management:
   endpoints:
     web:

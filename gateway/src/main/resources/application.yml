@@ -49,23 +49,23 @@ spring:
                 - Path=/file-service/v3/api-docs
               filters:
                 - RewritePath=/file-service/(?<segment>.*), /$\{segment}
-            - id: monitor-service-api-docs
-              uri: lb://monitor-service
+            - id: system-service-api-docs
+              uri: lb://system-service
               predicates:
-                - Path=/monitor-service/v3/api-docs
+                - Path=/system-service/v3/api-docs
               filters:
-                - RewritePath=/monitor-service/(?<segment>.*), /$\{segment}
+                - RewritePath=/system-service/(?<segment>.*), /$\{segment}
             # 登录/登出/用户信息 → auth-service（放在最前，优先匹配）
             - id: auth-service
               uri: lb://auth-service
               predicates:
-                - Path=/api/login,/api/logout,/api/admin/info,/api/auth/captcha,/api/admin/system,/api/admin/system/**
-            # 系统监控 → monitor-service：必须独立成段并放在 /api/** 之前，
-            # 不要塞进 /api/admin/system/**，否则会被 auth-service 整段吃掉
-            - id: monitor-service
-              uri: lb://monitor-service
+                - Path=/api/login,/api/logout,/api/admin/info,/api/auth/captcha
+            # 系统管理 + 系统监控 → system-service：必须独立成段并放在 /api/** 之前，
+            # 不要塞进 auth-service 的谓词里，否则会被 auth-service 整段吃掉
+            - id: system-service
+              uri: lb://system-service
               predicates:
-                - Path=/api/admin/monitor/**
+                - Path=/api/admin/system,/api/admin/system/**,/api/admin/monitor/**
             # 商品浏览 + 商品收藏 → product-service（收藏与商品同库，列表直接 join products）；
             # 必须放在 user-service 的 /api/** 通配之前，更具体的规则优先匹配。
             # 裸路径（/api/products）是列表接口，/** 是详情等子路径，两者都要覆盖。
@@ -131,7 +131,7 @@ spring:
 server:
   port: 8080
 
-# Actuator：只暴露健康与指标，供 monitor-service 内网聚合；外部请求不转发 /actuator/**
+# Actuator：只暴露健康与指标，供 system-service 内网聚合；外部请求不转发 /actuator/**
 management:
   endpoints:
     web:
@@ -158,5 +158,5 @@ springdoc:
         url: /user-service/v3/api-docs
       - name: 文件 file-service
         url: /file-service/v3/api-docs
-      - name: 监控 monitor-service
-        url: /monitor-service/v3/api-docs
+      - name: 系统 system-service
+        url: /system-service/v3/api-docs

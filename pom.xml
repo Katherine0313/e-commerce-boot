@@ -17,7 +17,7 @@
 	<name>e-commerce-boot</name>
 	<description>e-commerce-boot 微服务父工程</description>
 
-	<!-- 8 个微服务：1 网关 + 6 业务 + 1 系统监控；common 是下沉的框架层 -->
+	<!-- 8 个微服务：1 网关 + 6 业务 + 1 系统服务（系统管理 + 系统监控）；common 是下沉的框架层 -->
 	<modules>
 		<module>common</module>
 		<module>gateway</module>
@@ -27,7 +27,7 @@
 		<module>aftersale-service</module>
 		<module>user-service</module>
 		<module>file-service</module>
-		<module>monitor-service</module>
+		<module>system-service</module>
 	</modules>
 
 	<properties>

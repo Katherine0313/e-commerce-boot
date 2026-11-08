@@ -13,8 +13,8 @@ import java.util.List;
 /**
  * 服务内部的定时任务手动执行入口。
  * <p>
- * 后台页面统一走 monitor-service 的 {@code /api/admin/monitor/tasks/{name}/run}，
- * monitor-service 校验任务归属后，携带管理员令牌转发到对应服务的本接口。
+ * 后台页面统一走 system-service 的 {@code /api/admin/monitor/tasks/{name}/run}，
+ * system-service 校验任务归属后，携带管理员令牌转发到对应服务的本接口。
  */
 @RestController
 @RequestMapping("/api/admin/tasks")

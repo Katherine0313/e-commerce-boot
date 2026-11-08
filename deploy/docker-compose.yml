@@ -47,13 +47,6 @@ services:
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    volumes:
-      # 数据库备份持久目录：容器重建不丢备份文件
-      - ./backup/db:/data/backup/db
-    environment:
-      DB_BACKUP_DIR: "/data/backup/db"
-      # 接口管理同步 OpenAPI 时走 Docker 内网网关
-      GATEWAY_URL: "http://gateway:8080"
     networks:
       - my-net
 
@@ -139,13 +132,13 @@ services:
     networks:
       - my-net
 
-  # 系统监控：OSHI 主机指标 + Docker socket 只读看容器 + Redis SCAN 缓存
+  # 系统管理（用户/角色/菜单/日志/数据库/接口）+ 系统监控：OSHI 主机指标 + Docker socket 只读看容器 + Redis SCAN 缓存
   # Docker socket 只读挂载也等于宿主信息可读，因此本服务绝不对公网开放，
-  # 网关只放行 /api/admin/monitor/**，且必须后台 JWT + monitor:* 权限
-  monitor-service:
-    image: "${REGISTRY:-local}/monitor-service:${TAG:-latest}"
-    build: ./monitor-service
-    container_name: monitor-service
+  # 网关只放行 /api/admin/system/** 与 /api/admin/monitor/**，且必须后台 JWT + 对应权限
+  system-service:
+    image: "${REGISTRY:-local}/system-service:${TAG:-latest}"
+    build: ./system-service
+    container_name: system-service
     restart: always
     depends_on:
       - nacos
@@ -154,9 +147,14 @@ services:
       - "host.docker.internal:host-gateway"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+      # 数据库备份持久目录：容器重建不丢备份文件
+      - ./backup/db:/data/backup/db
     environment:
       JAVA_OPTS: "-Xms128m -Xmx384m -XX:MaxMetaspaceSize=128m -XX:ReservedCodeCacheSize=64m -Xss256k -XX:+UseSerialGC -Duser.timezone=Asia/Shanghai"
       MONITOR_DOCKER_SOCKET: "/var/run/docker.sock"
+      DB_BACKUP_DIR: "/data/backup/db"
+      # 接口管理同步 OpenAPI 时走 Docker 内网网关
+      GATEWAY_URL: "http://gateway:8080"
     networks:
       - my-net
 
@@ -185,7 +183,7 @@ services:
       - aftersale-service
       - user-service
       - file-service
-      - monitor-service
+      - system-service
       - ai-service
     env_file: .env
     extra_hosts:

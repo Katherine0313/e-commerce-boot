@@ -11,8 +11,8 @@ services:
     image: ccr.ccs.tencentyun.com/jiemi-ecommerce/user-service:20261105-p2-1502dad-dirty
   file-service:
     image: ccr.ccs.tencentyun.com/jiemi-ecommerce/file-service:20261105-p2-1502dad-dirty
-  monitor-service:
-    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/monitor-service:20261105-p2-1502dad-dirty
+  system-service:
+    image: ccr.ccs.tencentyun.com/jiemi-ecommerce/system-service:20261105-p2-1502dad-dirty
   ai-service:
     image: ccr.ccs.tencentyun.com/jiemi-ecommerce/ai-service:20261105-1502dad-dirty
   gateway:

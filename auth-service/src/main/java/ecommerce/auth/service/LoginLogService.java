@@ -1,17 +1,15 @@
 package ecommerce.auth.service;
 
-import ecommerce.auth.dto.AdminLoginLogQuery;
 import ecommerce.auth.enums.LoginResult;
 import ecommerce.auth.enums.LoginType;
-import ecommerce.auth.vo.AdminLoginLogVO;
-import ecommerce.common.PageVO;
-import jakarta.servlet.http.HttpServletResponse;
 
 /**
- * 后台登录/登出日志服务。
+ * 后台登录/登出日志服务（auth-service 仅负责登录链路写日志）。
  * <p>
  * 登录日志不走 AOP：失败原因分散在登录流程的多个分支里（参数为空、锁定、验证码错、
  * 账密错、账号停用），AOP 拿不到「这次到底为什么失败」的语义，只能显式调用记录。
+ * <p>
+ * 日志查询、导出、清理已随系统管理迁移至 system-service。
  */
 public interface LoginLogService {
 
@@ -30,10 +28,4 @@ public interface LoginLogService {
      */
     void record(Long adminId, String username, LoginType type, LoginResult result,
                 String reason, String ip, String userAgent);
-
-    /** 分页查询登录日志 */
-    PageVO<AdminLoginLogVO> page(AdminLoginLogQuery query);
-
-    /** 导出登录日志（format：csv / xlsx），直接写响应流 */
-    void export(AdminLoginLogQuery query, String format, HttpServletResponse response);
 }
