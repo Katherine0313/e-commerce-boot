@@ -29,6 +29,7 @@
 | `aftersale-service` | 售后（仅退款/退货退款/换货） | after_sales 及子表 | 9005 |
 | `user-service` | 会员/小程序登录 | user（地址在 order-service） | 9006 |
 | `file-service` | 图片上传/静态托管（暂由 product-service 承担上传） | uploads | 9007 |
+| `monitor-service` | 系统监控（服务器/缓存/在线用户/动态定时任务；经 Nacos 直连各服务 Actuator 采集） | admin_monitor_task + Redis | 9008 |
 | `ai-service`（Python） | 导购机器人：多轮对话 + 商品问答 | products/categories（只读）+ Redis | 8000 |
 
 **跨服务调用（Feign）：**
@@ -714,6 +715,64 @@
       核对清单无静态资源、无被引用文件、无比 7 天内的新文件，再把 `upload.orphan-cleanup.dry-run` 改 false
 - [ ] **【本次明确不做】** 上传限流（Redis）/ 本地盘改对象存储（OSS-COS）/ 静态资源私有读签名 —— 理由见 `docs/fileupload` 第 6.2 / 8 章
 
+### 阶段 35：库存管理模块（2026-11-04 ~ 11-07，代码完成）
+
+> 复用一级「库存管理」菜单扩展（原「库存列表」改名「SKU库存」），不新建微服务、并入 product-service，不改 Gateway 路由与 Swagger 配置。方案见 `docs/sotck`。
+
+- [✓] 后端（product-service）：`StockDashboardController`（库存看板）/ `StockSkuController`（SKU 库存）/ `StockTransactionController`（库存流水）/ `StockOrderController`（入库/出库/调整单）/ `StockInternalController`（跨服务出入库唯一入口，校验 `X-Internal-Call` 头）
+- [✓] 库存预警阈值：`ALTER TABLE product_sku ADD min_stock INT`（不引入关联表）
+- [✓] 库存变动必须生成单据 + 流水 + 操作日志，可追溯；单据取消自动反向冲销且同一事务；禁止无单据直接改库存
+- [✓] 跨服务最终一致性：order-service / aftersale-service 经 `STOCK_INTERNAL_URL` 调 product-service，失败订单标「库存异常待处理」人工补录；不引入 Seata
+- [✓] 旧 product 级库存接口 `AdminStockController` 已删除（不留兼容）；商品更新接口禁传 `stock`，商品编辑页不再直接改 SKU 库存
+- [✓] 前端（`e-commerce/src/pages/stock/`）：Dashboard / StockList / Transactions / Receipts / Shipments / Adjustments + 三个新建单据弹窗（出库单新建为后补，权限码单独配置）+ `StockOrderPrint.vue`（`window.print()` 打印可另存 PDF，打印 CSS 静态引入）
+- [✓] 交互规范：SKU 库存「编辑库存」= 操作列独立按钮 + 弹窗（禁止行内编辑/隐藏入口）；表格不限列宽、禁用 `:ellipsis="true"`（会强制 `table-layout:fixed` 导致布局异常）
+- [✓] 权限分配（2026-11-07，本地 + 生产已同步，已登录账号需重登生效）：超管/仓管全量；运营 = 看板/SKU库存/流水/入库单/出库单（无调整单）；销售 = 看板/SKU库存/流水/出库单只读；客服无
+- [ ] 待清理：历史悬空权限码 `order:order:detail`、`order:order:export`；销售规格库复用商品权限码是否独立待决策
+
+### 阶段 36：系统监控模块（2026-11-05 一期 + 其后二期动态定时任务）
+
+> 方案见 `docs/system-monitor-plan.md`。一期复用现有表 + Redis，无新建表，菜单（admin_menu/admin_role_menu 8 条）本地 + 生产已同步。
+
+- [✓] monitor-service（9008）：`ServerMonitorController` / `CacheMonitorController` / `OnlineUserController` / `TaskMonitorController`；网关路由 `/api/admin/monitor/**` 独立成段置于 `/api/**` 之前
+- [✓] 采集方式：Nacos 服务发现直连各服务 Actuator 端点，30 秒缓存（服务重启后旧 DOWN 状态 30 秒内自愈）；order-service 的 RabbitMQ 健康检查已禁用（演示场景无依赖，避免误报）
+- [✓] 二期动态定时任务：`admin_monitor_task` 表 + `DynamicTaskScheduler` / `MonitoredTask` / `TaskMonitorService`，每 30 秒自动重载、改调度不重启；支持 cron / 固定延迟 / 固定频率 + 并发控制；现有 logCleanup、closeExpiredOrders、unpaidNotify、autoConfirmOrders、orphanImageCleanup 等任务
+- [✓] 前端（`e-commerce/src/pages/monitor/`）：server / cache / online / task 四子页；表格不限列宽不截断（运维排障必须看全）；轮询 10~15 秒 + 标签页后台停轮询
+
+### 阶段 37：财务模块（2026-11-05 ~ 11-06，代码完成）
+
+> 方案见 `docs/financial` 与 `../finance-design.md`。流程从简适配演示：审核为终态操作，不做反审核。
+
+- [✓] 后端（order-service `AdminFinanceController`，`/api/admin/finance`）：收款记录列表/汇总/导出/详情/审核/备注 + 收款账户列表/启用列表/新增
+- [✓] 前端（`e-commerce/src/pages/finance/`）：receipt（收款记录）/ account（收款账户）
+
+### 阶段 38：规格库 + 商品 SKU 多规格（2026-11-06，代码完成）
+
+> 方案见 `docs/sku`。
+
+- [✓] 后端（product-service `AdminSpecController`）：规格库按分类 ID 向上递归祖先链，返回「当前分类 + 祖先分类 + 全局通用」规格，禁止返回全量导致品类混杂；规格库数据发布前执行分类归属修复 SQL；网关已补 `/api/admin/specs/**`（漏配 404）
+- [✓] 后台添加商品改两步向导：第一步分类/基础信息/详情，第二步商品参数 + 销售规格（单卡片整合、无冗余提示文案）
+- [✓] 规格维度平铺 chip 点选（禁用下拉/手输标签），选中自动展开候选值并默认全勾；SKU 组合表格常驻显示；批量填充仅为辅助，价格以手动填写为准；多规格商品的价格/市场价/成本/库存只在 SKU 表格填，移除商品级独立价格框
+- [✓] 商城 H5 / 小程序规格选择统一：每维度单选平铺、红色边框选中、无库存置灰、未选全价格显示「XX 起」；SKU 逻辑抽 `utils/sku.js`（小程序版已迁入分包 `pages/order/utils/sku.js`，规避微信主包「未使用 JS 文件」校验——主包 tree-shaking 不保证 side-effect import 生效，分包目录不受该校验约束）
+
+### 阶段 39：AI 能力设计定稿（2026-11-07，仅方案，未开发）
+
+> 全文见 `docs/admin-ai`（38KB）。覆盖电商后台 AI 客服 + 商城 H5 AI 客服；小程序客服维持纯知识库检索不接大模型。
+
+- [✓] 按端分工：商城 H5 面向客户接大模型（商品推荐/订单售后查询/客服问答）；后台面向运营（角色配置/工具管理/知识库/文案生成回填），客户侧能力禁止堆入后台
+- [✓] 架构：两端共用一套 LangGraph 编排（工具集/知识库/系统提示词区分），请求统一经 Java 网关 JWT 鉴权后转发 Python `ecommerce-python`（原 `recommender-python` 已改名，引用已同步）
+- [✓] 表设计：统一 `ai_` 前缀 + `created_at/updated_at` + utf8mb4_general_ci；`ai_chat_role`（系统提示词存 `system_message`，不进 ai_tool）/ `ai_chat_session` / `ai_chat_message`（保留 admin_id + user_id，`source` 区分来源）/ `ai_tool` / `ai_kb_dataset` + `ai_kb_segment`（两表知识库，角色绑定到库）/ `ai_kb_qa` / `ai_kb_miss`（原 kb_qa/kb_miss 已改名，代码/SQL/文档同步）
+- [✓] 工具 = Function Calling：`ai_tool` 表只存元数据/开关/权限，执行逻辑由实现 `AiToolHandler` 接口的 Java 类完成；权限两层交集（用户角色 ∩ 角色绑定工具），权限码 `ai:tool:xxx`；好物推荐工具查真实库返回商品卡片（禁大模型编价格/库存），后台卡片带「查看商品/复制链接」
+- [✓] RAG：硅基流动 `BAAI/bge-m3` 向量模型，Rerank 为 P1 可选；商城内置「商城客服」角色固定绑定 7 个客户工具 + `ai_kb_qa` 知识库；商城端保留会话历史列表
+- [ ] 待开发（先建表再写码）：建表 → Java 网关鉴权转发 → Python LangGraph 编排 → 后台 5 页面（AI 对话/商品文案助手/聊天角色/聊天管理/工具管理，AI 客服为一级菜单）+ 商城客服页
+
+### 阶段 40：国家补贴 + 商城移动端适配收尾（2026-11-07，代码完成，未提交/未发版）
+
+- [✓] 国家补贴复用优惠券体系（用户拍板：不建独立补贴表）：补贴 = 10% 折扣券，结算页手动勾选、不自动抵扣；后端 `GET /api/coupons/product/{productId}/subsidy`（order-service，**可选登录**——`JwtInterceptor` 放行无 token）+ `ProductSubsidyVO`，领取/结算复用现有券逻辑；商城详情页补贴横幅改数据驱动按状态显示按钮
+- [✓] 移动端适配（`docs/mall-mobile-adapt.md`）：首页窄屏只保留一级分类图标行（移除二级分类平铺）；详情页窄屏底部固定购买栏（`env(safe-area-inset-bottom)` 避开系统导航栏），窄屏隐藏页内购买按钮、宽屏隐藏固定栏；`MobileTabBar` 安全区适配
+- [✓] 修复详情页 el-rate 评分全灰：Element Plus 2.14.x 的 el-rate 仅支持 `model-value`（无 `value`/`active-color`），误用 `value` 导致始终 0 分；改用 `model-value` + 显式 `disabled-void-color`
+- [✓] 恢复离线脚本 `rebuild_opt_images.py`（从 git 历史 2c052d4 前恢复到暂存）：仅补商品列表 400×400 opt 缩略图（不存在或 >30KB 才重压），不改原图不改库
+- [ ] 待提交 git + 发版：order-service 镜像 + `release-mall.sh`
+
 ## 订单状态合并：退役「待确认收款(2)」（2026-11-04）
 
 - [✓] **判断**：code=2 是原 Node 真实支付场景的「商家人工确认到账」。本项目支付是 mock 的，点一下即成功，
@@ -805,6 +864,7 @@
 | 7 | 边缘缓存会缓存错误响应 | 源站已修但用户仍看到旧内容（商城首页曾缓存 nginx 404 页） | 巡检按用户视角检查；发现后 EdgeOne 刷新缓存（TTL 到期也会自愈） |
 | 8 | `xiaojiecpn.com` 证书 2026-11-29 到期 | 到期后 EdgeOne 回源 HTTPS 失败 → 首页 404 | 宝塔设自动续签或提前换证 |
 | 9 | **本地改了库忘记同步生产**（2026-11-05 已真实发生：生产 `kb_qa` 为 0） | 线上功能看着"正常返回"，实际是空库/旧数据兜底，排查时极易误判为代码问题 | 按 `findings.md` 顶部「硬规则」执行：本地跑完立刻在生产跑同一份幂等 SQL + 核对行数；缓存服务要重启或等 TTL |
+| 10 | 跨服务调用的目标地址靠环境变量注入，新增变量忘同步服务器 compose（2026-11-07 已发生：生产缺 `STOCK_INTERNAL_URL` 致下单 500） | 容器内默认 `localhost` 指向自身 → Connection refused，C 端主链路直接断 | 新增 `*_URL`/密钥类环境变量必须同步 ① 本地 yml 默认值 ② `deploy/docker-compose.yml` ③ 服务器 compose，`--force-recreate` 重建相关容器并容器内实测 |
 
 
 ## 历史错误

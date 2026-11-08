@@ -99,6 +99,7 @@ curl 127.0.0.1:8080/api/products/1     # 经 gateway 转发，返回商品 JSON 
 | aftersale-service | 9005 | `AftersaleServiceApplication` | **是**（DB） |
 | user-service | 9006 | `UserServiceApplication` | **是**（DB/微信） |
 | file-service | 9007 | `FileServiceApplication` | 否（DB） |
+| monitor-service | 9008 | `MonitorServiceApplication` | **是**（DB/Redis） |
 | ai-service（Python） | 8000 | `uvicorn app.main:app --port 8000` | **是**（DB 只读/Redis/AI key） |
 | Nacos | 8848 / 9848 / 9849 | — | — |
 | Nacos 控制台 | 18080（容器内 8080） | — | — |
@@ -853,6 +854,37 @@ ecommerce
 - **本地「看不到图」≠「没有数据」**（2026-11-03 排查）：`LineChart` 无数据时渲染的是 `<a-empty description="暂无数据">`。本地 IDEA 里跑的 user-service 是改代码**之前**启动的旧进程，`GET /api/admin/users/statistics` 返回 500 → 前端 `loadUserStatistics` 走 catch、`userGrowth` 保持空数组 → 页面显示「暂无数据」，看起来像"这段时间没人注册"。定位依据：同一旧进程的其它 DB 接口（`/api/admin/member-levels`、`/api/admin/members`）都 200，**只有 statistics 500**；用最新 jar 起临时实例，同库、同 SQL、同参数直接 200 且两个累计字段都对 → 是旧进程加载的 class 状态问题，**重启 user-service 即恢复**。
 - **前端补了错误态**（2026-11-03）：接口失败不再伪装成「暂无数据」——`useWorkplaceData.js` 新增 `userGrowthError`，失败置 `true`（同时保留上一次数据，图表不塌成空白）；`UserGrowth.vue` 收到 `error` 时显示「用户统计加载失败，请刷新重试」并占满图表高度（400/340/260）。否则运营会把接口故障误读成业务结论。
 
+
+## 跨服务内部调用地址必须环境变量化（2026-11-07 教训）
+
+- 跨服务 HTTP 调用（order-service / aftersale-service → product-service 的 `/internal/stock-write`）地址一律走环境变量：`STOCK_INTERNAL_URL`，yml 默认 `http://localhost:9003/...` 仅供本地 IDEA 直连，`deploy/docker-compose.yml` 里配 `http://product-service:9003/internal/stock-write`。
+- **生产事故**：2026-11-07 生产 `POST /api/orders` 500「库存扣减失败」—— 服务器 compose 漏配该变量，容器内 `localhost` 指向容器自身 → Connection refused。用仓库 `deploy/docker-compose.yml` 覆盖服务器 compose 并 `--force-recreate` 重建 order/aftersale 后恢复，容器内实测通。
+- **规则**：凡新增 `*_URL` / 密钥类环境变量，必须同步三处 —— ① 本地 yml 默认值 ② `deploy/docker-compose.yml` ③ 服务器 compose；重建相关容器并容器内实测。
+
+## 国家补贴实现决策（2026-11-07）
+
+- **复用优惠券体系，不建独立补贴表**：补贴 = 一张 10% 折扣券，用户在结算页手动勾选，不自动抵扣。
+- 后端：`GET /api/coupons/product/{productId}/subsidy`（order-service `CouponController`），**可选登录**（`JwtInterceptor` 对该路径放行无 token 请求）；返回 `ProductSubsidyVO` 驱动前端按钮状态；领取/核销/结算复用现有券接口。
+- 前端：商城详情页补贴横幅数据驱动（按返回状态显示「领取/已领取/去使用」等）。
+
+## 商城 H5 移动端适配约定（2026-11-07）
+
+- 移动端首页**只保留一级分类**图标行，移除二级分类平铺，保持精简。
+- 商品详情页窄屏：底部固定购买栏 + **必须预留 `env(safe-area-inset-bottom)`** 避开手机系统导航栏；窄屏隐藏页内购买按钮（避免与固定栏重复），宽屏隐藏固定栏、保留页内按钮（保证网页端下单）。
+- `MobileTabBar` 同样使用安全区变量。
+- **Element Plus 2.14.x 坑**：`el-rate` 仅支持 `model-value`（无 `value` / `active-color`），误用 `value` 评分始终 0 分全灰；disabled 模式显式指定 `disabled-void-color` 区分亮星/灰星。
+- 方案全文见 `docs/mall-mobile-adapt.md`。
+
+## AI 能力设计决策（2026-11-07 定稿，全文见 `docs/admin-ai`）
+
+- **按端分工**：商城 H5 接大模型（客户侧：商品推荐/订单售后查询/客服问答）；电商后台面向运营（角色配置/工具管理/知识库/文案生成回填），客户侧能力禁止堆入后台；**小程序客服维持纯知识库检索，不接大模型**。
+- **架构**：两端共用一套 LangGraph 编排（Python `ecommerce-python`，原 `recommender-python` 已改名），仅工具集/知识库/系统提示词不同；请求统一经 Java 网关 JWT 鉴权后转发（商城端带 `user_id`、后台端带 `admin_id`，对话表同时保留两字段、`source` 区分来源）。
+- **表**：统一 `ai_` 前缀 + `created_at/updated_at` + utf8mb4_general_ci（MySQL 5.7 规范）；`kb_qa/kb_miss` 已改名 `ai_kb_qa/ai_kb_miss`（代码/SQL/文档同步，有线上迁移脚本）。
+- **工具 = Function Calling**：`ai_tool` 表只存元数据/开关/权限，执行逻辑由实现 `AiToolHandler` 接口的 Java 类完成（仅靠表结构不能闭环）；权限两层交集（用户角色 ∩ 角色绑定工具），权限码 `ai:tool:xxx`；好物推荐工具必须查真实库返回商品卡片（禁大模型编价格/库存），后台卡片带「查看商品/复制链接」。
+- **提示词职责分离**：系统提示词（人设/行为规则）存 `ai_chat_role.system_message`，`ai_tool` 只存工具功能描述。
+- **RAG**：硅基流动 `BAAI/bge-m3` 向量模型；Rerank 为 P1 可选；运营知识库两表设计（`ai_kb_dataset` + `ai_kb_segment`，砍掉中间文档表），角色绑定到知识库。
+- **SSE**：工具调用阶段不流式，拿到工具结果后再流式输出最终回复；网关/nginx 关缓冲、超时放宽 120 秒。
+- 商城内置「商城客服」角色，固定绑定 query_product / search_product / recommend_product / search_knowledge / query_stock / query_order / query_aftersale 共 7 个工具 + `ai_kb_qa` 知识库；商城端保留会话历史列表，非每次新对话。
 
 ## 资源
 
