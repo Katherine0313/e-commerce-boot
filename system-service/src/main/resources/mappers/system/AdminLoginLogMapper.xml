@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.system.mapper.AdminLoginLogMapper">
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO admin_login_log
+            (admin_id, username, login_type, result_code, reason, ip, user_agent, created_at)
+        VALUES (#{adminId}, #{username}, #{loginType}, #{resultCode}, #{reason},
+                #{ip}, #{userAgent}, #{createdAt})
+    </insert>
+
+    <!-- 公共筛选条件：时间范围永远有值（Service 里算好），其余条件为空就不拼 -->
+    <sql id="loginLogWhere">
+        created_at &gt;= #{startTime}
+        AND created_at &lt;= #{endTime}
+        <if test="username != null and username != ''">
+            AND username LIKE CONCAT('%', #{username}, '%')
+        </if>
+        <if test="loginType != null and loginType != ''">
+            AND login_type = #{loginType}
+        </if>
+        <if test="resultCode != null and resultCode != ''">
+            AND result_code = #{resultCode}
+        </if>
+        <if test="ip != null and ip != ''">
+            AND ip = #{ip}
+        </if>
+    </sql>
+
+    <select id="list" resultType="ecommerce.system.entity.AdminLoginLog">
+        SELECT id, admin_id, username, login_type, result_code, reason, ip, user_agent, created_at
+        FROM admin_login_log
+        WHERE <include refid="loginLogWhere"/>
+        ORDER BY created_at DESC, id DESC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="count" resultType="long">
+        SELECT COUNT(*) FROM admin_login_log WHERE <include refid="loginLogWhere"/>
+    </select>
+
+    <!-- 分批清理：先按时间过滤再 LIMIT，命中 idx_login_log_created -->
+    <delete id="deleteBefore">
+        DELETE FROM admin_login_log
+        WHERE created_at &lt; #{before}
+        LIMIT #{limit}
+    </delete>
+
+</mapper>

@@ -1,0 +1,71 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.system.mapper.AdminRoleMapper">
+
+    <select id="listRoles" resultType="ecommerce.system.entity.AdminRole">
+        SELECT id, role_key, role_name, status, remark, create_time, update_time
+        FROM admin_role
+        ORDER BY id ASC
+    </select>
+
+    <select id="findById" resultType="ecommerce.system.entity.AdminRole">
+        SELECT id, role_key, role_name, status, remark, create_time, update_time
+        FROM admin_role WHERE id = #{id}
+    </select>
+
+    <select id="findByKey" resultType="ecommerce.system.entity.AdminRole">
+        SELECT id, role_key, role_name, status, remark, create_time, update_time
+        FROM admin_role WHERE role_key = #{roleKey}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO admin_role (role_key, role_name, status, remark, create_time, update_time)
+        VALUES (#{roleKey}, #{roleName}, #{status}, #{remark}, #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update">
+        UPDATE admin_role
+        SET role_key = #{roleKey},
+            role_name = #{roleName},
+            status = #{status},
+            remark = #{remark},
+            update_time = #{updateTime}
+        WHERE id = #{id}
+    </update>
+
+    <delete id="delete">
+        DELETE FROM admin_role WHERE id = #{id}
+    </delete>
+
+    <select id="listMenuIds" resultType="long">
+        SELECT menu_id FROM admin_role_menu WHERE role_id = #{roleId} ORDER BY menu_id
+    </select>
+
+    <delete id="deleteRoleMenus">
+        DELETE FROM admin_role_menu WHERE role_id = #{roleId}
+    </delete>
+
+    <insert id="insertRoleMenus">
+        INSERT INTO admin_role_menu (role_id, menu_id)
+        VALUES
+        <foreach collection="menuIds" item="menuId" separator=",">
+            (#{roleId}, #{menuId})
+        </foreach>
+    </insert>
+
+    <select id="countUsers" resultType="long">
+        SELECT COUNT(*) FROM admin_user_role WHERE role_id = #{roleId}
+    </select>
+
+    <!-- 只统计启用中的账号：禁用账号登录不了，不该阻止角色删除 -->
+    <select id="countEnabledUsers" resultType="long">
+        SELECT COUNT(*)
+        FROM admin_user_role ur
+                 JOIN admin a ON a.id = ur.admin_id
+        WHERE ur.role_id = #{roleId}
+          AND a.status = 1
+    </select>
+
+</mapper>

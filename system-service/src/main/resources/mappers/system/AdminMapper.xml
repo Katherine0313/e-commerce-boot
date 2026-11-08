@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.system.mapper.AdminMapper">
+
+    <select id="findByUsername" resultType="ecommerce.system.entity.Admin">
+        SELECT *
+        FROM `admin`
+        WHERE username = #{username}
+          AND is_deleted = 0
+    </select>
+
+    <!-- 含已软删的账号：username 是唯一索引，删掉的账号仍然占着名字，建账号时要用它判断 -->
+    <select id="findByUsernameIncludingDeleted" resultType="ecommerce.system.entity.Admin">
+        SELECT *
+        FROM `admin`
+        WHERE username = #{username}
+    </select>
+
+    <select id="findById" resultType="ecommerce.system.entity.Admin">
+        SELECT *
+        FROM `admin`
+        WHERE id = #{id}
+          AND is_deleted = 0
+    </select>
+
+    <sql id="adminWhere">
+        is_deleted = 0
+        <if test="keyword != null and keyword != ''">
+            AND (username LIKE CONCAT('%', #{keyword}, '%')
+            OR name LIKE CONCAT('%', #{keyword}, '%')
+            OR phone LIKE CONCAT('%', #{keyword}, '%'))
+        </if>
+        <if test="status != null">
+            AND status = #{status}
+        </if>
+    </sql>
+
+    <select id="listAdmins" resultType="ecommerce.system.entity.Admin">
+        SELECT id, username, name, phone, status, create_time, update_time
+        FROM `admin`
+        WHERE <include refid="adminWhere"/>
+        ORDER BY id ASC
+        LIMIT #{offset}, #{pageSize}
+    </select>
+
+    <select id="countAdmins" resultType="long">
+        SELECT COUNT(*) FROM `admin` WHERE <include refid="adminWhere"/>
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO `admin` (username, password, name, phone, status, create_time, update_time)
+        VALUES (#{username}, #{password}, #{name}, #{phone}, #{status},
+                #{createTime}, #{updateTime})
+    </insert>
+
+    <update id="update">
+        UPDATE `admin`
+        <set>
+            <if test="name != null">name = #{name},</if>
+            <if test="phone != null">phone = #{phone},</if>
+            <if test="status != null">status = #{status},</if>
+            update_time = #{updateTime},
+        </set>
+        WHERE id = #{id}
+    </update>
+
+    <update id="updatePassword">
+        UPDATE `admin` SET password = #{password}, update_time = #{now} WHERE id = #{id}
+    </update>
+
+    <!-- 软删：is_deleted=1 + status=0（status=0 让登录拦截和 token 失效立刻生效） -->
+    <update id="softDelete">
+        UPDATE `admin`
+        SET is_deleted = 1,
+            status     = 0,
+            update_time = #{now}
+        WHERE id = #{id}
+          AND is_deleted = 0
+    </update>
+
+</mapper>

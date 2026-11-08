@@ -1,0 +1,85 @@
+spring:
+  profiles:
+    active: dev
+  application:
+    name: system-service
+  main:
+    log-startup-info: false
+  cloud:
+    nacos:
+      discovery:
+        # Nacos 3.x：客户端通信仍是 8848（gRPC 9848/9849），控制台另走 8080 端口
+        server-addr: ${NACOS_ADDR:127.0.0.1:8848}
+        username: ${NACOS_USERNAME:}
+        password: ${NACOS_PASSWORD:}
+  datasource:
+    # 系统管理（用户/角色/菜单/日志/接口）与系统监控共用；ORM 走 MyBatis，JdbcTemplate 用于动态 SQL
+    url: ${DB_URL}
+    username: ${DB_USERNAME}
+    password: ${DB_PASSWORD}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      maximum-pool-size: 4
+      minimum-idle: 1
+      pool-name: SystemHikariCP
+  data:
+    redis:
+      host: ${REDIS_HOST:127.0.0.1}
+      port: ${REDIS_PORT:6379}
+      timeout: 2s
+
+server:
+  port: 9008
+
+# Actuator：只暴露健康与指标，供 system-service 内网聚合；网关不转发 /actuator/**
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics
+  endpoint:
+    health:
+      show-details: never
+
+mybatis:
+  configuration:
+    map-underscore-to-camel-case: true
+  # mappers/ 下按业务模块分子目录存放，** 递归匹配
+  mapper-locations: classpath*:mappers/**/*.xml
+
+# JWT 与其它服务保持一致，否则管理员令牌校验失败
+jwt:
+  secret: ${JWT_SECRET}
+  expire: 604800
+
+monitor:
+  docker:
+    # 宿主机 Docker socket；容器内挂载后只读访问（只看状态，不做任何写操作）
+    socket: ${MONITOR_DOCKER_SOCKET:/var/run/docker.sock}
+  alert:
+    # 阈值告警：超过阈值时 /server 返回 alerts；起始时间存 Redis，用于展示持续时间
+    cpu-threshold: ${MONITOR_ALERT_CPU:80}
+    memory-threshold: ${MONITOR_ALERT_MEMORY:85}
+    disk-threshold: ${MONITOR_ALERT_DISK:85}
+  nacos:
+    # 服务健康检查探活的 Nacos 地址，默认沿用 discovery 配置；这里只做 TCP 连通性判断
+    host: ${NACOS_HOST:}
+    port: ${NACOS_PORT:0}
+  dynamic-task:
+    # 日志清理任务（LogCleanupTask）依赖动态任务调度器
+    enabled: true
+
+# 系统管理：数据库备份与接口文档同步
+system:
+  database:
+    # 生产必须挂持久卷；容器内推荐 /data/backup/db
+    backup-dir: ${DB_BACKUP_DIR:./backup/db}
+  api-doc:
+    # 网关地址：容器内为 http://gateway:8080，本地默认 127.0.0.1:8080
+    gateway-url: ${GATEWAY_URL:http://127.0.0.1:8080}
+
+springdoc:
+  api-docs:
+    enabled: ${SPRINGDOC_ENABLED:false}
+  swagger-ui:
+    enabled: ${SPRINGDOC_ENABLED:false}
