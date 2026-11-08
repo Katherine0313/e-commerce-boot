@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE mapper PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN" "http://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="ecommerce.auth.mapper.AdminApiDocMapper">
+
+    <resultMap id="AdminApiDocMap" type="ecommerce.auth.entity.AdminApiDoc">
+        <id column="id" property="id"/>
+        <result column="service_name" property="serviceName"/>
+        <result column="group_name" property="groupName"/>
+        <result column="api_name" property="apiName"/>
+        <result column="http_method" property="httpMethod"/>
+        <result column="path" property="path"/>
+        <result column="summary" property="summary"/>
+        <result column="description" property="description"/>
+        <result column="require_perm" property="requirePerm"/>
+        <result column="is_public" property="isPublic"/>
+        <result column="query_params" property="queryParams"/>
+        <result column="header_params" property="headerParams"/>
+        <result column="body_params" property="bodyParams"/>
+        <result column="response_params" property="responseParams"/>
+        <result column="response_example" property="responseExample"/>
+        <result column="error_codes" property="errorCodes"/>
+        <result column="missing" property="missing"/>
+        <result column="sync_time" property="syncTime"/>
+        <result column="create_time" property="createTime"/>
+        <result column="update_time" property="updateTime"/>
+    </resultMap>
+
+    <sql id="Columns">
+        id, service_name, group_name, api_name, http_method, path, summary, description,
+        require_perm, is_public, query_params, header_params, body_params, response_params,
+        response_example, error_codes, missing, sync_time, create_time, update_time
+    </sql>
+
+    <select id="listDocs" resultMap="AdminApiDocMap">
+        SELECT <include refid="Columns"/>
+        FROM admin_api_doc
+        <where>
+            <if test="service != null and service != ''">
+                AND service_name = #{service}
+            </if>
+            <if test="keyword != null and keyword != ''">
+                AND (
+                    path LIKE CONCAT('%', #{keyword}, '%')
+                    OR summary LIKE CONCAT('%', #{keyword}, '%')
+                    OR api_name LIKE CONCAT('%', #{keyword}, '%')
+                    OR group_name LIKE CONCAT('%', #{keyword}, '%')
+                )
+            </if>
+        </where>
+        ORDER BY service_name, group_name, path, http_method
+    </select>
+
+    <select id="findById" resultMap="AdminApiDocMap">
+        SELECT <include refid="Columns"/> FROM admin_api_doc WHERE id = #{id}
+    </select>
+
+    <insert id="upsert" parameterType="ecommerce.auth.entity.AdminApiDoc">
+        INSERT INTO admin_api_doc (
+            service_name, group_name, api_name, http_method, path, summary, description,
+            require_perm, is_public, query_params, header_params, body_params, response_params,
+            response_example, error_codes, missing, sync_time, create_time, update_time
+        ) VALUES (
+            #{serviceName}, #{groupName}, #{apiName}, #{httpMethod}, #{path}, #{summary}, #{description},
+            #{requirePerm}, #{isPublic}, #{queryParams}, #{headerParams}, #{bodyParams}, #{responseParams},
+            #{responseExample}, #{errorCodes}, #{missing}, NOW(), NOW(), NOW()
+        )
+        ON DUPLICATE KEY UPDATE
+            group_name = VALUES(group_name),
+            summary = VALUES(summary),
+            description = VALUES(description),
+            require_perm = VALUES(require_perm),
+            query_params = VALUES(query_params),
+            header_params = VALUES(header_params),
+            body_params = VALUES(body_params),
+            response_params = VALUES(response_params),
+            missing = 0,
+            sync_time = NOW(),
+            update_time = NOW()
+    </insert>
+
+    <update id="updateHuman">
+        UPDATE admin_api_doc
+        SET api_name = #{apiName},
+            is_public = #{isPublic},
+            response_example = #{responseExample},
+            error_codes = #{errorCodes},
+            update_time = NOW()
+        WHERE id = #{id}
+    </update>
+
+    <select id="listServices" resultType="java.lang.String">
+        SELECT DISTINCT service_name FROM admin_api_doc ORDER BY service_name
+    </select>
+
+    <select id="listKeys" resultMap="AdminApiDocMap">
+        SELECT id, service_name, http_method, path FROM admin_api_doc
+    </select>
+
+    <update id="markMissingByService">
+        UPDATE admin_api_doc SET missing = 1 WHERE service_name = #{service}
+    </update>
+
+    <select id="countMissing" resultType="int">
+        SELECT COUNT(*) FROM admin_api_doc WHERE missing = 1
+    </select>
+
+</mapper>
