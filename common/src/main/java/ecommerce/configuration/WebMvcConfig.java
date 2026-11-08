@@ -54,15 +54,21 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     private final JwtInterceptor jwtInterceptor;
     private final PermissionInterceptor permissionInterceptor;
+    private final InternalApiInterceptor internalApiInterceptor;
 
-    public WebMvcConfig(JwtInterceptor jwtInterceptor, PermissionInterceptor permissionInterceptor) {
+    public WebMvcConfig(JwtInterceptor jwtInterceptor, PermissionInterceptor permissionInterceptor,
+                        InternalApiInterceptor internalApiInterceptor) {
 
         this.jwtInterceptor = jwtInterceptor;
         this.permissionInterceptor = permissionInterceptor;
+        this.internalApiInterceptor = internalApiInterceptor;
     }
 
     @Override
     public void addInterceptors(InterceptorRegistry registry) {
+        // AI 内部接口走共享密钥鉴权（Python AI 服务内网调用），独立于 JWT 体系
+        registry.addInterceptor(internalApiInterceptor)
+                .addPathPatterns("/internal/ai/**");
         // 只拦 /api/**：thymeleaf 页面和静态资源不受影响
         registry.addInterceptor(jwtInterceptor)
                 .addPathPatterns("/api/**")

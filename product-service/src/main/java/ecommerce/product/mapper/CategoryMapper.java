@@ -12,6 +12,9 @@ public interface CategoryMapper {
     // 根据 id 查单个分类（含 product_count 子查询）
     Category findById(@Param("id") Long id);
 
+    // 按 id 列表批量查分类（AI 内部商品列表拼分类名用）
+    List<Category> listByIds(@Param("ids") List<Long> ids);
+
     // 新增分类（sort_order 由 service 计算）
     int insert(Category category);
 

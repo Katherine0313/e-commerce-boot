@@ -90,7 +90,21 @@ spring:
             - id: ai-service
               uri: ${AI_SERVICE_URL:http://127.0.0.1:8000}
               predicates:
-                - Path=/api/agent,/api/agent/**
+                - Path=/api/agent,/api/agent/**,/api/mall/ai/**,/api/admin/ai/**
+            # AI 内部数据接口（Python → 网关 → 各服务）：公网 nginx 只代理 /api/、/image/、/upload/，
+            # /internal/** 不对外。鉴权由各服务 InternalApiInterceptor 校验 X-Internal-Token。
+            - id: internal-ai-product
+              uri: lb://product-service
+              predicates:
+                - Path=/internal/ai/product/**,/internal/ai/products,/internal/ai/products/**,/internal/ai/stock/**
+            - id: internal-ai-order
+              uri: lb://order-service
+              predicates:
+                - Path=/internal/ai/orders,/internal/ai/orders/**
+            - id: internal-ai-aftersale
+              uri: lb://aftersale-service
+              predicates:
+                - Path=/internal/ai/aftersale/**
             # 后台来单提醒 WebSocket → order-service（前端 ws://网关/ws/order?token=xxx，握手鉴权在 order-service）
             - id: order-service-ws
               uri: lb://order-service

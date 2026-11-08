@@ -72,4 +72,12 @@ public interface ProductMapper {
 
     // 工作台统计：商品总数 / 总库存 / 库存总价值（售价 × 库存）
     DashboardVO dashboardStats();
+
+    // ==================== AI 内部接口（/internal/ai/**） ====================
+
+    // 商品累计销量（共享库只读 order_items/orders；口径与订单销量排名一致：排除待付款/已取消，按已支付订单计）
+    long sumSalesByProductId(@Param("productId") Long productId);
+
+    // 批量商品累计销量（AI 商品列表用，返回 [{productId, sales}]）
+    List<java.util.Map<String, Object>> sumSalesByProductIds(@Param("ids") List<Long> ids);
 }

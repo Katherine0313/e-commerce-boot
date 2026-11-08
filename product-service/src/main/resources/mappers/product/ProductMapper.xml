@@ -265,4 +265,34 @@
                COALESCE(SUM(sales_price * stock), 0) AS total_value
         FROM products
     </select>
+
+    <!-- ==================== AI 内部接口（/internal/ai/**） ==================== -->
+
+    <!-- 商品累计销量：口径与 order-service 销量排名一致（排除待付款/已取消，按已支付订单计） -->
+    <select id="sumSalesByProductId" resultType="long">
+        SELECT COALESCE(SUM(oi.quantity), 0)
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        WHERE oi.is_deleted = 0
+          AND o.is_deleted = 0
+          AND o.order_status NOT IN (1, 6)
+          AND o.pay_at IS NOT NULL
+          AND oi.product_id = #{productId}
+    </select>
+
+    <!-- 批量商品累计销量：返回 [{productId, sales}]，AI 商品列表一次装配用 -->
+    <select id="sumSalesByProductIds" resultType="map">
+        SELECT oi.product_id AS productId, COALESCE(SUM(oi.quantity), 0) AS sales
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        WHERE oi.is_deleted = 0
+          AND o.is_deleted = 0
+          AND o.order_status NOT IN (1, 6)
+          AND o.pay_at IS NOT NULL
+          AND oi.product_id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+        GROUP BY oi.product_id
+    </select>
 </mapper>

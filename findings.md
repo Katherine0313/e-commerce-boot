@@ -811,6 +811,9 @@ ecommerce
 | 上传文件落**本地磁盘**，目录基于进程工作目录 | 多实例部署时 A 实例上传的图片 B 实例访问不到 | **2026-11-07 决定暂不做**；生产目前单实例，**扩容前必须改对象存储（OSS/COS）或共享卷** |
 | `/image/**` 静态资源**无鉴权** | 售后凭证图（`/image/after-sale/`）任何人都能访问（UUID 不可枚举，但无授权校验） | **2026-11-07 决定暂不做**；展示链路依赖公开访问，改私有读要配套签名 URL |
 | 本地库有 5 条「DB 有引用但磁盘无文件」（4 个商品主图 + 1 个头像） | 历史丢图，页面显示裂图 | 2026-11-07 排查孤儿时发现，与清理方向相反（清理只删「磁盘有、DB 无引用」），本次未处理 |
+| `ai.internal.token` 默认值 `change-me-in-prod` | 生产漏配 → Python 调 Java 内部接口全 401；沿用默认值等于内部数据接口无有效鉴权 | 生产已写 48 位随机串；新增环境必须同步服务器 `/www/java/.env` 并重建 ai-service |
+| 后台 4 个 AI 菜单（聊天角色/工具管理/知识库管理/聊天管理）无前端页面 | 权限已授但点不到页面 | 侧边栏按静态路由渲染，当前不显示、不会死链；待开发，开发前不要改成「按 admin_menu 建树」 |
+| AI 前端页面尚未发版（2026-11-08） | 生产只有接口，后台/商城看不到 AI 入口 | 发 `release-web.sh` + `release-mall.sh` 后各走一轮对话验证 |
 
 ## 后台登录加固（2026-11-03 讨论结论，**暂未实施**）
 
@@ -875,7 +878,7 @@ ecommerce
 - **Element Plus 2.14.x 坑**：`el-rate` 仅支持 `model-value`（无 `value` / `active-color`），误用 `value` 评分始终 0 分全灰；disabled 模式显式指定 `disabled-void-color` 区分亮星/灰星。
 - 方案全文见 `docs/mall-mobile-adapt.md`。
 
-## AI 能力设计决策（2026-11-07 定稿，全文见 `docs/admin-ai`）
+## AI 能力设计决策（2026-11-07 定稿，2026-11-08 落地，全文见 `docs/ai`）
 
 - **按端分工**：商城 H5 接大模型（客户侧：商品推荐/订单售后查询/客服问答）；电商后台面向运营（角色配置/工具管理/知识库/文案生成回填），客户侧能力禁止堆入后台；**小程序客服维持纯知识库检索，不接大模型**。
 - **架构**：两端共用一套 LangGraph 编排（Python `ecommerce-python`，原 `recommender-python` 已改名），仅工具集/知识库/系统提示词不同；请求统一经 Java 网关 JWT 鉴权后转发（商城端带 `user_id`、后台端带 `admin_id`，对话表同时保留两字段、`source` 区分来源）。
@@ -886,6 +889,20 @@ ecommerce
 - **SSE**：工具调用阶段不流式，拿到工具结果后再流式输出最终回复；网关/nginx 关缓冲、超时放宽 120 秒。
 - 商城内置「商城客服」角色，固定绑定 query_product / search_product / recommend_product / search_knowledge / query_stock / query_order / query_aftersale 共 7 个工具 + `ai_kb_qa` 知识库；商城端保留会话历史列表，非每次新对话。
 
+## AI 客服模块落地（2026-11-08，已上线）
+
+- **实际落地 vs 方案的偏差**：设计里的后台 5 个页面只做了 2 个（AI 对话、商品文案助手）；「聊天角色 / 工具管理 / 知识库管理 / 聊天管理」4 个菜单与按钮权限码已入 `admin_menu`（1003~1006、1010~1017），但前端没有页面。后台侧边栏是**按静态路由（`meta.renderMenu` + `meta.permission`）渲染菜单树**，不是读 `admin_menu` 建树，所以库里多出的 4 条菜单**不会产生死链**，只是权限登记。
+- **表数量核对**：新脚本建 **9 张** `ai_` 表，生产 `SHOW TABLES LIKE 'ai\_%'` 是 **11 张** —— 另有既有的 `ai_kb_qa` / `ai_kb_miss`（由 `kb_qa` / `kb_miss` 改名而来）。核对行数时不要以为建多了，也不要漏掉这两个。
+- **内部接口鉴权**：`/internal/ai/**` 由 `common` 的 `InternalApiInterceptor` 校验 `X-Internal-Token`，值取 `${ai.internal.token:change-me-in-prod}`。**默认值只服务本地**：生产漏配等于内部数据接口无鉴权（或 Python 侧调用全 401）。生产用 48 位随机串，实测无 token → 401、带 token 搜索商品 → 200。
+- **Python 侧身份与工具权限**：会话表同时保留 `user_id` / `admin_id`，`source` 区分 mall/admin；工具权限是**两层交集** —— 角色绑定工具 ∩ 用户 JWT 权限码 ∩ `ai_tool.scope`（mall/admin/both），任一不满足该工具不下发给模型，模型既看不到也调不动。
+- **系统提示词的真实拼接**：发给模型的是 `角色.system_message + _TOOL_RULES`。`_TOOL_RULES` 是 2026-11-08 新增的工具调用强约束（订单/售后/库存/商品详情先调对应工具、禁止未调工具编造业务数据、空结果如实告知）。**`ai_chat_conversation.system_message` 仍存角色原始提示词**，不写这些规则 —— 否则规则一改，历史会话就带着过期规则回放，排查时极易误判。
+- **intent 是关键词前置路由，不是模型分类**（`app/ai/intent.py`）：`chat`（寒暄直接回）/ `danger`（修改动词「修改|改成|改为|换成…」+ 字段名「商品名称|副标题|详情…」→ 先走确认流）/ `llm`（其余进 decide）。因此「我的最新订单发货了吗」天然被判成 `llm`，**必须靠 `_TOOL_RULES` 约束模型去调 `query_order`**，不能指望 intent 认出来 —— 这正是上线后那次误答的根因。
+- **危险写工具不直接落库**：`update_product` 只产出 pending action（SSE 事件 `confirm`），前端二次确认后才走 `execute_pending_action`。把「模型想改」与「人同意改」拆成两步，避免模型一句话直接改生产商品。
+- **ai-service 配置全部来自 compose 的 `env_file: .env`**（该服务没有 `environment` 段）：`OPENAI_BASE_URL` / `CHAT_MODEL` / `SILICONFLOW_API_KEY` / `AI_INTERNAL_TOKEN` / `AI_INTERNAL_BASE_URL` 缺一个就整体不可用。生产本次补齐四个 AI 变量，**`AI_INTERNAL_BASE_URL=http://gateway:8080`**（容器内 `localhost` 指向自身，写成 localhost 必然 Connection refused）。
+- **发布范围比看起来大**：这次动了 `common`（`InternalApiInterceptor` + `WebMvcConfig`）与网关路由，所以 gateway / product / order / aftersale / ai **五个服务都要重发**。只发 ai-service 会让内部接口全 401（老服务没注册拦截器），只发 Java 不发 ai-service 则新接口无人调用。
+- **AI 头像落地**：源图 `upload/image/zongjie.webp`（123794 字节）复制为两个前端 `src/assets/ai-avatar.webp`，用 `import aiAvatar from '@/assets/ai-avatar.webp'` 交给 Vite 打包（带 hash，优于把图塞 `public/` 硬写路径）。**原 icon 时代的 `.welcome-avatar` / `.msg-avatar` 带 `font-size` + `color:#fff` + `background:var(--color-primary)`**，换成 `<img>` 后必须补 `display:block` + `object-fit:cover` 并删掉这些 icon 样式，否则图片会被行高/背景撑变形；后台消息行原先完全没有头像，新增 `.message-avatar` 需要 `align-self:flex-start` + `flex-shrink:0`，否则长文本会把头像压扁。
+- **前端未发版**：本次只发了后端镜像，两个 AI 页面与头像要等 `release-web.sh`（后台）/ `release-mall.sh`（PC 商城）才对外可见；小程序客服维持纯知识库检索，本次无改动。
+
 ## 资源
 
 | 项目 | 本地路径 | 说明 |
@@ -893,7 +910,7 @@ ecommerce
 | 小程序 | `D:\study\my-workspace\wechat-workspace\e-commerce-uniapp` | C 端，对应 `/api/**` |
 | PC 商城 | `D:\study\my-workspace\wechat-workspace\ecommerce-mall` | Vue3 + Vite SPA，https://www.xiaojiecpn.com |
 | 后台前端 | `D:\study\my-workspace\wechat-workspace\e-commerce` | Vue3 + ant-design-vue |
-| Python AI | `D:\study\my-workspace\wechat-workspace\ecommerce-python` | 导购机器人 |
+| Python AI | `D:\study\my-workspace\wechat-workspace\ecommerce-python` | FastAPI + LangGraph，AI 客服（mall/admin）+ 文案生成 |
 | 后端 | `D:\study\my-workspace\wechat-workspace\e-commerce-boot` | Spring Cloud 多模块 |
 
 - API：`https://api.jiemids.com`；后台：`https://www.jiemids.com`；PC 商城：`https://www.xiaojiecpn.com`

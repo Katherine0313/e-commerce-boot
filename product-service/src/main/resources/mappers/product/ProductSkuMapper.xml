@@ -23,6 +23,25 @@
         ORDER BY sort ASC, id ASC
     </select>
 
+    <!-- 按 id 查单个 SKU（AI 内部库存查询用，含停用行） -->
+    <select id="findById" resultType="ecommerce.product.entity.ProductSku">
+        SELECT <include refid="skuColumns"/>
+        FROM product_sku
+        WHERE id = #{id}
+    </select>
+
+    <!-- SKU 累计销量：口径与 order-service 销量排名一致（排除待付款/已取消，按已支付订单计） -->
+    <select id="sumSalesBySkuId" resultType="long">
+        SELECT COALESCE(SUM(oi.quantity), 0)
+        FROM order_items oi
+        JOIN orders o ON o.id = oi.order_id
+        WHERE oi.is_deleted = 0
+          AND o.is_deleted = 0
+          AND o.order_status NOT IN (1, 6)
+          AND o.pay_at IS NOT NULL
+          AND oi.sku_id = #{skuId}
+    </select>
+
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO product_sku
             (product_id, sku_code, spec_json, spec_key, price, market_price, cost_price,

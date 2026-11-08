@@ -21,6 +21,17 @@
         WHERE c.id = #{id}
     </select>
 
+    <!-- 按 id 列表批量查分类（AI 内部商品列表拼分类名用，不算 product_count） -->
+    <select id="listByIds" resultType="ecommerce.product.entity.Category">
+        SELECT c.id, c.name, c.parent_id, c.sort_order, c.status, c.recommend, c.image,
+               c.spec_template
+        FROM categories c
+        WHERE c.id IN
+        <foreach collection="ids" item="id" open="(" separator="," close=")">
+            #{id}
+        </foreach>
+    </select>
+
     <!-- 新增分类，自增 id 回填 -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO categories (name, parent_id, sort_order, status, recommend, image, spec_template)

@@ -754,16 +754,16 @@
 - [✓] 规格维度平铺 chip 点选（禁用下拉/手输标签），选中自动展开候选值并默认全勾；SKU 组合表格常驻显示；批量填充仅为辅助，价格以手动填写为准；多规格商品的价格/市场价/成本/库存只在 SKU 表格填，移除商品级独立价格框
 - [✓] 商城 H5 / 小程序规格选择统一：每维度单选平铺、红色边框选中、无库存置灰、未选全价格显示「XX 起」；SKU 逻辑抽 `utils/sku.js`（小程序版已迁入分包 `pages/order/utils/sku.js`，规避微信主包「未使用 JS 文件」校验——主包 tree-shaking 不保证 side-effect import 生效，分包目录不受该校验约束）
 
-### 阶段 39：AI 能力设计定稿（2026-11-07，仅方案，未开发）
+### 阶段 39：AI 能力设计定稿（2026-11-07 定稿，2026-11-08 落地见阶段 41）
 
-> 全文见 `docs/admin-ai`（38KB）。覆盖电商后台 AI 客服 + 商城 H5 AI 客服；小程序客服维持纯知识库检索不接大模型。
+> 全文见 `docs/ai`（38KB）。覆盖电商后台 AI 客服 + 商城 H5 AI 客服；小程序客服维持纯知识库检索不接大模型。
 
 - [✓] 按端分工：商城 H5 面向客户接大模型（商品推荐/订单售后查询/客服问答）；后台面向运营（角色配置/工具管理/知识库/文案生成回填），客户侧能力禁止堆入后台
 - [✓] 架构：两端共用一套 LangGraph 编排（工具集/知识库/系统提示词区分），请求统一经 Java 网关 JWT 鉴权后转发 Python `ecommerce-python`（原 `recommender-python` 已改名，引用已同步）
-- [✓] 表设计：统一 `ai_` 前缀 + `created_at/updated_at` + utf8mb4_general_ci；`ai_chat_role`（系统提示词存 `system_message`，不进 ai_tool）/ `ai_chat_session` / `ai_chat_message`（保留 admin_id + user_id，`source` 区分来源）/ `ai_tool` / `ai_kb_dataset` + `ai_kb_segment`（两表知识库，角色绑定到库）/ `ai_kb_qa` / `ai_kb_miss`（原 kb_qa/kb_miss 已改名，代码/SQL/文档同步）
+- [✓] 表设计：统一 `ai_` 前缀 + `created_at/updated_at` + utf8mb4_general_ci；`ai_chat_role`（系统提示词存 `system_message`，不进 ai_tool）/ `ai_chat_conversation` / `ai_chat_message`（保留 admin_id + user_id，`source` 区分来源）/ `ai_tool` / `ai_kb_dataset` + `ai_kb_segment`（两表知识库，角色绑定到库）/ `ai_kb_qa` / `ai_kb_miss`（原 kb_qa/kb_miss 已改名，代码/SQL/文档同步）
 - [✓] 工具 = Function Calling：`ai_tool` 表只存元数据/开关/权限，执行逻辑由实现 `AiToolHandler` 接口的 Java 类完成；权限两层交集（用户角色 ∩ 角色绑定工具），权限码 `ai:tool:xxx`；好物推荐工具查真实库返回商品卡片（禁大模型编价格/库存），后台卡片带「查看商品/复制链接」
 - [✓] RAG：硅基流动 `BAAI/bge-m3` 向量模型，Rerank 为 P1 可选；商城内置「商城客服」角色固定绑定 7 个客户工具 + `ai_kb_qa` 知识库；商城端保留会话历史列表
-- [ ] 待开发（先建表再写码）：建表 → Java 网关鉴权转发 → Python LangGraph 编排 → 后台 5 页面（AI 对话/商品文案助手/聊天角色/聊天管理/工具管理，AI 客服为一级菜单）+ 商城客服页
+- [✓] 已落地并上线（2026-11-08，阶段 41）：建表 → Java 网关鉴权转发 → Python LangGraph 编排 → 后台 2 页（AI 对话/商品文案助手；角色/工具/知识库/聊天管理 4 个菜单已入权限库但页面未开发）+ 商城客服页
 
 ### 阶段 40：国家补贴 + 商城移动端适配收尾（2026-11-07，代码完成，未提交/未发版）
 
@@ -772,6 +772,23 @@
 - [✓] 修复详情页 el-rate 评分全灰：Element Plus 2.14.x 的 el-rate 仅支持 `model-value`（无 `value`/`active-color`），误用 `value` 导致始终 0 分；改用 `model-value` + 显式 `disabled-void-color`
 - [✓] 恢复离线脚本 `rebuild_opt_images.py`（从 git 历史 2c052d4 前恢复到暂存）：仅补商品列表 400×400 opt 缩略图（不存在或 >30KB 才重压），不改原图不改库
 - [ ] 待提交 git + 发版：order-service 镜像 + `release-mall.sh`
+
+### 阶段 41：AI 客服模块落地（2026-11-08，已上线）
+
+> 方案见 `docs/ai`；实际实现偏差与踩坑见 `findings.md`「AI 客服模块落地」。
+
+- [✓] **建表与种子**（`docs/sql/20261108_ai_module.sql`，**本地 + 生产同一份均已执行**）：9 张 `ai_` 表（`ai_tool` / `ai_chat_role` / `ai_chat_role_tool` / `ai_chat_role_knowledge` / `ai_chat_conversation` / `ai_chat_message` / `ai_call_log` / `ai_kb_dataset` / `ai_kb_segment`）+ 菜单 1000（目录）、1001~1006（AI 对话/商品文案助手/聊天角色/工具管理/知识库管理/聊天管理）、按钮 1010~1017 + 9 个工具 + 2 个内置角色（商城客服绑 7 个、运营助手绑 9 个，共 16 条绑定）；角色授权超管/运营全量、客服仅 AI 对话
+- [✓] **角色提示词修正**（`docs/sql/20261108_ai_role2_prompt_update.sql`，双库已执行）：运营助手必须调 `update_product` 才能改商品文案
+- [✓] **Python 编排**（`ecommerce-python/app/ai/`）：LangGraph `StateGraph(intent → decide ⇄ tools)`；`intent.py` 关键词前置路由 `chat/danger/llm`（`danger` = 修改动词 + 字段名）；`tools.py` 9 个工具，危险工具 `update_product` 只产出 pending action、前端二次确认后 `execute_pending_action`；`app/api/ai_chat.py` 提供 `/api/mall/ai/**`、`/api/admin/ai/**` SSE 会话接口 + 文案生成
+- [✓] **Java 内部数据接口**：`common` 新增 `InternalApiInterceptor` + `WebMvcConfig` 注册，`/internal/ai/**` 校验 `X-Internal-Token`；product / order / aftersale 各一个 `InternalAiController`
+- [✓] **网关**：`/api/mall/ai/**`、`/api/admin/ai/**` 转发 `AI_SERVICE_URL`；`/internal/ai/product|stock|orders|aftersale` 三条独立路由转发到对应 Java 服务（放在 `/api/**` 通配之前，否则被吞）
+- [✓] **前端**：商城 `views/ai/AiChat.vue`（`/ai-chat`，会话历史 + 商品卡片，需登录）；后台 `pages/ai/AiChat.vue`（角色选择 + 流式对话）+ `CopyAssistant.vue`（文案生成）+ `api/ai.js` + `/ai` 一级路由
+- [✓] **生产部署**：镜像 `20261108-ai1`（gateway / product-service / order-service / aftersale-service / ai-service，5 个容器 running），ai-service 追加修复后再发 `20261108-ai2` 并重新生成 override；服务器 `/www/java/.env` 补齐 `OPENAI_BASE_URL` / `CHAT_MODEL` / `AI_INTERNAL_TOKEN`（48 位随机）/ `AI_INTERNAL_BASE_URL=http://gateway:8080`
+- [✓] **生产验证**：`/internal/ai/**` 无 token → 401，带 token 搜索商品 → 200；`ai_` 表 11 张（9 新建 + `ai_kb_qa` / `ai_kb_miss`）、9 工具 / 2 角色 / 16 绑定 / 519 条知识；真实用户端到端流式对话正常，`ai_chat_conversation` / `ai_chat_message` / `ai_call_log` 均落库
+- [✓] **intent 强约束**（用户要求）：`app/ai/agent.py` 新增 `_TOOL_RULES` 追加在 system message 之后（提到「我的订单/我的XX/发货了吗」必须先 `query_order`、售后先 `query_aftersale`、库存先 `query_stock`、商品详情先 `query_product/search_product`，禁止未调工具编造业务数据，空结果如实告知），修复「我的最新订单发货了吗」被当通用发货政策走 `search_knowledge`；会话表仍存原始提示词，不写规则
+- [✓] **AI 头像**：源图 `upload/image/zongjie.webp` → 两个前端 `src/assets/ai-avatar.webp`；商城欢迎区 56px + 每条 AI 消息 32px、后台 AI 消息 32px，圆形 `object-fit: cover`（原 icon 样式的 `font-size` / 主色背景必须去掉）
+- [ ] **待发版**：后台前端（`release-web.sh`）与 PC 商城（`release-mall.sh`）—— 本次只发后端镜像，两个 AI 页面与头像尚未对外可见
+- [ ] **待开发**：后台「聊天角色 / 工具管理 / 知识库管理 / 聊天管理」4 个页面（菜单与权限已在库中；后台侧边栏按静态路由渲染，当前不产生死链）
 
 ## 订单状态合并：退役「待确认收款(2)」（2026-11-04）
 
@@ -865,7 +882,7 @@
 | 8 | `xiaojiecpn.com` 证书 2026-11-29 到期 | 到期后 EdgeOne 回源 HTTPS 失败 → 首页 404 | 宝塔设自动续签或提前换证 |
 | 9 | **本地改了库忘记同步生产**（2026-11-05 已真实发生：生产 `kb_qa` 为 0） | 线上功能看着"正常返回"，实际是空库/旧数据兜底，排查时极易误判为代码问题 | 按 `findings.md` 顶部「硬规则」执行：本地跑完立刻在生产跑同一份幂等 SQL + 核对行数；缓存服务要重启或等 TTL |
 | 10 | 跨服务调用的目标地址靠环境变量注入，新增变量忘同步服务器 compose（2026-11-07 已发生：生产缺 `STOCK_INTERNAL_URL` 致下单 500） | 容器内默认 `localhost` 指向自身 → Connection refused，C 端主链路直接断 | 新增 `*_URL`/密钥类环境变量必须同步 ① 本地 yml 默认值 ② `deploy/docker-compose.yml` ③ 服务器 compose，`--force-recreate` 重建相关容器并容器内实测 |
-
+| 11 | ai-service 用 compose 的 `env_file: .env` 注入全部配置（`OPENAI_BASE_URL` / `CHAT_MODEL` / `SILICONFLOW_API_KEY` / `AI_INTERNAL_TOKEN` / `AI_INTERNAL_BASE_URL`） | 漏配 → ai-service 起不来或 Python 调 Java 内部接口全 401，商城 AI 客服整体不可用 | 三处同步：① 本地 `ecommerce-python/.env` ② `deploy/docker-compose.yml` ③ 服务器 `/www/java/.env`；改完 `--force-recreate ai-service` 并容器内实跑一次对话 |
 
 ## 历史错误
 

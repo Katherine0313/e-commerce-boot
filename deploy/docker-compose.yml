@@ -47,6 +47,13 @@ services:
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # 数据库备份持久目录：容器重建不丢备份文件
+      - ./backup/db:/data/backup/db
+    environment:
+      DB_BACKUP_DIR: "/data/backup/db"
+      # 接口管理同步 OpenAPI 时走 Docker 内网网关
+      GATEWAY_URL: "http://gateway:8080"
     networks:
       - my-net
 

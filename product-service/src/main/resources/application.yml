@@ -31,12 +31,9 @@ spring:
       # 超时压短：Redis 不可用时快速失败，分类接口才能走降级查库，而不是卡 10 秒
       connect-timeout: 2s
       timeout: 2s
+  # 限制前端传过来的文件大小
   servlet:
     multipart:
-      # 图片/视频上传限制：单文件 50MB，整个请求 51MB 留余量。
-      # 这里只是总闸，实际按类型分级在 UploadServiceImpl：图片 5MB、视频 50MB。
-      # 后台前端上传前会按展示规格压缩（后台 utils/image-spec.js），正常不会碰到这两个上限。
-      # 超限由 GlobalExceptionHandler 转成 413 + 可读提示。
       max-file-size: 50MB
       max-request-size: 51MB
 server:

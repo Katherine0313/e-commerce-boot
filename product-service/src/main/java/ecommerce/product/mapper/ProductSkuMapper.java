@@ -18,6 +18,12 @@ public interface ProductSkuMapper {
     /** C 端详情：只返回启用行 */
     List<ProductSku> listEnabledByProductId(@Param("productId") Long productId);
 
+    /** 按 id 查单个 SKU（AI 内部库存查询用，含停用行） */
+    ProductSku findById(@Param("id") Long id);
+
+    /** SKU 累计销量（共享库只读 order_items/orders；口径与订单销量排名一致：排除待付款/已取消，按已支付订单计） */
+    long sumSalesBySkuId(@Param("skuId") Long skuId);
+
     int insert(ProductSku sku);
 
     int update(ProductSku sku);

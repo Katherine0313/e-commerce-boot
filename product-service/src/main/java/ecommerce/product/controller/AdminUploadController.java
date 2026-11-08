@@ -48,7 +48,9 @@ public class AdminUploadController {
         return Result.success(uploadService.upload(file, type));
     }
 
-    /** 按上传类型校验权限 */
+    /**
+     * 按上传类型校验权限
+     */
     private void assertPermission(String type) {
         List<String> allowed = switch (type == null ? "" : type) {
             case "banner" -> List.of("business:banner:add");
@@ -61,10 +63,12 @@ public class AdminUploadController {
             case "express" -> List.of("order:express:save");
             default -> List.of("product:product:add");
         };
+
         List<String> permissions = UserContext.getPermissions();
         if (permissions.contains(ALL_PERMISSION)) {
             return;
         }
+
         for (String perm : allowed) {
             if (permissions.contains(perm)) {
                 return;
