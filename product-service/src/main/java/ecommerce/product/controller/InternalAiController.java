@@ -128,17 +128,20 @@ public class InternalAiController {
         return Result.success(new ProductPageVO(records, result.getTotal()));
     }
 
-    @Operation(summary = "更新商品文案（白名单字段：name / subTitle / description，其余忽略）")
+    @Operation(summary = "更新商品文案（白名单字段：name / subTitle / title / description / image，其余忽略）")
     @PutMapping("/product/{id}")
     public Result<Map<String, Object>> updateProduct(@PathVariable Long id,
                                                      @RequestBody CopyUpdateRequest body) {
         // 局部更新语义：DTO 只设白名单字段，其余留 null 由 Service 跳过；
-        // description 对应 products.body（图文详情），与文案生成场景 DESCRIPTION→body 的约定一致
+        // description 对应 products.body（图文详情），与文案生成场景 DESCRIPTION→body 的约定一致；
+        // title 对应 products.title（主标题），image 对应 products.image（主图，AI 生图「设为主图」用）
         AdminProductDTO dto = new AdminProductDTO();
         if (body != null) {
             dto.setName(body.getName());
             dto.setSubTitle(body.getSubTitle());
+            dto.setTitle(body.getTitle());
             dto.setBody(body.getDescription());
+            dto.setImage(body.getImage());
         }
         adminProductService.update(id, dto);
         return Result.success(Map.of("id", id));
@@ -230,12 +233,16 @@ public class InternalAiController {
         private long total;
     }
 
-    /** 文案更新请求体：白名单三字段，其余字段直接忽略 */
+    /** 文案更新请求体：白名单五字段（name/subTitle/title/description/image），其余字段直接忽略 */
     @Data
     public static class CopyUpdateRequest {
         private String name;
         private String subTitle;
+        /** 主标题（products.title） */
+        private String title;
         private String description;
+        /** 主图（products.image），AI 生图「设为主图」回填用 */
+        private String image;
     }
 
     /** SKU 库存视图 */
