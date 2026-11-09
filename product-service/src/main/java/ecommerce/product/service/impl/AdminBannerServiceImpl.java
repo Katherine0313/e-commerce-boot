@@ -120,7 +120,7 @@ public class AdminBannerServiceImpl implements AdminBannerService {
     public void delete(Long id) {
         Banner banner = requireBanner(id);
         LogDetail.add("删除 Banner：标题【" + banner.getTitle() + "】");
-        bannerMapper.softDelete(id, LocalDateTime.now());
+        bannerMapper.deleteById(id);
     }
 
     /**

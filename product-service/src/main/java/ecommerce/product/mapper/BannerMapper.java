@@ -40,8 +40,8 @@ public interface BannerMapper {
                      @Param("status") Integer status,
                      @Param("updateTime") LocalDateTime updateTime);
 
-    // 逻辑删除
-    int softDelete(@Param("id") Long id, @Param("updateTime") LocalDateTime updateTime);
+    // 物理删除
+    int deleteById(@Param("id") Long id);
 
     // 点击次数 +1
     int increaseBrowseCount(@Param("id") Long id);

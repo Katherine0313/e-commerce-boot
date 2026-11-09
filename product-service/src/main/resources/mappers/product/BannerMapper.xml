@@ -6,9 +6,8 @@
 
     <!-- ==================== 后台：列表 / 详情 ==================== -->
     <sql id="adminWhere">
-        is_deleted = 0
         <if test="keyword != null and keyword != ''">
-            AND title LIKE CONCAT('%', #{keyword}, '%')
+            title LIKE CONCAT('%', #{keyword}, '%')
         </if>
         <if test="position != null">
             AND position = #{position}
@@ -37,7 +36,7 @@
         SELECT id, title, image, images, position, link_type, link_value, sort_order, status,
                browse_count, is_deleted, create_time, update_time
         FROM promotion_banner
-        WHERE id = #{id} AND is_deleted = 0
+        WHERE id = #{id}
     </select>
 
     <!-- ==================== C 端：某个位置上启用的 Banner ==================== -->
@@ -45,8 +44,7 @@
         SELECT id, title, image, images, position, link_type, link_value, sort_order, status,
                browse_count, create_time
         FROM promotion_banner
-        WHERE is_deleted = 0
-          AND status = 1
+        WHERE status = 1
           <if test="position != null">
               AND position = #{position}
           </if>
@@ -74,25 +72,23 @@
             <if test="status != null">status = #{status},</if>
             update_time = #{updateTime},
         </set>
-        WHERE id = #{id} AND is_deleted = 0
+        WHERE id = #{id}
     </update>
 
     <update id="updateStatus">
         UPDATE promotion_banner
         SET status = #{status}, update_time = #{updateTime}
-        WHERE id = #{id} AND is_deleted = 0
+        WHERE id = #{id}
     </update>
 
-    <update id="softDelete">
-        UPDATE promotion_banner
-        SET is_deleted = 1, update_time = #{updateTime}
-        WHERE id = #{id} AND is_deleted = 0
-    </update>
+    <delete id="deleteById">
+        DELETE FROM promotion_banner WHERE id = #{id}
+    </delete>
 
     <update id="increaseBrowseCount">
         UPDATE promotion_banner
         SET browse_count = browse_count + 1
-        WHERE id = #{id} AND is_deleted = 0
+        WHERE id = #{id}
     </update>
 
 </mapper>

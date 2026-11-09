@@ -48,4 +48,19 @@ public class StockSkuController {
         skuMapper.updateAlert(skuId, dto.getMinStock(), dto.getMaxStock());
         return Result.success();
     }
+
+    @Operation(summary = "批量设置 SKU 预警阈值")
+    @RequirePerm("product:sku-stock:list")
+    @PostMapping("/alert/batch")
+    public Result<Integer> batchSetAlert(@RequestBody java.util.Map<String, Object> body) {
+        @SuppressWarnings("unchecked")
+        List<Long> skuIds = (List<Long>) body.get("skuIds");
+        if (skuIds == null || skuIds.isEmpty()) {
+            return Result.success(0);
+        }
+        Integer minStock = body.get("minStock") == null ? null : ((Number) body.get("minStock")).intValue();
+        Integer maxStock = body.get("maxStock") == null ? null : ((Number) body.get("maxStock")).intValue();
+        int updated = skuMapper.batchUpdateAlert(skuIds, minStock, maxStock);
+        return Result.success(updated);
+    }
 }

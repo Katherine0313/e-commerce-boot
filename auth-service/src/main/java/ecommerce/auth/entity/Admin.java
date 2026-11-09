@@ -21,6 +21,8 @@ public class Admin {
     private String password;
     private String name;
     private String phone;
+    /** 管理员头像 URL（对应 admin.admin_avatar，与 C 端 user.avatar 分开） */
+    private String adminAvatar;
     private Integer status;
     /** 软删标记：0 正常 1 已删除（已删除的账号查不到，也不能登录） */
     private Integer isDeleted;

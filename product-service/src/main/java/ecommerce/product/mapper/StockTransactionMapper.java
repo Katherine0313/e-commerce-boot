@@ -32,4 +32,8 @@ public interface StockTransactionMapper {
     int todayTotalIn();
     /** 看板：今日总出库 */
     int todayTotalOut();
+    /** 看板：业务类型占比（近 N 天，返回 [{type, count, qty}]） */
+    List<java.util.Map<String, Object>> typeDist(@Param("days") int days);
+    /** 看板：总库存件数（product_sku.sum(stock) WHERE status=1） */
+    long totalStock();
 }

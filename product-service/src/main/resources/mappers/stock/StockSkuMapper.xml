@@ -70,4 +70,56 @@
         WHERE id = #{skuId}
     </update>
 
+    <!-- 批量更新预警阈值 -->
+    <update id="batchUpdateAlert">
+        UPDATE product_sku
+        <set>
+            <if test="minStock != null">min_stock = #{minStock},</if>
+            <if test="maxStock != null">max_stock = #{maxStock},</if>
+            update_time = NOW()
+        </set>
+        WHERE id IN
+        <foreach collection="skuIds" item="id" open="(" separator="," close=")">#{id}</foreach>
+    </update>
+
+    <!-- 看板：SKU 库存分布 TOP N（水平柱状图用） -->
+    <select id="stockDistTopN" resultType="java.util.HashMap">
+        SELECT p.name AS productName, s.spec_text AS specText, s.stock
+        FROM product_sku s
+        INNER JOIN products p ON p.id = s.product_id
+        WHERE s.status = 1
+        ORDER BY s.stock DESC
+        LIMIT #{limit}
+    </select>
+
+    <!-- 看板：低库存 TOP N（带风险级别 CASE + 今日出库 LEFT JOIN） -->
+    <select id="lowStockDetail" resultType="java.util.HashMap">
+        SELECT
+            s.id AS skuId,
+            p.name AS productName,
+            s.spec_text AS specText,
+            s.stock,
+            s.min_stock AS minStock,
+            CASE
+                WHEN s.stock = 0 THEN 'urgent'
+                WHEN s.stock &lt; s.min_stock * 0.3 THEN 'high'
+                ELSE 'mid'
+            END AS riskLevel,
+            ROUND(s.stock / NULLIF(s.min_stock, 0), 2) AS stockRate,
+            COALESCE(t.todayOut, 0) AS todayOutQty
+        FROM product_sku s
+        INNER JOIN products p ON p.id = s.product_id
+        LEFT JOIN (
+            SELECT sku_id, SUM(qty) AS todayOut
+            FROM stock_transaction
+            WHERE type = 'OUT' AND DATE(create_time) = CURDATE()
+            GROUP BY sku_id
+        ) t ON t.sku_id = s.id
+        WHERE s.status = 1
+          AND s.min_stock IS NOT NULL
+          AND s.stock &lt; s.min_stock
+        ORDER BY s.stock ASC
+        LIMIT #{limit}
+    </select>
+
 </mapper>

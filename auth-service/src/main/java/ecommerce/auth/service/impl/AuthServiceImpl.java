@@ -432,6 +432,7 @@ public class AuthServiceImpl implements AuthService {
                 .id(admin.getId())
                 .username(admin.getUsername())
                 .name(admin.getName())
+                .adminAvatar(admin.getAdminAvatar())
                 .roles(auth.roles())
                 .permissions(auth.permissions())
                 .menus(auth.menus())

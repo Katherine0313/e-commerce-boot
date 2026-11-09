@@ -33,4 +33,15 @@ public interface StockSkuMapper {
     void updateAlert(@Param("skuId") Long skuId,
                      @Param("minStock") Integer minStock,
                      @Param("maxStock") Integer maxStock);
+
+    /** 批量更新预警阈值 */
+    int batchUpdateAlert(@Param("skuIds") List<Long> skuIds,
+                         @Param("minStock") Integer minStock,
+                         @Param("maxStock") Integer maxStock);
+
+    /** 看板：SKU 库存分布 TOP N */
+    List<java.util.Map<String, Object>> stockDistTopN(@Param("limit") int limit);
+
+    /** 看板：低库存 TOP N（带风险级别 + 今日出库量） */
+    List<java.util.Map<String, Object>> lowStockDetail(@Param("limit") int limit);
 }
