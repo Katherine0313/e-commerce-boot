@@ -18,6 +18,4 @@ public class CaptchaVO {
     private String captchaId;
     @Schema(description = "验证码图片（data:image/png;base64,...）")
     private String image;
-    @Schema(description = "有效期（秒）")
-    private long expireIn;
 }

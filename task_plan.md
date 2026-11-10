@@ -790,6 +790,18 @@
 - [ ] **待发版**：后台前端（`release-web.sh`）与 PC 商城（`release-mall.sh`）—— 本次只发后端镜像，两个 AI 页面与头像尚未对外可见
 - [ ] **待开发**：后台「聊天角色 / 工具管理 / 知识库管理 / 聊天管理」4 个页面（菜单与权限已在库中；后台侧边栏按静态路由渲染，当前不产生死链）
 
+### 阶段 42：数据库监控模块（2026-11-10，代码完成，DB 双库已同步，待发版）
+
+> 方案见 `docs/database/database-monitor-plan.md`；实现口径与踩坑见 `findings.md`「数据库监控模块」。
+
+- [✓] **建表 + 菜单 + 任务注册**（`docs/sql/20261110_db_monitor.sql`，**本地 + 生产同一份均已执行并核对**）：表 `admin_db_slow_sql`（4 个索引，只存归一化 SQL 与 MD5 指纹，不存参数值）+ 菜单 921（数据库监控，`monitor:db:list`）/ 按钮 922（清空历史，`monitor:db:clear`）+ 超管角色授权 + `admin_monitor_task` 注册 `dbSlowSqlCleanup`。92x 段执行前已确认空闲（908~910 为定时任务按钮、911 缓存 Key、912~920 财务、1000+ AI）
+- [✓] **采集端 `common`**：`ecommerce/monitor/sql/` —— `SqlMonitorInterceptor` 拦 `Executor.query` 两个重载 + `update`，`nanoTime` 计时只记 ≥300ms；SQL 归一化（压空白 → 字符串/数字字面量换 `?` → `IN (…)` 收敛）+ MD5；`SqlMonitorRecorder` 每分钟 60 条限流 + 独立线程池（1/2/队列 1000）+ 自定义拒绝策略（丢弃并计数），JdbcTemplate 直写、异常只 warn；`SqlMonitorConfig` 条件装配（MyBatis 存在 + `monitor.sql.enabled`），common 的 mybatis starter 设 `optional`
+- [✓] **查询端 `system-service`**：`DatabaseMonitorController`（`/api/admin/monitor/database`）—— overview / slow-sqls 分页 / top / trend / tables / pools / DELETE 清空；`DatabaseMonitorService` 查 `SHOW GLOBAL STATUS`、`information_schema`，QPS 用 Redis 采样差值；`ServiceMetricsService` 增加 Hikari 指标（单独 try，失败降级不影响 JVM/HTTP 指标）
+- [✓] **清理任务**：`DatabaseSlowSqlCleanupTask` + `DatabaseSlowSqlCleanupTaskRunner`（`dbSlowSqlCleanup`，每天 03:20，每批 1000 / 最多 200 批），三处任务名一致，并加入 `TaskMonitorService.MANUAL_RUN_ALLOWED`
+- [✓] **前端**：`e-commerce/src/pages/monitor/database/DatabaseMonitor.vue` + `api/monitor.js` 7 个方法 + `/monitor/database` 路由（`meta.permission='monitor:db:list'`，清空按钮 `v-permission`）
+- [✓] **验证**：后端 `mvn compile`、前端 `npm run build`；临时实例（19008/19009，禁 Nacos 注册）7 个接口实测通过，阈值调 0 后真实抓到慢 SQL 记录，任务可见且可手动执行；测试数据已清理
+- [ ] **待发版**：重发所有引 common 且有 MyBatis 的服务（auth / product / order / aftersale / user / system）+ 后台前端；上线后确认 user-service（MyBatis-Plus）能否采集
+
 ## 订单状态合并：退役「待确认收款(2)」（2026-11-04）
 
 - [✓] **判断**：code=2 是原 Node 真实支付场景的「商家人工确认到账」。本项目支付是 mock 的，点一下即成功，

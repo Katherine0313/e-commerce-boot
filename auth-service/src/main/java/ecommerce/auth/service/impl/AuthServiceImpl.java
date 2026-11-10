@@ -314,7 +314,7 @@ public class AuthServiceImpl implements AuthService {
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "验证码服务暂不可用，请稍后重试");
         }
         if (saved == null || !saved.equalsIgnoreCase(captchaCode.trim())) {
-            throw new BusinessException(HttpStatus.UNAUTHORIZED, "验证码错误或已过期");
+            throw new BusinessException(HttpStatus.UNAUTHORIZED, "验证码错误");
         }
     }
 

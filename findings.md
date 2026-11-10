@@ -740,6 +740,26 @@ ecommerce
 - `products.id=128` 的图（**本地/线上都正常，无需任何改动**）：本地库 image = `/image/upload/e8dc2234-9fe6-4dc4-a3fe-20854f992049.jpg`，本地 `upload/image/upload/` 下该文件存在（89,293 字节，2026-10-31 09:00）；生产库 image = `/image/upload/128.webp`，生产服务器上 `128.webp`（6,786 字节）与同名 `e8dc2234-….jpg`（89,293 字节）**两个文件都在**。两者是同一张浪琴名匠 L2.628 男表图的不同压缩版本（128.webp 是带「浪琴 / 名匠 L2.628 机械男表 / SEED-128」字样的宣传图，UUID jpg 是实物白盘图）。两边各自的库里指向的文件都存在、都能正常显示。
 - 生产 `order_items` 里有 8 条历史订单 `insurance_fee>0`（老规则下真实成交），金额已定、不受影响；生产 `cart` 里 0 条带保障。
 
+### 数据库监控模块（2026-11-10，阶段 42）
+
+- **选型**：只做慢 SQL 用 MyBatis `Interceptor`，不引 p6spy（要改所有服务 JDBC URL）、不换 Druid（现用 Hikari，改动面太大）、不依赖 MySQL `slow_query_log`（拿不到 Mapper 方法）、不用 Service AOP（一个方法十几条 SQL 定位不到具体语句）。拦截点选 `Executor`，能同时拿到 `MappedStatement` + 真实 SQL + 耗时 + 影响行数。
+- **两个 query 重载必须都拦**：分页/二级缓存链路走带 `CacheKey` + `BoundSql` 的那个，只拦 4 参数版本会漏；`update` 再单拦一个。`BoundSql` 优先取参数里缓存的那个，没有再 `ms.getBoundSql(parameter)`。
+- **只记慢的**：低于阈值直接 return，采集侧只多一次 `nanoTime` 差值。默认 300ms，每服务每分钟 60 条，保留 7 天。
+- **不存参数值**：`sql_text` 只存归一化 SQL（字符串/数字字面量 → `?`，`IN (?,?,?)` → `IN (?)`，压空白）+ 截断 2000；聚合靠 `sql_fingerprint = MD5(归一化 SQL)`。手机号/地址等敏感数据不会落库，`mapper_method` 已够定位代码。
+- **丢弃语义**：线程池满/超限流丢的是**监控记录**，业务 SQL 在请求线程里早已执行完，不进队列。拒绝策略用自定义「丢弃 + `AtomicLong` 计数」（不用 `CallerRunsPolicy`）—— 与 `LogAsyncConfig` 的取舍刻意相反：审计日志宁阻塞不能丢，慢 SQL 是采样数据，为它阻塞业务是本末倒置；丢弃数在总览页可见。
+- **递归防护**：写入走 JdbcTemplate（不走 MyBatis）本身已绕过拦截器，另加 `ThreadLocal<Boolean>` 标志位兜底。
+- **依赖与装配**：`common` 加 `mybatis-spring-boot-starter` 且 **`<optional>true</optional>`**（不向 file-service / 网关传递）；拦截器/记录器用 `@ConditionalOnClass(name="org.apache.ibatis.plugin.Interceptor")` + `@ConditionalOnProperty(prefix="monitor.sql", name="enabled", matchIfMissing=true)`。mybatis starter 自动把容器里所有 `Interceptor` Bean 注册进 Configuration，各服务启动类零改动。file-service 无 MyBatis 且无 JdbcTemplate，两个条件都不满足；网关不引 common。
+- **user-service 是例外**：用 `mybatis-plus-spring-boot4-starter`，理论上 MyBatis-Plus 自动配置也会注入容器里的 `Interceptor`，但版本差异大，未在生产验证 —— 上线后先看该服务有没有记录，没有就按方案接受「暂不采集」。
+- **菜单 id 用 921/922**：执行前全仓核对 92x 空闲（908~910 定时任务按钮、911 缓存 Key、912~920 财务、1000+ AI）。页面 921（`monitor:db:list`）+ 按钮 922（`monitor:db:clear`），按钮必须带 `v-permission`。
+- **动态任务三处一致**：`DatabaseSlowSqlCleanupTaskRunner#taskName()` == `@MonitoredTask.name()` == `admin_monitor_task.task_name`，否则 `DynamicTaskScheduler` 扫不到；`task_group` **只影响手动执行**的转发目标，自动调度不看它。
+- **易漏点**：`TaskMonitorService.MANUAL_RUN_ALLOWED` 是硬编码白名单，新任务不加进去页面「执行」会显示不可手动执行（本次已加 `dbSlowSqlCleanup`）。
+- **Hikari 指标**：本地实测各服务 `/actuator/metrics/hikaricp.connections.active|idle|pending|max` 都返回 200；但在 `ServiceMetricsService` 里必须**单独 try**，任一指标 404 只把 `poolAvailable` 置 false，不能影响同一循环里的 JVM/HTTP 指标。system-service 自身用 `HikariPoolMXBean` 覆盖，保证页面至少有一行实时数据。
+- **QPS 口径**：`Questions` 是累计值，必须两次采样求差；上次采样写 Redis `monitor:db:status:last`（`时间戳:Questions`，TTL 1 天），进程重启也不会一直显示 0。Redis 不可用时返回 0，不抛错。
+- **监控口径**：`cost_ms` 是 Java 侧 SQL 执行耗时（含网络往返），不含连接获取等待（看连接池 `pending`），也不含结果集转对象。
+- **生产库同步**：库账号密码从服务器 `/www/java/.env` 的 `DB_USERNAME` / `DB_PASSWORD` 读取（不要硬编码到脚本），用 `MYSQL_PWD` 传给 mysql。本次 `docs/sql/20261110_db_monitor.sql` 本地与生产同一份执行，并核对表、菜单 921/922、任务 `dbSlowSqlCleanup` 均存在。
+- **验证手法（可复用）**：`mvn spring-boot:run` 起临时 system-service 到 19008/19009，参数 `--spring.cloud.nacos.discovery.enabled=false` 避免注册进网关；用 dev 的 `JWT_SECRET` 手工签一个 `permissions=["*:*:*"]` 的 admin token 打接口；再以 `--monitor.sql.slow-threshold-ms=0` 重启并请求 `/api/admin/system/menus/tree`，即可真实触发 MyBatis 入库验证整条链路。测完删测试行、停实例。
+- **坑（PowerShell）**：`ssh ecommerce "... $() ... 反引号 ..."` 会在本地先展开 `$()`/反引号，远程命令变样；改成先 `scp` 一个 bash 脚本再 `ssh ecommerce "bash /tmp/x.sh"`。
+
 ## 发布与部署
 
 - TCR：`ccr.ccs.tencentyun.com`，命名空间 `jiemi-ecommerce`，**8 个仓库**（7 Java + ai-service）。

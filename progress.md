@@ -128,7 +128,7 @@
 
 ## 未完成事项（速查）
 
-- [ ] **【待发版】数据库监控模块**（2026-11-10，阶段 42，**DB 本地 + 生产均已同步并核对**）：`common` 新增慢 SQL 拦截器（阈值 300ms、每服务每分钟 60 条、只存归一化 SQL 不存参数、队列满丢弃计数），`system-service` 新增 7 个查询/清空接口 + 每天 03:20 清理任务，后台新增 `/monitor/database` 页面（菜单 921 / 按钮 922）。**待做**：① 发版需重发**所有引 common 且有 MyBatis 的服务**（auth/product/order/aftersale/user/system）+ system-service + 后台前端 `release-web.sh`；② 重新登录后台让 `monitor:db:*` 权限码生效；③ 上线后确认 user-service（MyBatis-Plus）是否也有记录，没有则先接受暂不采集
+- [ ] **【待发版】数据库监控模块**（2026-11-10，阶段 42，**DB 本地 + 生产均已同步并核对**）：`common` 新增慢 SQL 拦截器（阈值 300ms、每服务每分钟 60 条、只存归一化 SQL 不存参数、队列满丢弃计数），`system-service` 新增 7 个查询/清空接口 + 每天 03:20 清理任务，后台新增 `/monitor/database` 页面（菜单 921 / 按钮 922）。**待做**：① 发版需重发所有引 common 且有 MyBatis 的服务（auth / product / order / aftersale / user / system，其中 system 同时提供查询接口）+ 后台前端 `release-web.sh`；② 重新登录后台让 `monitor:db:*` 权限码生效；③ 上线后确认 user-service（MyBatis-Plus）是否也有记录，没有则先接受暂不采集
 - [ ] **【未提交 + 待发版】国家补贴 + 商城移动端适配**（2026-11-07，阶段 40）：后端补贴接口（order-service）与商城前端改动已本地构建通过但**未提交 git**；待发 order-service 镜像 + `release-mall.sh`
 - [ ] **【未提交】小程序 SKU 工具迁移等改动**：`utils/sku.js` 已删、逻辑迁入分包 `pages/order/utils/sku.js`（规避微信主包未使用 JS 校验），另有 30 余页面/组件改动（售后、购物车、订单、首页等）待提交；提交后需 HBuilderX 重新构建上传 `dist/build/mp-weixin`
 - [ ] **【待发版】AI 客服前端**（2026-11-08，阶段 41）：后端镜像与生产库都已上线，但后台前端（`release-web.sh`）与 PC 商城（`release-mall.sh`）**本次未发** —— 两个 AI 页面和 AI 头像尚未对外可见；发完用真实账号各走一轮对话
