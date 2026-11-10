@@ -55,6 +55,13 @@
 			<groupId>org.springframework</groupId>
 			<artifactId>spring-jdbc</artifactId>
 		</dependency>
+		<!-- MyBatis：慢 SQL 拦截器只依赖 org.apache.ibatis 的 SPI。optional 保证不传递给
+			 file-service / gateway 这类没有 MyBatis 的模块，拦截器按 @ConditionalOnClass 装配 -->
+		<dependency>
+			<groupId>org.mybatis.spring.boot</groupId>
+			<artifactId>mybatis-spring-boot-starter</artifactId>
+			<optional>true</optional>
+		</dependency>
 		<!-- JWT：JwtUtil 签发/解析令牌 -->
 		<dependency>
 			<groupId>io.jsonwebtoken</groupId>

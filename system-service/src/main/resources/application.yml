@@ -53,6 +53,12 @@ jwt:
   expire: 604800
 
 monitor:
+  # 慢 SQL 采集与展示：阈值/限流各服务一致；retain-days 供每天的清理任务使用
+  sql:
+    enabled: ${MONITOR_SQL_ENABLED:true}
+    slow-threshold-ms: ${MONITOR_SQL_SLOW_MS:300}
+    max-per-minute: ${MONITOR_SQL_MAX_PER_MIN:60}
+    retain-days: ${MONITOR_SQL_RETAIN_DAYS:7}
   docker:
     # 宿主机 Docker socket；容器内挂载后只读访问（只看状态，不做任何写操作）
     socket: ${MONITOR_DOCKER_SOCKET:/var/run/docker.sock}

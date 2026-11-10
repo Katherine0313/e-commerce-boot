@@ -101,6 +101,16 @@ public class ServiceMetricsService {
         } catch (Exception e) {
             item.put("message", shorten(e.getMessage()));
         }
+        // Hikari 指标单独 try：Boot 4 下不一定默认绑定，404 时降级为不可用，不影响上面的 JVM/HTTP 指标
+        try {
+            item.put("poolActive", measurement(metric(baseUrl, "hikaricp.connections.active", null), "VALUE"));
+            item.put("poolIdle", measurement(metric(baseUrl, "hikaricp.connections.idle", null), "VALUE"));
+            item.put("poolPending", measurement(metric(baseUrl, "hikaricp.connections.pending", null), "VALUE"));
+            item.put("poolMax", measurement(metric(baseUrl, "hikaricp.connections.max", null), "VALUE"));
+            item.put("poolAvailable", true);
+        } catch (Exception e) {
+            item.put("poolAvailable", false);
+        }
         return item;
     }
 

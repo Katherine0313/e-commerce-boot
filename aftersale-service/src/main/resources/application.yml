@@ -31,6 +31,13 @@ spring:
 server:
   port: 9005
 
+# 慢 SQL 采集：MyBatis 拦截器只记录超过阈值的语句，供 system-service 数据库监控页展示
+monitor:
+  sql:
+    enabled: ${MONITOR_SQL_ENABLED:true}
+    slow-threshold-ms: ${MONITOR_SQL_SLOW_MS:300}
+    max-per-minute: ${MONITOR_SQL_MAX_PER_MIN:60}
+
 # Actuator：只暴露健康与指标，供 system-service 内网聚合；网关不转发 /actuator/**
 management:
   endpoints:

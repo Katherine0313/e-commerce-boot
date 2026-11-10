@@ -42,6 +42,11 @@ server:
 # 动态定时任务调度：读 admin_monitor_task 表调度，只跑本服务有的任务（task_group=product-service）。
 # 开启后 common 的 DynamicTaskScheduler 会装配，任务清单由 docs/sql/20261107_orphan_cleanup_task.sql 维护。
 monitor:
+  # 慢 SQL 采集：只记超过阈值的语句，写入 admin_db_slow_sql 供数据库监控页展示
+  sql:
+    enabled: ${MONITOR_SQL_ENABLED:true}
+    slow-threshold-ms: ${MONITOR_SQL_SLOW_MS:300}
+    max-per-minute: ${MONITOR_SQL_MAX_PER_MIN:60}
   dynamic-task:
     enabled: true
 

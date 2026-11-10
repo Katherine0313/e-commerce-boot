@@ -91,6 +91,11 @@ springdoc:
 
 # 动态定时任务：从 admin_monitor_task 读取启用任务，本服务只调度有对应 Runner 的行
 monitor:
+  # 慢 SQL 采集：只记超过阈值的语句，写入 admin_db_slow_sql 供数据库监控页展示
+  sql:
+    enabled: ${MONITOR_SQL_ENABLED:true}
+    slow-threshold-ms: ${MONITOR_SQL_SLOW_MS:300}
+    max-per-minute: ${MONITOR_SQL_MAX_PER_MIN:60}
   dynamic-task:
     enabled: true
 
