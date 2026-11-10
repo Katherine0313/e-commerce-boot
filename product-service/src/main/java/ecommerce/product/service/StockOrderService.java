@@ -3,8 +3,10 @@ package ecommerce.product.service;
 import ecommerce.exception.BusinessException;
 import ecommerce.product.dto.StockOrderCreateDTO;
 import ecommerce.product.dto.StockWriteDTO;
+import ecommerce.product.entity.ProductSku;
 import ecommerce.product.entity.StockOrder;
 import ecommerce.product.entity.StockOrderItem;
+import ecommerce.product.mapper.ProductSkuMapper;
 import ecommerce.product.mapper.StockOrderItemMapper;
 import ecommerce.product.mapper.StockOrderMapper;
 import ecommerce.product.support.OrderNoGenerator;
@@ -36,21 +38,49 @@ public class StockOrderService {
     private final StockOrderItemMapper itemMapper;
     private final StockWriteService writeService;
     private final OrderNoGenerator noGenerator;
+    private final ProductSkuMapper skuMapper;
 
     public StockOrderService(StockOrderMapper orderMapper, StockOrderItemMapper itemMapper,
-                             StockWriteService writeService, OrderNoGenerator noGenerator) {
+                             StockWriteService writeService, OrderNoGenerator noGenerator,
+                             ProductSkuMapper skuMapper) {
         this.orderMapper = orderMapper;
         this.itemMapper = itemMapper;
         this.writeService = writeService;
         this.noGenerator = noGenerator;
+        this.skuMapper = skuMapper;
+    }
+
+    /** 手动建单据（Receipt / Adjustment / 手动 Shipment）：写单据 + 明细 + 库存流水 */
+    @Transactional(rollbackFor = Exception.class)
+    public StockOrder createAndComplete(StockOrderCreateDTO dto, Long operatorId, String operatorName) {
+        return create(dto, operatorId, operatorName, true);
     }
 
     /**
-     * 创建并完成一张单据（Receipt / Adjustment 手动建；Shipment 一般自动生成）。
-     * 一个事务：写 stock_order + 写 item 明细 + 逐行调 StockWriteService.write()。
+     * 订单发货自动生成销售出库单。
+     * <p>
+     * 库存在「下单」时已由 order-service 调 /internal/stock-write(OUT, 销售出库) 扣减，
+     * 发货时再扣一次会重复扣库存，所以这里只落单据 + 明细，不写库存流水。
+     * relatedNo = 订单号；同一订单重复调用（发货重试）直接复用已有单据，保证幂等。
      */
     @Transactional(rollbackFor = Exception.class)
-    public StockOrder createAndComplete(StockOrderCreateDTO dto, Long operatorId, String operatorName) {
+    public StockOrder recordShipment(StockOrderCreateDTO dto, Long operatorId, String operatorName) {
+        StockOrder existing = orderMapper.findByRelatedNoAndType(dto.getRelatedNo(), "SHIPMENT");
+        if (existing != null) {
+            return existing;
+        }
+        dto.setType("SHIPMENT");
+        dto.setBizType("ORDER_SHIP");
+        return create(dto, operatorId, operatorName, false);
+    }
+
+    /**
+     * 创建并完成一张单据。
+     * 一个事务：写 stock_order + 写 item 明细 +（可选）逐行调 StockWriteService.write()。
+     *
+     * @param writeStock 是否真正扣减库存；订单发货传 false（下单时已扣过）
+     */
+    private StockOrder create(StockOrderCreateDTO dto, Long operatorId, String operatorName, boolean writeStock) {
         if (dto.getItems() == null || dto.getItems().isEmpty()) {
             throw new BusinessException("单据明细不能为空");
         }
@@ -79,12 +109,20 @@ public class StockOrderService {
                 // 入/出库数量必须为正；调整单 qty 是有符号差异，允许为负、不允许为 0
                 throw new BusinessException("SKU " + itemDto.getSkuCode() + " 明细不完整");
             }
+            // 调用方没带规格文字时，用 SKU 的 spec_key 补全（订单发货链路只传 skuId）
+            String specText = itemDto.getSpecText();
+            if (specText == null || specText.isBlank()) {
+                ProductSku sku = skuMapper.findById(itemDto.getSkuId());
+                if (sku != null) {
+                    specText = sku.getSpecKey();
+                }
+            }
             StockOrderItem item = StockOrderItem.builder()
                 .orderId(order.getId())
                 .skuId(itemDto.getSkuId())
                 .skuCode(itemDto.getSkuCode())
                 .skuName(itemDto.getSkuName())
-                .specText(itemDto.getSpecText())
+                .specText(specText)
                 .qty(itemDto.getQty())
                 .costPrice(itemDto.getCostPrice())
                 .build();
@@ -93,6 +131,12 @@ public class StockOrderService {
         }
         itemMapper.insertAll(items);
         order.setTotalQty(totalQty);
+
+        if (!writeStock) {
+            // 只落单据：total_qty 直接按明细汇总（没有 write() 帮忙 refreshTotal）
+            orderMapper.refreshTotal(order.getId());
+            return order;
+        }
 
         // 3. 逐行调 StockWriteService.write()
         //    RECEIPT → IN, SHIPMENT → OUT, ADJUST → 按差异方向

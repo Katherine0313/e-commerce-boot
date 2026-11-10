@@ -6,22 +6,24 @@
 
     <!-- ==================== 后台：列表 / 详情 ==================== -->
     <sql id="adminWhere">
-        <if test="keyword != null and keyword != ''">
-            title LIKE CONCAT('%', #{keyword}, '%')
-        </if>
-        <if test="position != null">
-            AND position = #{position}
-        </if>
-        <if test="status != null">
-            AND status = #{status}
-        </if>
+        <where>
+            <if test="keyword != null and keyword != ''">
+                title LIKE CONCAT('%', #{keyword}, '%')
+            </if>
+            <if test="position != null">
+                AND position = #{position}
+            </if>
+            <if test="status != null">
+                AND status = #{status}
+            </if>
+        </where>
     </sql>
 
     <select id="listAdmin" resultType="ecommerce.product.entity.Banner">
         SELECT id, title, image, images, position, link_type, link_value, sort_order, status,
                browse_count, is_deleted, create_time, update_time
         FROM promotion_banner
-        WHERE <include refid="adminWhere"/>
+        <include refid="adminWhere"/>
         ORDER BY sort_order ASC, id DESC
         LIMIT #{offset}, #{pageSize}
     </select>
@@ -29,7 +31,7 @@
     <select id="countAdmin" resultType="long">
         SELECT COUNT(*)
         FROM promotion_banner
-        WHERE <include refid="adminWhere"/>
+        <include refid="adminWhere"/>
     </select>
 
     <select id="findById" resultType="ecommerce.product.entity.Banner">

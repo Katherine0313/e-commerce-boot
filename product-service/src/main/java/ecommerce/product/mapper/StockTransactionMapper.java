@@ -26,8 +26,8 @@ public interface StockTransactionMapper {
                   @Param("startTime") String startTime,
                   @Param("endTime") String endTime);
 
-    /** 看板：按日聚合近 N 天出入库 */
-    List<Object[]> dailyTrend(@Param("days") int days);
+    /** 看板：按日聚合近 N 天出入库（返回 [{day, in_qty, out_qty}]） */
+    List<java.util.Map<String, Object>> dailyTrend(@Param("days") int days);
     /** 看板：今日总入库 */
     int todayTotalIn();
     /** 看板：今日总出库 */

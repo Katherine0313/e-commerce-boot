@@ -89,7 +89,8 @@ public class StockOrderController {
         args.add(offset);
         args.add(size);
         List<Map<String, Object>> rows = jdbc.queryForList(
-            "SELECT o.* FROM stock_order o " + where + " ORDER BY o.id DESC LIMIT ?, ?",
+            "SELECT o.*, (SELECT COUNT(1) FROM stock_order_item i WHERE i.order_id = o.id) AS item_count"
+                + " FROM stock_order o " + where + " ORDER BY o.id DESC LIMIT ?, ?",
             args.toArray()).stream()
             // JdbcTemplate 行 Map 的 key 是数据库列名（snake_case），前端按 camelCase 取值，统一转换
             .map(StockOrderController::toCamelRow)

@@ -84,7 +84,7 @@
 
     <!-- 看板：SKU 库存分布 TOP N（水平柱状图用） -->
     <select id="stockDistTopN" resultType="java.util.HashMap">
-        SELECT p.name AS productName, s.spec_text AS specText, s.stock
+        SELECT p.name AS productName, s.spec_key AS specText, s.stock
         FROM product_sku s
         INNER JOIN products p ON p.id = s.product_id
         WHERE s.status = 1
@@ -97,7 +97,7 @@
         SELECT
             s.id AS skuId,
             p.name AS productName,
-            s.spec_text AS specText,
+            s.spec_key AS specText,
             s.stock,
             s.min_stock AS minStock,
             CASE

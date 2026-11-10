@@ -23,6 +23,14 @@
         FROM stock_order WHERE order_no = #{orderNo}
     </select>
 
+    <select id="findByRelatedNoAndType" resultType="ecommerce.product.entity.StockOrder">
+        SELECT id, order_no, type, biz_type, related_no, status, total_qty, total_amount,
+               remark, operator_id, operator_name, create_time, update_time
+        FROM stock_order
+        WHERE related_no = #{relatedNo} AND type = #{type}
+        ORDER BY id DESC LIMIT 1
+    </select>
+
     <!-- 刷新 total_qty = SUM(items.qty) -->
     <update id="refreshTotal">
         UPDATE stock_order o

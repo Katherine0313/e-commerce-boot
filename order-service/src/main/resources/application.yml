@@ -99,6 +99,9 @@ monitor:
 stock:
   internal:
     url: ${STOCK_INTERNAL_URL:http://localhost:9003/internal/stock-write}
+    # 订单发货自动生成出库单的地址；留空时按 url 推导（同主机 /internal/stock-orders/shipment）
+    # 默认推导可复用 STOCK_INTERNAL_URL 已配好的容器名，无需新增部署环境变量
+    shipment-url: ${STOCK_SHIPMENT_URL:}
 
 logging:
   level:

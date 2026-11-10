@@ -11,6 +11,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestTemplate;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -25,6 +26,13 @@ public class StockInternalClient {
 
     @Value("${stock.internal.url:http://localhost:9003/internal/stock-write}")
     private String stockWriteUrl;
+
+    /**
+     * 订单发货生成出库单的地址。不配置时由 {@link #stockWriteUrl} 自动推导，
+     * 保证本地 / Docker（STOCK_INTERNAL_URL 已指向 product-service）都不用新增环境变量。
+     */
+    @Value("${stock.internal.shipment-url:}")
+    private String shipmentUrlOverride;
 
     private final RestTemplate restTemplate;
 
@@ -51,6 +59,46 @@ public class StockInternalClient {
         body.put("qty", qty);
         body.put("orderItemId", orderItemId);
 
+        post(stockWriteUrl, body,
+            "stock-write skuId=" + skuId + ", type=" + type + ", qty=" + qty,
+            "库存扣减失败（3 次重试仍失败）");
+    }
+
+    /**
+     * 订单发货 → 让 product-service 生成一张销售出库单（只落单据，不重复扣库存）。
+     * <p>
+     * 库存在下单时已经扣减过；relatedNo = 订单号，product-service 侧按它做幂等。
+     *
+     * @param orderNo      订单号（出库单的关联单号）
+     * @param operatorId   操作人 id
+     * @param operatorName 操作人名称
+     * @param items        明细：skuId / skuCode / skuName / qty
+     */
+    public void createShipmentOrder(String orderNo, Long operatorId, String operatorName,
+                                    List<Map<String, Object>> items) {
+        Map<String, Object> body = new HashMap<>();
+        body.put("type", "SHIPMENT");
+        body.put("bizType", "ORDER_SHIP");
+        body.put("relatedNo", orderNo);
+        body.put("remark", "订单发货自动生成");
+        body.put("operatorId", operatorId);
+        body.put("operatorName", operatorName);
+        body.put("items", items);
+
+        post(shipmentUrl(), body, "stock-orders/shipment orderNo=" + orderNo,
+            "生成销售出库单失败（3 次重试仍失败）");
+    }
+
+    /** 发货出库单地址：优先取显式配置，否则从 stock-write 地址推导同主机的内部路径 */
+    private String shipmentUrl() {
+        if (shipmentUrlOverride != null && !shipmentUrlOverride.isBlank()) {
+            return shipmentUrlOverride.trim();
+        }
+        return stockWriteUrl.replaceAll("/stock-write$", "/stock-orders/shipment");
+    }
+
+    /** POST + 重试 3 次；HTTP 200 但 success=false 也重试，最终失败抛 BusinessException */
+    private void post(String url, Map<String, Object> body, String bizDesc, String failPrefix) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
         headers.set("X-Internal-Call", "true");
@@ -61,23 +109,20 @@ public class StockInternalClient {
         Exception lastErr = null;
         while (attempts++ < 3) {
             try {
-                ResponseEntity<String> resp = restTemplate.postForEntity(stockWriteUrl, request, String.class);
-                String body2 = resp.getBody();
-                if (body2 != null && body2.contains("\"success\":true")) {
-                    lastErr = null;
+                ResponseEntity<String> resp = restTemplate.postForEntity(url, request, String.class);
+                String respBody = resp.getBody();
+                if (respBody != null && respBody.contains("\"success\":true")) {
                     return;
                 }
-                // HTTP 200 但 success=false，重试
-                log.warn("stock-write 返回非成功: {}, attempt={}", body2, attempts);
-                lastErr = new RuntimeException("stock-write 非成功响应: " + body2);
+                log.warn("{} 返回非成功: {}, attempt={}", bizDesc, respBody, attempts);
+                lastErr = new RuntimeException("非成功响应: " + respBody);
             } catch (Exception e) {
                 lastErr = e;
-                log.warn("stock-write 失败 attempt={}/3, skuId={}, type={}, qty={}: {}",
-                    attempts, skuId, type, qty, e.getMessage());
+                log.warn("{} 失败 attempt={}/3: {}", bizDesc, attempts, e.getMessage());
             }
             try { Thread.sleep(500L * attempts); } catch (InterruptedException ignored) { Thread.currentThread().interrupt(); break; }
         }
-        throw new BusinessException("库存扣减失败（3 次重试仍失败）: skuId=" + skuId + ", type=" + type + ", qty=" + qty
+        throw new BusinessException(failPrefix + ": " + bizDesc
             + ", error=" + (lastErr != null ? lastErr.getMessage() : "unknown"));
     }
 }

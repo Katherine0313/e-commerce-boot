@@ -100,23 +100,29 @@
 
 #### 区块 6：低库存预警 SKU 表（改字段 + 加颜色）
 - **改**：字段从 5 列 → 7 列，新增"风险级别"和"今日出库"
-- **风险级别逻辑**：
-  - 🔴 紧急：`stock = 0`（断货）
-  - 🟠 高：`stock < min_stock * 0.3`
-  - 🟡 中：`stock < min_stock`
+- **风险级别逻辑**（后端 Mapper SQL `CASE` 计算为 `riskLevel` 字段）：
+  - 🔴 紧急 `urgent`：`stock = 0`（断货）
+  - 🟠 高 `high`：`stock < min_stock * 0.3`
+  - 🟡 中 `mid`：`stock < min_stock`
 - **新增字段**：
+  - `riskLabel`：后端 Java 层把 riskLevel 映射成中文（紧急/高/中）
   - `stockRate`：当前库存 / 安全下限（0.25 表示只有下限的 25%）
   - `todayOutQty`：今日该 SKU 出库数量（辅助判断是否正在持续缺货）
+
+> 当前所有在售 SKU 已通过 `UPDATE product_sku SET min_stock=50, max_stock=500 WHERE status=1` 批量设了预警阈值（本地 + 生产均已执行）。低库存表数据会在 stock < 50 时开始产生。
 
 ### 2.3 后端接口变更
 
 | 接口 | 操作 | 内容 |
 |------|------|------|
-| `GET /api/admin/stock/dashboard` | **改** | 新增 `totalStock`（总库存件数）、`productSkuCount`（在售 SKU 数） |
+| `GET /api/admin/stock/dashboard` | **改** | 新增 `totalStock`（总库存件数），原有 `skuTotal` 保留（在售 SKU 数）、`lowStockSku` 保留 |
 | `GET /api/admin/stock/dashboard/trend` | **保留** | 折线图继续用，`days` 参数支持 7/30/90 |
 | `GET /api/admin/stock/dashboard/type-dist` | **新增** | 业务类型占比：`[{type, count, qty, label}]` |
 | `GET /api/admin/stock/dashboard/sku-dist` | **新增** | SKU 库存分布 TOP N：`[{productName, specText, stock}]` |
-| `GET /api/admin/stock/dashboard/low-stock` | **改** | 新增 `alertLevel`、`stockRate`、`todayOutQty` |
+| `GET /api/admin/stock/dashboard/low-stock` | **改** | 新增 `riskLevel`、`riskLabel`、`stockRate`、`todayOutQty` |
+| `POST /api/admin/stock/skus/alert/batch` | **新增** | 批量设 SKU 预警，Body `{skuIds:[], minStock, maxStock}`，权限 `product:sku-stock:list` |
+
+> 所有后端接口权限码：`stock:dashboard:view`（看板）、`product:sku-stock:list`（SKU 列表 + 预警）、`stock:*:*`（流水/单据）。admin_menu 种子数据已存在（id=922 看板、id=400 SKU 库存）。
 
 ### 2.4 实现优先级
 
@@ -156,10 +162,9 @@
 {
   "skuTotal": 830,
   "totalStock": 64258,
-  "productSkuCount": 830,
   "todayIn": 110,
   "todayOut": 1,
-  "lowStockSku": 8
+  "lowStockSku": 0
 }
 ```
 
@@ -191,9 +196,10 @@
     "productName": "AirPods 3",
     "specText": "白色/标准版",
     "stock": 5,
-    "minStock": 20,
-    "alertLevel": "urgent",
-    "stockRate": 0.25,
+    "minStock": 50,
+    "riskLevel": "urgent",
+    "riskLabel": "紧急",
+    "stockRate": 0.10,
     "todayOutQty": 3
   }
 ]
@@ -233,7 +239,7 @@ SELECT
     WHEN s.stock = 0 THEN 'urgent'
     WHEN s.stock < s.min_stock * 0.3 THEN 'high'
     ELSE 'mid'
-  END AS alertLevel,
+  END AS riskLevel,
   ROUND(s.stock / NULLIF(s.min_stock, 0), 2) AS stockRate,
   COALESCE(t.todayOut, 0) AS todayOutQty
 FROM product_sku s
@@ -284,32 +290,34 @@ LIMIT 20;
 **Mapper 加 batchUpdateAlert：**
 
 ```xml
-<!-- BannerMapper.xml 风格保持一致 -->
+<!-- StockSkuMapper.xml 风格 -->
 <update id="batchUpdateAlert">
     UPDATE product_sku
     SET min_stock = #{minStock},
-        max_stock = #{maxStock}
+        max_stock = #{maxStock},
+        update_time = NOW()
     WHERE id IN
     <foreach collection="skuIds" item="id" open="(" separator="," close=")">#{id}</foreach>
 </update>
 ```
 
-**Controller 加批量接口：**
+**Controller 加批量接口（已实现）：**
 
 ```
-POST /api/admin/stock/sku/alert/batch
+POST /api/admin/stock/skus/alert/batch    ← 注意是复数 skus（Controller @RequestMapping=/skus）
 Body: { "skuIds": [101, 102, 103], "minStock": 20, "maxStock": null }
-权限：product:sku-stock:list
+权限：product:sku-stock:list（跟单条设阈值共用）
 返回：成功条数
 ```
 
 > minStock / maxStock 为 null 表示清除对应阈值（与单条接口语义一致）。
 
-#### 前端 StockList.vue 加 3 样
+#### 前端 StockList.vue（已实现）
 
-1. **表格 `rowSelection`** — 左边出多选框，支持翻页累加选
-2. **批量按钮** — 过滤条右侧，`批量设阈值（已选 N 条）`，未选中时禁用/隐藏
-3. **批量弹窗** — 复用单条弹窗的表单，标题改"批量设置 SKU 预警阈值"，底部提示"将对选中的 N 条 SKU 生效"
+1. **表格 `rowSelection`** — 左边出多选框，`preserveSelectedRowKeys: true` 翻页保留选中
+2. **批量按钮** — 过滤条右侧，`批量设阈值（已选 N 条）`，未选中时禁用；已加 `v-permission="'product:sku-stock:list'"`
+3. **批量弹窗** — 复用单条弹窗的表单，标题改"批量设置 SKU 预警阈值"
+4. **单条按钮** — 设阈值也已加 `v-permission="'product:sku-stock:list'"`
 
 ### 7.3 工作量
 
@@ -326,3 +334,43 @@ Body: { "skuIds": [101, 102, 103], "minStock": 20, "maxStock": null }
 - ❌ 按商品分类批量（"手机类全部设下限 20"）：演示场景品类少，勾选 SKU 够快
 - ❌ 按比例规则（"下限 = 当前库存 × 10%"）：需要先算每条比例值
 - ❌ Excel 模板导入：已有库存 Excel 模板，再加一套冗余
+
+---
+
+## 八、当前实现状态（2026-11-09）
+
+### ✅ 已完成：看板改版
+
+| 层 | 文件 | 状态 |
+|----|------|------|
+| Mapper XML | StockSkuMapper.xml（batchUpdateAlert / lowStockDetail / stockDistTopN） | ✅ |
+| Mapper Java | StockSkuMapper.java | ✅ |
+| Mapper XML | StockTransactionMapper.xml（typeDist / totalStock） | ✅ |
+| Mapper Java | StockTransactionMapper.java | ✅ |
+| Controller | StockDashboardController.java（5 个接口全改） | ✅ |
+| Controller | StockSkuController.java（单条 + 批量预警） | ✅ |
+| 前端 API | stock.js（6 个函数） | ✅ |
+| 前端看板 | Dashboard.vue（渐变卡 + 折线面积 + 饼图 + 水平柱 + 风险标签） | ✅ |
+| 前端 SKU 列表 | StockList.vue（多选 + 批量弹窗 + v-permission 权限指令） | ✅ |
+
+### ✅ 已完成：数据修复
+
+| 操作 | SQL | 本地 | 生产 |
+|------|-----|------|------|
+| 批量设 SKU 预警 | `UPDATE product_sku SET min_stock=50, max_stock=500 WHERE status=1` | ✅ 830 条 | ✅ 800 条 |
+| products.body 清文字留图 | Python 脚本批量 `<p>` 剥离 | ✅ 136 条 | ✅ 136 条 |
+| promotion_banner 物理删除 | 改 BannerMapper.softDelete → deleteById（`DELETE FROM promotion_banner WHERE id=?`） | ✅ 代码改完 | 重新部署 product-service 生效 |
+
+### ✅ 已清理：beautifyBody 简化
+
+products.body 已清成只剩 `<img>`，H5 `beautifyBody()` 和小程序 `bodyHtml` computed 里「剥参数区」「删不含图段落」的正则永远匹配不到任何东西，已简化为只做懒加载 + 全宽显示。同时清理了 H5 + 小程序里为 `<p>` 卖点大标题写的 CSS。
+
+### ⚠️ 需要重新部署
+
+改动都在 product-service（后端）和前端电商后台、商城 H5、小程序。上线时：
+
+1. **product-service** `mvn clean package` → 重新部署容器（Banner 物理删除 + 看板新接口生效）
+2. **前端电商后台** `vite build` → OSS 上传
+3. **商城 H5** `vite build` → OSS 上传
+4. **小程序** `npm run build:mp-weixin` → 上传微信
+5. **SQL** 本次执行的 SQL 都已在本地 + 生产两端同步（批量预警阈值、body 清理），没有遗漏

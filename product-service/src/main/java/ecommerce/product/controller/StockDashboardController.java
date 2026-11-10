@@ -46,13 +46,13 @@ public class StockDashboardController {
     @Operation(summary = "近 N 天出入库按日聚合")
     @GetMapping("/trend")
     public Result<List<Map<String, Object>>> trend(@RequestParam(defaultValue = "30") int days) {
-        List<Object[]> rows = txMapper.dailyTrend(days);
+        List<Map<String, Object>> rows = txMapper.dailyTrend(days);
 
         Map<String, long[]> map = new HashMap<>();
-        for (Object[] row : rows) {
-            String day = row[0].toString();
-            long inQty = ((Number) row[1]).longValue();
-            long outQty = ((Number) row[2]).longValue();
+        for (Map<String, Object> row : rows) {
+            String day = String.valueOf(row.get("day"));
+            long inQty = ((Number) row.get("in_qty")).longValue();
+            long outQty = ((Number) row.get("out_qty")).longValue();
             map.put(day, new long[]{inQty, outQty});
         }
 

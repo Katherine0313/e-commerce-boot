@@ -3,17 +3,20 @@ package ecommerce.order.service.impl;
 import ecommerce.common.PageVO;
 import ecommerce.exception.BusinessException;
 import ecommerce.log.OperationLog;
+import ecommerce.order.client.StockInternalClient;
 import ecommerce.order.dto.DeliveryCreateDTO;
 import ecommerce.order.dto.DeliveryQueryDTO;
 import ecommerce.order.entity.DeliveryExpress;
 import ecommerce.order.entity.Order;
 import ecommerce.order.entity.OrderDelivery;
 import ecommerce.order.entity.OrderDeliveryLog;
+import ecommerce.order.entity.OrderItem;
 import ecommerce.order.enums.DeliveryOperateTypeEnum;
 import ecommerce.order.enums.OrderStatusEnum;
 import ecommerce.order.mapper.DeliveryExpressMapper;
 import ecommerce.order.mapper.OrderDeliveryLogMapper;
 import ecommerce.order.mapper.OrderDeliveryMapper;
+import ecommerce.order.mapper.OrderItemMapper;
 import ecommerce.order.mapper.OrderMapper;
 import ecommerce.order.service.OrderDeliveryService;
 import ecommerce.order.vo.OrderDeliveryLogVO;
@@ -25,7 +28,10 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ThreadLocalRandom;
 
 /**
@@ -48,14 +54,20 @@ public class OrderDeliveryServiceImpl implements OrderDeliveryService {
     private final OrderDeliveryMapper orderDeliveryMapper;
     private final OrderDeliveryLogMapper orderDeliveryLogMapper;
     private final DeliveryExpressMapper deliveryExpressMapper;
+    private final OrderItemMapper orderItemMapper;
+    private final StockInternalClient stockClient;
 
     public OrderDeliveryServiceImpl(OrderMapper orderMapper, OrderDeliveryMapper orderDeliveryMapper,
                                     OrderDeliveryLogMapper orderDeliveryLogMapper,
-                                    DeliveryExpressMapper deliveryExpressMapper) {
+                                    DeliveryExpressMapper deliveryExpressMapper,
+                                    OrderItemMapper orderItemMapper,
+                                    StockInternalClient stockClient) {
         this.orderMapper = orderMapper;
         this.orderDeliveryMapper = orderDeliveryMapper;
         this.orderDeliveryLogMapper = orderDeliveryLogMapper;
         this.deliveryExpressMapper = deliveryExpressMapper;
+        this.orderItemMapper = orderItemMapper;
+        this.stockClient = stockClient;
     }
 
     @Override
@@ -94,6 +106,10 @@ public class OrderDeliveryServiceImpl implements OrderDeliveryService {
         // ③ 写发货流水（同事务）
         writeLog(delivery, DeliveryOperateTypeEnum.CREATE,
                 "发货成功：" + express.getName() + " " + dto.getTrackingNumber(), dto.getRemark(), now);
+
+        // ④ 自动生成销售出库单（关联订单号，出库单列表可见）
+        //    库存在下单时已扣减，product-service 侧只落单据；调用失败抛异常 → 发货整体回滚
+        createShipmentOrder(order);
 
         return toVO(delivery, order);
     }
@@ -171,6 +187,37 @@ public class OrderDeliveryServiceImpl implements OrderDeliveryService {
     }
 
     // ==================== 内部工具 ====================
+
+    /**
+     * 订单发货后补一张销售出库单。
+     * <p>
+     * 库存在下单时已经调 stock-write(OUT, 销售出库) 扣减过，这里只让 product-service 落单据，
+     * 避免重复扣库存；relatedNo 传订单号，product-service 侧按它幂等。
+     * 无 SKU 的历史订单（order_items.sku_id 为空）无法落明细，跳过。
+     */
+    private void createShipmentOrder(Order order) {
+        List<OrderItem> items = orderItemMapper.listByOrderId(order.getId());
+        List<Map<String, Object>> rows = new ArrayList<>();
+        for (OrderItem item : items) {
+            if (item.getSkuId() == null) {
+                continue;
+            }
+            Map<String, Object> row = new HashMap<>();
+            row.put("skuId", item.getSkuId());
+            row.put("skuCode", item.getSkuCode());
+            row.put("skuName", item.getProductName());
+            row.put("qty", item.getQuantity());
+            rows.add(row);
+        }
+        if (rows.isEmpty()) {
+            return;
+        }
+        Long operatorId = UserContext.getUserId();
+        String username = UserContext.getUsername();
+        String operatorName = (username != null ? username : "admin")
+                + (operatorId != null ? "(" + operatorId + ")" : "");
+        stockClient.createShipmentOrder(order.getOrderNo(), operatorId, operatorName, rows);
+    }
 
     /** 订单不存在 → 404 */
     private Order requireOrder(Long orderId) {
