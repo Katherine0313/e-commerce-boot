@@ -67,7 +67,6 @@ public class AdminBannerServiceImpl implements AdminBannerService {
                 .linkValue(dto.getLinkValue() == null ? "" : dto.getLinkValue().trim())
                 .sortOrder(dto.getSortOrder() == null ? 0 : dto.getSortOrder())
                 .status(dto.getStatus() == null ? 1 : dto.getStatus())
-                .isDeleted(0)
                 .createTime(LocalDateTime.now())
                 .build();
         bannerMapper.insert(banner);

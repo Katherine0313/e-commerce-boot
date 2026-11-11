@@ -167,6 +167,9 @@ services:
     env_file: .env
     extra_hosts:
       - "host.docker.internal:host-gateway"
+    volumes:
+      # 生图落盘必须挂载到宿主机，否则 nginx /image/ai/ 找不到文件 404（Python 默认写 /app/upload/image/ai）
+      - ./upload/image/ai:/app/upload/image/ai
     networks:
       - my-net
 

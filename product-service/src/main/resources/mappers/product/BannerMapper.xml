@@ -21,7 +21,7 @@
 
     <select id="listAdmin" resultType="ecommerce.product.entity.Banner">
         SELECT id, title, image, images, position, link_type, link_value, sort_order, status,
-               browse_count, is_deleted, create_time, update_time
+               browse_count, create_time, update_time
         FROM promotion_banner
         <include refid="adminWhere"/>
         ORDER BY sort_order ASC, id DESC
@@ -36,7 +36,7 @@
 
     <select id="findById" resultType="ecommerce.product.entity.Banner">
         SELECT id, title, image, images, position, link_type, link_value, sort_order, status,
-               browse_count, is_deleted, create_time, update_time
+               browse_count, create_time, update_time
         FROM promotion_banner
         WHERE id = #{id}
     </select>
@@ -56,9 +56,9 @@
     <!-- ==================== 后台：写操作 ==================== -->
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO promotion_banner (title, image, images, position, link_type, link_value,
-                                      sort_order, status, browse_count, is_deleted, create_time)
+                                      sort_order, status, browse_count, create_time)
         VALUES (#{title}, #{image}, #{images}, #{position}, #{linkType}, #{linkValue},
-                #{sortOrder}, #{status}, 0, 0, #{createTime})
+                #{sortOrder}, #{status}, 0, #{createTime})
     </insert>
 
     <update id="update">

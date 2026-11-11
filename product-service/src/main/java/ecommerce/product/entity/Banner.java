@@ -37,8 +37,6 @@ public class Banner {
     private Integer status;
     /** 点击次数 */
     private Integer browseCount;
-    /** 逻辑删除：0 正常 / 1 已删除 */
-    private Integer isDeleted;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;
 }
