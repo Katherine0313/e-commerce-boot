@@ -8,6 +8,8 @@ import ecommerce.user.dto.PcSendCodeDTO;
 import ecommerce.user.entity.User;
 import ecommerce.user.mapper.UserMapper;
 import ecommerce.user.service.PcAuthService;
+import ecommerce.user.sms.SmsSendException;
+import ecommerce.user.sms.SmsService;
 import ecommerce.user.support.PasswordUtil;
 import ecommerce.user.support.PhoneCodeStore;
 import ecommerce.user.vo.PcLoginVO;
@@ -26,7 +28,7 @@ import java.util.regex.Pattern;
 
 /**
  * PC 商城登录/注册。
- * 验证码暂不接短信：后端生成 6 位数字存 Redis，并直接返回给前端演示。
+ * 验证码 6 位数字存 Redis（5 分钟），通过 SmsService 下发；aliyun.sms.enabled=false 时只打日志不真发。
  */
 @Slf4j
 @Service
@@ -47,14 +49,18 @@ public class PcAuthServiceImpl implements PcAuthService {
     private final StringRedisTemplate stringRedisTemplate;
     /** 验证码读取（取出即删除）与绑定手机号共用同一份实现 */
     private final PhoneCodeStore phoneCodeStore;
+    /** 短信发送：mock 打日志 / 阿里云真实发送，由 aliyun.sms.enabled 切换实现 */
+    private final SmsService smsService;
 
     public PcAuthServiceImpl(UserMapper userMapper, JwtUtil jwtUtil,
                              StringRedisTemplate stringRedisTemplate,
-                             PhoneCodeStore phoneCodeStore) {
+                             PhoneCodeStore phoneCodeStore,
+                             SmsService smsService) {
         this.userMapper = userMapper;
         this.jwtUtil = jwtUtil;
         this.stringRedisTemplate = stringRedisTemplate;
         this.phoneCodeStore = phoneCodeStore;
+        this.smsService = smsService;
     }
 
     @Override
@@ -122,10 +128,19 @@ public class PcAuthServiceImpl implements PcAuthService {
             log.error("PC 登录验证码写入 Redis 失败", e);
             throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "验证码服务暂不可用，请稍后重试");
         }
-        log.info("PC 登录验证码（模拟） phone={} code={}", phone, code);
+
+        // 真实发送（mock 模式只打日志）。失败时释放限频，允许用户立刻重发
+        try {
+            smsService.sendCode(phone, code);
+        } catch (SmsSendException e) {
+            safeDelete(limitKey);
+            log.error("PC 登录验证码短信发送失败 phone={}", phone, e);
+            throw new BusinessException(HttpStatus.INTERNAL_SERVER_ERROR, "短信发送失败，请稍后重试");
+        }
+
+        // 不再把验证码返回给前端，本地调试请查看后端日志
         return PcSendCodeVO.builder()
-                .code(code)
-                .expireIn((int) CODE_TTL.toSeconds())
+                .success(true)
                 .build();
     }
 

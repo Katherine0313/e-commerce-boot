@@ -26,16 +26,29 @@ public class InternalApiInterceptor implements HandlerInterceptor {
     /** 内部调用共享密钥请求头 */
     private static final String TOKEN_HEADER = "X-Internal-Token";
 
-    /** 共享密钥：默认仅用于本地开发，生产必须靠环境变量 AI_INTERNAL_TOKEN 覆盖 */
+    /**
+     * 共享密钥：生产必须靠环境变量 AI_INTERNAL_TOKEN 注入（Spring 宽松绑定到 ai.internal.token）。
+     * 不给兜底默认值 —— 未配置时一律拒绝（fail-closed），避免「两边都用同一个可猜测默认值」
+     * 导致内部接口实际处于无鉴权状态。
+     */
     private final String internalToken;
 
-    public InternalApiInterceptor(@Value("${ai.internal.token:change-me-in-prod}") String internalToken) {
-        this.internalToken = internalToken;
+    public InternalApiInterceptor(@Value("${ai.internal.token:}") String internalToken) {
+        this.internalToken = internalToken == null ? "" : internalToken.trim();
     }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler)
             throws IOException {
+        // 服务端没配共享密钥：一律拒绝，并打 error 日志提示去补环境变量
+        if (internalToken.isEmpty()) {
+            log.error("AI 内部接口未配置共享密钥（ai.internal.token / 环境变量 AI_INTERNAL_TOKEN），已拒绝请求: uri={}",
+                    request.getRequestURI());
+            response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            response.setContentType("application/json;charset=UTF-8");
+            response.getWriter().write("{\"code\":503,\"message\":\"internal token not configured\",\"data\":null}");
+            return false;
+        }
         if (internalToken.equals(request.getHeader(TOKEN_HEADER))) {
             return true;
         }

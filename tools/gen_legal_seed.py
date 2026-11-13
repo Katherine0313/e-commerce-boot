@@ -55,7 +55,8 @@ header = """-- =================================================================
 -- 执行范围：本地库 + 生产库执行同一份 SQL（改本地必须同步生产）。
 --
 -- 注意：Windows 下用 mysql 客户端导入必须加 --default-character-set=utf8mb4，否则中文乱码：
---   mysql -h127.0.0.1 -ue_commerce_db -p123456 --default-character-set=utf8mb4 e_commerce_db < docs/sql/seed-legal-articles.sql
+--   mysql -h127.0.0.1 -ue_commerce_db -p"$DB_PASSWORD" --default-character-set=utf8mb4 e_commerce_db < docs/sql/seed-legal-articles.sql
+--   （口令从环境变量 DB_PASSWORD 取，不要写进仓库）
 -- ============================================================================
 
 -- ---------- 1. 文章分类 ----------
@@ -78,7 +79,8 @@ print('生成 docs/sql/seed-legal-articles.sql，', len(sql), '字符')
 update_header = """-- ============================================================================
 -- 刷新「用户协议」「隐私政策」的正文（按标题匹配，只更新 content 与 update_time）
 -- 正文改版后执行：本地库 + 生产库执行同一份 SQL
---   mysql -h127.0.0.1 -ue_commerce_db -p123456 --default-character-set=utf8mb4 e_commerce_db < docs/sql/update-legal-articles.sql
+--   mysql -h127.0.0.1 -ue_commerce_db -p"$DB_PASSWORD" --default-character-set=utf8mb4 e_commerce_db < docs/sql/update-legal-articles.sql
+--   （口令从环境变量 DB_PASSWORD 取，不要写进仓库）
 -- ============================================================================
 
 """

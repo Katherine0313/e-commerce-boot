@@ -76,3 +76,9 @@ stock:
 logging:
   level:
     ecommerce.aftersale.mapper: ${SQL_DEBUG:INFO}
+
+# AI 内部数据接口（/internal/ai/**）共享密钥：Python ai-service 通过 X-Internal-Token 头调用
+# 生产必须由环境变量 AI_INTERNAL_TOKEN 注入；留空则内部接口一律拒绝（fail-closed）
+ai:
+  internal:
+    token: ${AI_INTERNAL_TOKEN:}

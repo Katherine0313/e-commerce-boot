@@ -90,6 +90,20 @@ jwt:
   #token有效期，单位：秒（7天）
   expire: 604800
 
+# 阿里云短信：PC 端登录验证码下发
+# 真实密钥不写在这里（避免提交到 git），由激活的 profile 文件或环境变量提供
+aliyun:
+  sms:
+    # false（默认）= 只打日志不发短信；true = 真实调用阿里云 SendSms
+    enabled: ${SMS_ENABLED:false}
+    access-key-id: ${SMS_ACCESS_KEY_ID:}
+    access-key-secret: ${SMS_ACCESS_KEY_SECRET:}
+    # 签名，阿里云控制台审核通过后获得
+    sign-name: ${SMS_SIGN_NAME:}
+    # 模板 code，如 SMS_33960536；模板变量固定为 ${code}
+    template-code: ${SMS_TEMPLATE_CODE:}
+    endpoint: ${SMS_ENDPOINT:dysmsapi.aliyuncs.com}
+
 # 接口文档：这里作为安全兜底「默认关闭」，只在 application-dev.yml 中开启。
 # 这样生产环境即使配错 profile 也不会把 /swagger-ui.html 和 /v3/api-docs 暴露出去。
 springdoc:
