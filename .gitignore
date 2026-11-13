@@ -73,3 +73,9 @@ dump.rdb
 # Python 缓存
 __pycache__/
 *.pyc
+
+# 编辑器 / IDE / AI 工具（不要提交）
+.idea/
+.trae/
+.trae-html-share-packages/
+.workbuddy/
