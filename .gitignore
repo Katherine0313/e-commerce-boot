@@ -36,6 +36,9 @@ dist/
 ### Claude Code 本地配置 ###
 .claude/
 
+### 个人文档（简历等，绝不入库） ###
+*.docx
+
 ### 本地配置与密钥（不要提交） ###
 application-dev.yml
 .env
